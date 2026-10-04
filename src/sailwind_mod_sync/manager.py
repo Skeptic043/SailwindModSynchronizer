@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -70,6 +72,10 @@ log = logging.getLogger(__name__)
 
 class TokenAuthError(RuntimeError):
     """Raised when a configured GitHub token is rejected (HTTP 401)."""
+
+
+class BulkRollbackError(RuntimeError):
+    """An incomplete rollback retained recovery files for the user."""
 
 
 class Manager:
@@ -848,24 +854,177 @@ class Manager:
         )
 
     def set_mod_enabled(self, pack_id: str, guid: str, enabled: bool) -> ModPack:
+        self._check_bulk_recovery(pack_id)
+        self._set_bulk_mod_enabled(pack_id, guid, enabled)
+        return self.packs.get(pack_id)
+
+    def set_all_mods_enabled(
+        self, pack_id: str, enabled: bool, progress: ProgressFn | None = None,
+        *, on_changed: Callable[[str, bool], None] | None = None,
+    ) -> tuple[int, list[str]]:
+        """Change only differing pins, committing each mod after its files succeed."""
+        return self.set_mods_enabled(pack_id, enabled, progress=progress, on_changed=on_changed)
+
+    def set_mods_enabled(
+        self, pack_id: str, enabled: bool, *, guids: set[str] | None = None,
+        progress: ProgressFn | None = None,
+        on_changed: Callable[[str, bool], None] | None = None,
+    ) -> tuple[int, list[str]]:
+        self._check_bulk_recovery(pack_id)
+        pack = self.packs.get(pack_id)
+        pending = [mod.guid for mod in pack.mods
+                   if mod.enabled != enabled and (guids is None or mod.guid in guids)]
+        failures: list[str] = []
+        changed = 0
+        verb = "Enabling" if enabled else "Disabling"
+        for index, guid in enumerate(pending, 1):
+            if progress:
+                progress(f"{verb} mods: {index}/{len(pending)} — {pack.name}")
+            try:
+                self._set_bulk_mod_enabled(pack_id, guid, enabled)
+                changed += 1
+                if on_changed:
+                    on_changed(guid, enabled)
+            except Exception as exc:
+                log.exception("Could not change %s in %s", guid, pack_id)
+                failures.append(f"{guid}: {exc}")
+                # A failed rollback needs manual recovery; preserve its files and
+                # stop instead of performing further writes to this profile.
+                if isinstance(exc, BulkRollbackError):
+                    break
+        return changed, failures
+
+    def _set_bulk_mod_enabled(self, pack_id: str, guid: str, enabled: bool) -> None:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
         if pinned is None:
             raise FileNotFoundError(guid)
-        pinned.enabled = enabled
-        self.packs.save(pack)
+        if pinned.enabled == enabled:
+            return
+        extracted = self.library.mod_extracted(guid, pinned.version)
+        # A selection can precede installation. Only usable extracted files
+        # can be staged here; retain missing selections and their folder names.
+        install = enabled and extracted.is_dir() and any(extracted.rglob("*.dll"))
+        folders = [item.name for item in extracted.iterdir() if item.is_dir()] if install else []
+        affected = set(pinned.plugin_folders) | set(folders)
+        if any(not name or name in (".", "..") or Path(name).name != name
+               or ":" in name or "\\" in name or "/" in name for name in affected):
+            raise ValueError("Invalid plugin folder name.")
         plugins = self.packs.plugins_dir(pack_id)
-        if enabled and self.library.has_mod(pinned.guid, pinned.version):
-            install_pinned_into_plugins(
-                pinned,
-                self.library.mod_extracted(pinned.guid, pinned.version),
-                plugins,
+        pack_dir = self.packs.pack_dir(pack_id)
+        if (pack_dir.resolve() != self.paths.packs_dir.resolve() / pack_dir.name
+                or plugins.resolve() != pack_dir.resolve() / "instance" / "BepInEx" / "plugins"):
+            raise ValueError("Linked profile folders cannot be changed.")
+        affected_names = {folder.casefold() for folder in affected}
+        overlaps = sorted({name for other in pack.mods if other.guid != guid
+                           for name in other.plugin_folders
+                           if name.casefold() in affected_names})
+        if overlaps:
+            raise ValueError("Plugin folders are shared with another mod: " + ", ".join(overlaps))
+        if any((plugins / name).resolve() != plugins.resolve() / name for name in affected):
+            raise ValueError("Linked plugin folders cannot be changed.")
+        work = Path(tempfile.mkdtemp(prefix=".bulk-", dir=self.packs.pack_dir(pack_id)))
+        staged = work / "staged"
+        backup = work / "backup"
+        moved: list[str] = []
+        installed: list[str] = []
+        preserve = False
+        try:
+            staged.mkdir()
+            backup.mkdir()
+            # Copy before touching the profile. Large files stay off the UI thread.
+            for name in folders:
+                shutil.copytree(extracted / name, staged / name)
+            if folders:
+                plugins.mkdir(parents=True, exist_ok=True)
+            manifest = work / "modpack.json"
+            original_manifest = self.packs.manifest_path(pack_id).read_bytes()
+            (work / "original-modpack.json").write_bytes(original_manifest)
+            pinned.enabled = enabled
+            if install:
+                pinned.plugin_folders = folders
+            planned_manifest = (json.dumps(pack.to_dict(), indent=2) + "\n").encode("utf-8")
+            manifest.write_bytes(planned_manifest)
+            (work / "planned-modpack.json").write_bytes(planned_manifest)
+            # Write all recovery facts before the first profile mutation. File
+            # presence remains meaningful even if interrupted between renames.
+            plan = {
+                "pack_id": pack_id, "guid": guid, "enabled": enabled,
+                "profile_plugins": str(plugins),
+                "profile_manifest": str(self.packs.manifest_path(pack_id)),
+                "originally_present": sorted(name for name in affected if (plugins / name).exists()),
+                "affected_folders": sorted(affected), "install_folders": folders,
+            }
+            (work / "transaction.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+            marker = work / "recovery-required.txt"
+            marker.write_text(
+                f"Interrupted mod change: {guid} in profile {pack_id}.\n"
+                "Do not play or change this profile until recovery is complete. Close the synchronizer first.\n"
+                f"Before recovery, make a separate copy of this entire profile, including {work.name}.\n"
+                "transaction.json records affected folders, which existed before the change, and which were to be installed.\n"
+                "original-modpack.json and planned-modpack.json are the exact before/after manifest snapshots.\n"
+                "Compare the profile's modpack.json with both snapshots: matching the original means its selection was not committed; "
+                "matching the planned means it was committed. Neither match means later changes or damage: stop and seek help. "
+                "A manifest match alone does not prove the plugin files are consistent.\n"
+                "To restore the original state, inspect each affected folder in transaction.json:\n"
+                "- If originally present and backup/<folder> exists, preserve any current plugin folder separately, "
+                "then restore that backup folder to profile_plugins/<folder>.\n"
+                "- If originally present but no backup exists, do not delete or replace the current folder. "
+                "It may not have been moved yet, or may already have been restored. Verify it against a known-good copy; "
+                "if missing or uncertain, stop and seek help.\n"
+                "- If originally absent, preserve and remove any newly created profile_plugins/<folder>.\n"
+                "Leave every unaffected folder alone. After the original folders are restored and verified, "
+                "replace the profile manifest with original-modpack.json.\n"
+                "Only after verifying both files and manifest may you remove recovery-required.txt and restart the synchronizer. "
+                "Keep the separate copy until the recovered profile has been tested. Deleting the marker alone is not a repair.\n",
+                encoding="utf-8",
             )
-        else:
-            remove_plugin_folders(plugins, pinned.plugin_folders)
-        return pack
+            preserve = True
+            try:
+                for name in sorted(affected):
+                    target = plugins / name
+                    if target.exists():
+                        target.replace(backup / name)
+                        moved.append(name)
+                for name in folders:
+                    (staged / name).replace(plugins / name)
+                    installed.append(name)
+                # Atomic replacement also avoids a truncated manifest on save failure.
+                manifest.replace(self.packs.manifest_path(pack_id))
+                preserve = False
+            except Exception as original:
+                try:
+                    for name in installed:
+                        shutil.rmtree(plugins / name)
+                    for name in moved:
+                        (backup / name).replace(plugins / name)
+                except Exception as rollback:
+                    preserve = True
+                    raise BulkRollbackError(
+                        f"{original}; recovery failed: {rollback}. Backup retained at {work}. "
+                        f"Close the synchronizer and follow {marker} before playing."
+                    ) from rollback
+                preserve = False
+                raise
+        finally:
+            if not preserve:
+                # A cleanup failure must not undo an already committed change.
+                try:
+                    (work / "recovery-required.txt").unlink(missing_ok=True)
+                    shutil.rmtree(work)
+                except OSError:
+                    log.warning("Could not remove bulk staging folder %s", work, exc_info=True)
+
+    def bulk_recovery_path(self, pack_id: str) -> Path | None:
+        return next(self.packs.pack_dir(pack_id).glob(".bulk-*/recovery-required.txt"), None)
+
+    def _check_bulk_recovery(self, pack_id: str) -> None:
+        marker = self.bulk_recovery_path(pack_id)
+        if marker is not None:
+            raise BulkRollbackError(f"This profile needs recovery before playing or changing mods. See {marker}")
 
     def prepare_pack(self, pack_id: str, progress: ProgressFn | None = None) -> Path:
+        self._check_bulk_recovery(pack_id)
         pack = self.packs.get(pack_id)
         with log_duration(log, f"prepare pack {pack_id} ({pack.name})"):
             if progress:

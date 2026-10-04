@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from functools import wraps
 import logging
 from pathlib import Path
 import subprocess
@@ -12,6 +13,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -27,6 +29,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtCore import QEvent, Signal
+from shiboken6 import isValid
 
 from sailwind_mod_sync.catalog.custom import same_repo
 from sailwind_mod_sync.catalog.github import GitHubDownloadError
@@ -109,12 +113,30 @@ QLabel {
 """
 
 
+def _unless_bulk_running(method):
+    """Guard alternate entry points as well as disabled widgets."""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        if self._bulk_pack_id is not None:
+            self.statusBar().showMessage("Wait for the mod changes to finish.")
+            return
+        return method(self, *args, **kwargs)
+    return guarded
+
+
+class _ModChangeBridge(TaskBridge):
+    enabled_changed = Signal(str, bool)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, manager: Manager) -> None:
         super().__init__()
         self.manager = manager
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.resize(1200, 760)
+        self._single_input_filter_installed = False
+        self._bulk_pack_id: str | None = None
+        self._bulk_disabled = []
         self._busy = False
         self._bridge: TaskBridge | None = None
         self._update_bridge: TaskBridge | None = None
@@ -179,6 +201,7 @@ class MainWindow(QMainWindow):
         share_buttons.addWidget(paste_btn)
 
         left = QWidget()
+        self._pack_panel = left
         left_layout = QVBoxLayout(left)
         left_layout.addWidget(QLabel("ModPacks"))
         left_layout.addWidget(self.pack_list, 1)
@@ -190,8 +213,11 @@ class MainWindow(QMainWindow):
 
         self.pack_view = PackView()
         self.catalog_view = CatalogView()
+        self.catalog_view._filter.textChanged.connect(self._disable_bulk_catalog_buttons)
+        self.catalog_view.hide_in_pack.toggled.connect(self._disable_bulk_catalog_buttons)
         self._downloads = DownloadsWindow(self)
         self.library_view = self._downloads.view
+        self.pack_view.bulk_enabled.connect(self._set_all_mods_enabled)
         self.pack_view.toggle_enabled.connect(self._toggle_mod)
         self.pack_view.update_requested.connect(self._update_mod)
         self.pack_view.import_requested.connect(self._import_missing_mod)
@@ -256,6 +282,7 @@ class MainWindow(QMainWindow):
         import_game_action.triggered.connect(self._import_game_plugins)
         vanilla_action = self.menuBar().addAction("Launch vanilla")
         vanilla_action.triggered.connect(self._play_vanilla)
+        self._vanilla_action = vanilla_action
         downloads_menu = self.menuBar().addMenu("Download Management")
         manage_downloads = downloads_menu.addAction("Manage downloads…")
         manage_downloads.setStatusTip("Open cached mod downloads")
@@ -279,6 +306,16 @@ class MainWindow(QMainWindow):
         test_splash.triggered.connect(self._test_splash)
         about = help_menu.addAction("About")
         about.triggered.connect(self._about)
+        self._bulk_actions = [
+            settings_action, self.backup_action, self.restore_action,
+            self.backup_saves_action, self.restore_saves_action, import_game_action,
+            vanilla_action, import_mod_action, scan_action, check_updates, hidden_mods,
+        ]
+        self._pack_buttons = [
+            layout.itemAt(index).widget()
+            for layout in (pack_buttons, io_buttons, share_buttons)
+            for index in range(layout.count())
+        ]
         self.statusBar().showMessage("Ready")
 
         self._reload_packs()
@@ -296,6 +333,10 @@ class MainWindow(QMainWindow):
         return item.data(Qt.ItemDataRole.UserRole)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        if self._bulk_pack_id is not None:
+            event.ignore()
+            self.statusBar().showMessage("Wait for the mod changes to finish before closing.")
+            return
         self._downloads._allow_close = True
         self._downloads.close()
         save_window_state(self, self.splitter, paths=self.manager.paths)
@@ -321,6 +362,8 @@ class MainWindow(QMainWindow):
 
     def _reload_views(self) -> None:
         pack_id = self.current_pack_id()
+        if self._bulk_pack_id is not None:
+            return
         pack = self.manager.packs.get(pack_id) if pack_id else None
         missing = {mod.guid for mod in self.manager.missing_mods(pack)}
         library = self.manager.library.list_mods()
@@ -358,6 +401,15 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("Set the Sailwind folder in Settings")
         self._update_pack_updates_hint()
+        self._update_bulk_actions_availability()
+        recovery = self.manager.bulk_recovery_path(pack_id) if pack_id else None
+        self.play_button.setEnabled(pack is not None and recovery is None and not self._busy)
+        self.play_button.setToolTip(
+            f"Profile recovery required: {recovery}" if recovery else "Launch Sailwind with the selected ModPack"
+        )
+
+    def _update_bulk_actions_availability(self) -> None:
+        self.pack_view.set_actions_blocked(self._busy or self._mod_scan_running)
 
     def _update_pack_updates_hint(self) -> None:
         count = self.pack_view.available_updates()
@@ -369,12 +421,24 @@ class MainWindow(QMainWindow):
             self._updates_hint.hide()
 
     def _on_pack_selected(self) -> None:
+        if self._bulk_pack_id is not None:
+            # Also reject programmatic/accessibility changes; do not save the
+            # rejected selection or show a pack different from the active task.
+            blocked = self.pack_list.blockSignals(True)
+            for row in range(self.pack_list.count()):
+                item = self.pack_list.item(row)
+                if item.data(Qt.ItemDataRole.UserRole) == self._bulk_pack_id:
+                    self.pack_list.setCurrentItem(item)
+                    break
+            self.pack_list.blockSignals(blocked)
+            return
         pack_id = self.current_pack_id()
         if pack_id:
             self.manager.config.last_pack_id = pack_id
             self.manager.save_config()
         self._reload_views()
 
+    @_unless_bulk_running
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self.manager.config, self.manager.paths, self)
         if dialog.exec():
@@ -460,6 +524,9 @@ class MainWindow(QMainWindow):
         )
 
     def _offer_app_update(self, update) -> None:
+        if self._bulk_pack_id is not None:
+            QTimer.singleShot(1000, lambda: self._offer_app_update(update))
+            return
         dialog = UpdateDialog(update, self)
         dialog.exec()
         choice = dialog.choice()
@@ -495,6 +562,7 @@ class MainWindow(QMainWindow):
         if app is not None:
             QTimer.singleShot(300, app.quit)
 
+    @_unless_bulk_running
     def _new_pack(self) -> None:
         name, ok = QInputDialog.getText(self, "New ModPack", "Name:")
         if not ok or not name.strip():
@@ -505,6 +573,7 @@ class MainWindow(QMainWindow):
         self._reload_packs(select_id=pack.id)
         self._reload_views()
 
+    @_unless_bulk_running
     def _duplicate_pack(self) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -528,6 +597,9 @@ class MainWindow(QMainWindow):
 
     def _rename_pack(self) -> None:
         pack_id = self.current_pack_id()
+        if self._bulk_pack_id is not None:
+            self.statusBar().showMessage("Wait for the mod changes to finish.")
+            return
         if not pack_id:
             return
         pack = self.manager.packs.get(pack_id)
@@ -542,6 +614,7 @@ class MainWindow(QMainWindow):
         self._reload_views()
         self.statusBar().showMessage(f"Renamed to {new_name}")
 
+    @_unless_bulk_running
     def _delete_pack(self) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -557,6 +630,7 @@ class MainWindow(QMainWindow):
         self._reload_packs()
         self._reload_views()
 
+    @_unless_bulk_running
     def _pack_context_menu(self, pos) -> None:
         item = self.pack_list.itemAt(pos)
         if item is not None:
@@ -571,6 +645,7 @@ class MainWindow(QMainWindow):
         elif chosen == paste_action:
             self._paste_pack()
 
+    @_unless_bulk_running
     def _copy_pack(self) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -596,6 +671,7 @@ class MainWindow(QMainWindow):
                 ),
             )
 
+    @_unless_bulk_running
     def _paste_pack(self) -> None:
         text = QApplication.clipboard().text()
         try:
@@ -609,6 +685,7 @@ class MainWindow(QMainWindow):
 
         self._run(work, self._imported, "Importing ModPack…")
 
+    @_unless_bulk_running
     def _export_pack(self) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -633,6 +710,7 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"Exported {dest}")
 
+    @_unless_bulk_running
     def _import_pack(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -662,6 +740,7 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(f"Imported {pack.name}")
 
+    @_unless_bulk_running
     def _import_game_plugins(self) -> None:
         game = self.manager.game_dir()
         default_path = str(game / "BepInEx" / "plugins") if game is not None else ""
@@ -685,6 +764,7 @@ class MainWindow(QMainWindow):
         pack = self.manager.packs.get(pack.id)
         self._offer_catalog_association(list(pack.mods))
 
+    @_unless_bulk_running
     def _backup_bepinex(self) -> None:
         pack_id = self.current_pack_id()
         try:
@@ -722,6 +802,7 @@ class MainWindow(QMainWindow):
             f"Saved {result.file_count} files from\n{result.source}\n\nto\n{result.dest}{extra}",
         )
 
+    @_unless_bulk_running
     def _restore_bepinex(self) -> None:
         start = str(self.manager.paths.backups_dir)
         path, _ = QFileDialog.getOpenFileName(
@@ -768,6 +849,7 @@ class MainWindow(QMainWindow):
             f"Restored {result.file_count} files to\n{result.dest}",
         )
 
+    @_unless_bulk_running
     def _backup_saves(self) -> None:
         source = self.manager.saves_dir()
         if not source.is_dir():
@@ -806,6 +888,7 @@ class MainWindow(QMainWindow):
             f"Saved {result.file_count} files from\n{result.source}\n\nto\n{result.dest}{extra}",
         )
 
+    @_unless_bulk_running
     def _restore_saves(self) -> None:
         start = str(self.manager.paths.backups_dir)
         path, _ = QFileDialog.getOpenFileName(
@@ -861,6 +944,7 @@ class MainWindow(QMainWindow):
         self._reload_views()
         self.statusBar().showMessage(f"Catalog: {len(self.manager.catalog)} mods")
 
+    @_unless_bulk_running
     def _add_catalog_repo(self) -> None:
         dialog = RepoUrlDialog(
             "",
@@ -905,21 +989,25 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"Catalog: added {len(names)} mods ({', '.join(names)})")
 
+    @_unless_bulk_running
     def _remove_custom_catalog(self, guid: str) -> None:
         self.manager.remove_catalog_repo(guid)
         self._reload_views()
         self.statusBar().showMessage(f"Removed {guid} from the catalog")
 
+    @_unless_bulk_running
     def _hide_catalog_mod(self, guid: str) -> None:
         self.manager.hide_catalog_mod(guid)
         self._reload_views()
         self.statusBar().showMessage(f"Hidden {guid} from the catalog")
 
+    @_unless_bulk_running
     def _unhide_catalog_mod(self, guid: str) -> None:
         self.manager.unhide_catalog_mod(guid)
         self._reload_views()
         self.statusBar().showMessage(f"Showing {guid} in the catalog")
 
+    @_unless_bulk_running
     def _manage_hidden_mods(self) -> None:
         rows: list[tuple[str, str]] = []
         for guid in self.manager.config.hidden_catalog_mods:
@@ -929,6 +1017,7 @@ class MainWindow(QMainWindow):
         dialog.unhide_requested.connect(self._unhide_catalog_mod)
         dialog.exec()
 
+    @_unless_bulk_running
     def _scan_updates(self) -> None:
         if self._mod_scan_running:
             QMessageBox.information(
@@ -965,6 +1054,7 @@ class MainWindow(QMainWindow):
         if self._mod_scan_running or self._busy:
             return
         self._mod_scan_running = True
+        self._update_bulk_actions_availability()
         self.statusBar().showMessage("Scanning repositories for updates…")
         bridge = TaskBridge(self)
         self._mod_scan_bridge = bridge
@@ -976,6 +1066,7 @@ class MainWindow(QMainWindow):
 
     def _clear_mod_scan(self) -> None:
         self._mod_scan_running = False
+        self._update_bulk_actions_availability()
         self._mod_scan_done_at = time.monotonic()
         if self._mod_scan_bridge is not None:
             self._mod_scan_bridge.deleteLater()
@@ -1003,6 +1094,7 @@ class MainWindow(QMainWindow):
         self._reload_views()
         self.statusBar().showMessage("Update scan complete")
 
+    @_unless_bulk_running
     def _install_from_catalog(self, guid: str) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -1034,6 +1126,7 @@ class MainWindow(QMainWindow):
             return
         self._set_pack_mod_version(target_guid, chosen[0], chosen[1])
 
+    @_unless_bulk_running
     def _update_mod(self, guid: str) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -1044,6 +1137,7 @@ class MainWindow(QMainWindow):
             f"Updating {guid}…",
         )
 
+    @_unless_bulk_running
     def _remove_mod(self, guid: str) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -1051,19 +1145,18 @@ class MainWindow(QMainWindow):
         self.manager.packs.remove_mod(pack_id, guid)
         self._reload_views()
 
+    @_unless_bulk_running
     def _toggle_mod(self, guid: str, enabled: bool) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
             return
-        try:
-            self.manager.set_mod_enabled(pack_id, guid, enabled)
-        except Exception as exc:
-            QMessageBox.warning(self, "Could not update mod", str(exc))
-        self._reload_views()
+        self._start_mod_changes(pack_id, enabled, guid=guid)
 
+    @_unless_bulk_running
     def _add_library_mod(self, guid: str, version: str) -> None:
         self._set_pack_mod_version(guid, version, version)
 
+    @_unless_bulk_running
     def _set_pack_mod_version(self, guid: str, version: str, version_raw: str = "") -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -1134,6 +1227,7 @@ class MainWindow(QMainWindow):
             return None
         return dialog.selected()
 
+    @_unless_bulk_running
     def _browse_pack_mod_versions(self, guid: str) -> None:
         pack_id = self.current_pack_id()
         pack = self.manager.packs.get(pack_id) if pack_id else None
@@ -1157,6 +1251,7 @@ class MainWindow(QMainWindow):
             return
         self._set_pack_mod_version(guid, chosen[0], chosen[1])
 
+    @_unless_bulk_running
     def _find_pack_repo(self, guid: str) -> None:
         pack_id = self.current_pack_id()
         pack = self.manager.packs.get(pack_id) if pack_id else None
@@ -1174,6 +1269,7 @@ class MainWindow(QMainWindow):
             force=True,
         )
 
+    @_unless_bulk_running
     def _find_library_repo(self, guid: str, version: str) -> None:
         meta = self.manager.library.read_mod_meta(guid, version)
         pinned = PinnedMod(
@@ -1190,6 +1286,7 @@ class MainWindow(QMainWindow):
         )
         self._offer_catalog_association([pinned], names={guid: name}, force=True)
 
+    @_unless_bulk_running
     def _offer_catalog_association(
         self,
         pins,
@@ -1242,6 +1339,7 @@ class MainWindow(QMainWindow):
         if associated:
             self.statusBar().showMessage(f"Associated {associated} plugin(s) with GitHub")
 
+    @_unless_bulk_running
     def _rename_library_mod(self, guid: str) -> None:
         current = self.manager.mod_display_name(guid)
         default = self.manager.mod_display_name(guid, alias="")
@@ -1326,15 +1424,18 @@ class MainWindow(QMainWindow):
             dialog.start_remote(work)
         dialog.exec()
 
+    @_unless_bulk_running
     def _delete_artifact(self, guid: str, version: str) -> None:
         self.manager.library.delete_mod(guid, version)
         self._reload_views()
 
+    @_unless_bulk_running
     def _prune_library(self) -> None:
         removed = self.manager.prune_library()
         self._reload_views()
         self.statusBar().showMessage(f"Pruned {removed} unused artifact(s)")
 
+    @_unless_bulk_running
     def _import_local_mod(self) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -1358,6 +1459,7 @@ class MainWindow(QMainWindow):
 
         self._run(work, self._local_mods_imported, f"Importing {files[0].name}…")
 
+    @_unless_bulk_running
     def _import_missing_mod(self, guid: str) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -1386,9 +1488,14 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Imported {names}")
         self._offer_catalog_association(list(imported))
 
+    @_unless_bulk_running
     def _play(self) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
+            return
+        recovery = self.manager.bulk_recovery_path(pack_id)
+        if recovery is not None:
+            QMessageBox.warning(self, "Profile recovery required", f"Repair this profile before playing. See {recovery}")
             return
         if not self._confirm_missing_mods(pack_id):
             return
@@ -1417,6 +1524,7 @@ class MainWindow(QMainWindow):
             self.manager.save_config()
         return True
 
+    @_unless_bulk_running
     def _play_vanilla(self) -> None:
         try:
             proc = self.manager.play_vanilla()
@@ -1474,6 +1582,7 @@ class MainWindow(QMainWindow):
             return
         log.info("Starting UI task: %s", busy_message)
         self._busy = True
+        self._update_bulk_actions_availability()
         self._on_ok = on_ok
         self.play_button.setEnabled(False)
         self.vanilla_button.setEnabled(False)
@@ -1497,6 +1606,191 @@ class MainWindow(QMainWindow):
         bridge.finished.connect(self._on_task_ok, queued)
         bridge.failed.connect(self._on_fail, queued)
         QTimer.singleShot(0, lambda: run_background(fn, bridge))
+
+    def _set_all_mods_enabled(self, enabled: bool) -> None:
+        pack_id = self.current_pack_id()
+        if pack_id:
+            self._start_mod_changes(pack_id, enabled)
+
+    def _start_mod_changes(self, pack_id: str, enabled: bool, *, guid: str | None = None) -> None:
+        if self._busy or self._mod_scan_running:
+            # A clicked checkbox has already changed visually. Restore the
+            # persisted state when a scan or another operation refuses the click.
+            self.pack_view.refresh_enabled(self.manager.packs.get(pack_id))
+            self._update_bulk_actions_availability()
+            self.statusBar().showMessage("Wait for the current operation to finish.")
+            return
+        pack = self.manager.packs.get(pack_id)
+        if not any(mod.enabled != enabled and (guid is None or mod.guid == guid) for mod in pack.mods):
+            self.pack_view.refresh_enabled(pack)
+            return
+        if guid is None:
+            self.pack_view.refresh_enabled(pack)
+        else:
+            self.pack_view.clear_operation_status()
+        self._busy = True
+        self._bulk_pack_id = pack_id
+        self._bulk_target_enabled = enabled
+        self._bulk_guid = guid
+        self.pack_view.set_bulk_busy(True, visual=guid is None)
+        self._update_bulk_actions_availability()
+        controls = []
+        if guid is None:
+            controls.extend([self.pack_list, self.play_button, self.vanilla_button, self._vanilla_action])
+            controls.extend([*self._pack_buttons, *self._bulk_actions])
+            for view in (self.catalog_view, self.library_view):
+                controls.extend(view.findChildren(QPushButton))
+                controls.extend(view.findChildren(QComboBox))
+        else:
+            self._set_single_input_blocked(True)
+        self._bulk_disabled = [(control, control.isEnabled()) for control in controls]
+        for control, _ in self._bulk_disabled:
+            control.setEnabled(False)
+        if guid is None:
+            message = "Enabling…" if enabled else "Disabling…"
+            self.pack_view.show_operation_progress(message)
+        bridge = _ModChangeBridge(self)
+        self._bridge = bridge
+        queued = Qt.ConnectionType.QueuedConnection
+        if guid is None:
+            bridge.progress.connect(self.pack_view.subtitle.setToolTip, queued)
+        bridge.enabled_changed.connect(self.pack_view.mod_enabled_changed, queued)
+        bridge.finished.connect(self._bulk_finished, queued)
+        bridge.failed.connect(self._bulk_failed, queued)
+        if guid is None:
+            work = lambda progress: self.manager.set_all_mods_enabled(
+                pack_id, enabled, progress, on_changed=bridge.enabled_changed.emit
+            )
+        else:
+            work = lambda progress: self.manager.set_mods_enabled(
+                pack_id, enabled, guids={guid}, progress=progress, on_changed=bridge.enabled_changed.emit
+            )
+        try:
+            self._bulk_thread = run_background(work, bridge)
+        except Exception as exc:
+            self._bulk_failed(str(exc))
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if self._single_input_filter_installed:
+            kind = event.type()
+            if kind == QEvent.Type.Shortcut:
+                # QAction and QShortcut can activate without a mouse event on
+                # a widget. Limit interception to objects owned by this window.
+                owner = watched
+                while owner is not None:
+                    if owner is self:
+                        event.accept()
+                        return True
+                    owner = owner.parent()
+            blocked_events = (
+                QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+                QEvent.Type.MouseButtonDblClick, QEvent.Type.KeyPress,
+                QEvent.Type.KeyRelease, QEvent.Type.ShortcutOverride,
+                QEvent.Type.ContextMenu, QEvent.Type.Wheel,
+                QEvent.Type.TouchBegin, QEvent.Type.TouchUpdate, QEvent.Type.TouchEnd,
+                QEvent.Type.InputMethod,
+            )
+            if kind in blocked_events and isinstance(watched, QWidget):
+                blocked = watched is self._pack_panel or self._pack_panel.isAncestorOf(watched)
+                if not blocked:
+                    # Leave the table viewport and scrollbars usable. Its cell
+                    # controls remain visible but cannot accept mutation input.
+                    in_table = self.pack_view.table.isAncestorOf(watched)
+                    if kind == QEvent.Type.Wheel and in_table:
+                        return super().eventFilter(watched, event)
+                    roots = (self.pack_view.check_all, self.pack_view.uncheck_all, self.pack_view.import_file)
+                    blocked = any(watched is root or root.isAncestorOf(watched) for root in roots)
+                    cell = watched
+                    while not blocked and cell is not None:
+                        if cell.parentWidget() is self.pack_view.table.viewport():
+                            blocked = True
+                            break
+                        cell = cell.parentWidget()
+                if blocked:
+                    event.accept()
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _set_single_input_blocked(self, blocked: bool) -> None:
+        app = QApplication.instance()
+        if app is None or blocked == self._single_input_filter_installed:
+            return
+        self._single_input_filter_installed = blocked
+        if blocked:
+            app.installEventFilter(self)
+        else:
+            app.removeEventFilter(self)
+
+
+    def _disable_bulk_catalog_buttons(self, *_args) -> None:
+        if self._bulk_pack_id is not None and self._bulk_guid is None:
+            # Filtering recreates row buttons. Capture their own enabled state
+            # before disabling them so completion does not need a table rebuild.
+            captured = {id(control) for control, _ in self._bulk_disabled}
+            for button in self.catalog_view.findChildren(QPushButton):
+                if id(button) not in captured:
+                    self._bulk_disabled.append((button, button.isEnabled()))
+                button.setEnabled(False)
+
+    def _finish_bulk(self):
+        pack_id = self._bulk_pack_id
+        self._set_single_input_blocked(False)
+        self._busy = False
+        self._bulk_pack_id = None
+        for control, enabled in self._bulk_disabled:
+            if isValid(control):
+                control.setEnabled(enabled)
+        self._bulk_disabled = []
+        self._update_bulk_actions_availability()
+        self.pack_view.set_bulk_busy(False, visual=self._bulk_guid is None)
+        if self._bridge is not None:
+            self._bridge.deleteLater()
+            self._bridge = None
+        pack = self.manager.packs.get(pack_id)
+        if self.current_pack_id() == pack_id and self.pack_view.refresh_enabled(pack):
+            self.catalog_view._pack = pack
+            recovery = self.manager.bulk_recovery_path(pack_id)
+            self.play_button.setEnabled(recovery is None)
+            self.play_button.setToolTip(
+                f"Profile recovery required: {recovery}" if recovery else "Launch Sailwind with the selected ModPack"
+            )
+        else:
+            self._reload_views()
+        return pack
+
+    @Slot(object)
+    def _bulk_finished(self, result) -> None:
+        changed, failures = result
+        pack = self._finish_bulk()
+        requested = [mod for mod in pack.mods if self._bulk_guid is None or mod.guid == self._bulk_guid]
+        success = not failures and bool(requested) and all(mod.enabled == self._bulk_target_enabled for mod in requested)
+        summary = f"Changed {changed} mod(s)."
+        if success:
+            state = "enabled" if self._bulk_target_enabled else "disabled"
+            summary = f"All mods {state}" if self._bulk_guid is None else f"Mod {state}"
+        elif not failures:
+            failures = ["The requested enabled state was not reached. Check the profile before trying again."]
+        result_message = (summary if self._bulk_guid is None else "") if success else "Some mods could not be changed"
+        if self._bulk_guid is None:
+            self.pack_view.show_operation_result(result_message, success=success)
+        if failures:
+            summary = (f"{summary} {len(failures)} failed." if self._bulk_guid is None
+                       else "The mod could not be changed. Check the details before trying again.")
+            title = "Some mods could not be changed" if self._bulk_guid is None else "Could not change mod"
+            box = QMessageBox(QMessageBox.Icon.Warning, title, summary,
+                              QMessageBox.StandardButton.Ok, self)
+            box.setDetailedText("\n".join(failures))
+            box.exec()
+        self.statusBar().showMessage(summary)
+
+    @Slot(str)
+    def _bulk_failed(self, message: str) -> None:
+        self._finish_bulk()
+        if self._bulk_guid is None:
+            self.pack_view.show_operation_result("Could not change mods", success=False)
+        title = "Could not change mods" if self._bulk_guid is None else "Could not change mod"
+        QMessageBox.warning(self, title, message)
+        self.statusBar().showMessage(message)
 
     def _open_downloads(self) -> None:
         self._downloads.show()
@@ -1531,13 +1825,19 @@ class MainWindow(QMainWindow):
         if self._bridge is not None:
             self._bridge.deleteLater()
             self._bridge = None
-        self.play_button.setEnabled(True)
+        pack_id = self.current_pack_id()
+        recovery = self.manager.bulk_recovery_path(pack_id) if pack_id else None
+        self.play_button.setEnabled(bool(pack_id) and recovery is None)
+        self.play_button.setToolTip(
+            f"Profile recovery required: {recovery}" if recovery else "Launch Sailwind with the selected ModPack"
+        )
         self.vanilla_button.setEnabled(True)
         self.backup_action.setEnabled(True)
         self.restore_action.setEnabled(True)
         self.backup_saves_action.setEnabled(True)
         self.restore_saves_action.setEnabled(True)
         self._set_views_enabled(True)
+        self._update_bulk_actions_availability()
 
     @Slot(str)
     def _on_progress(self, message: str) -> None:
