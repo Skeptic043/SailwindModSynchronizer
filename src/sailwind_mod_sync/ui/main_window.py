@@ -282,7 +282,6 @@ class MainWindow(QMainWindow):
         import_game_action.triggered.connect(self._import_game_plugins)
         vanilla_action = self.menuBar().addAction("Launch vanilla")
         vanilla_action.triggered.connect(self._play_vanilla)
-        self._vanilla_action = vanilla_action
         downloads_menu = self.menuBar().addMenu("Download Management")
         manage_downloads = downloads_menu.addAction("Manage downloads…")
         manage_downloads.setStatusTip("Open cached mod downloads")
@@ -306,6 +305,7 @@ class MainWindow(QMainWindow):
         test_splash.triggered.connect(self._test_splash)
         about = help_menu.addAction("About")
         about.triggered.connect(self._about)
+        self._vanilla_action = vanilla_action
         self._bulk_actions = [
             settings_action, self.backup_action, self.restore_action,
             self.backup_saves_action, self.restore_saves_action, import_game_action,
