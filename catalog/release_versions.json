@@ -93,5 +93,110 @@
     "guid": "com.TheOriginOfAllEvil.ShatteredSeas",
     "repo": "https://github.com/TheOriginOfAllEvil/Shattered-Seas-Expansion",
     "version": "b1.2.8"
+  },
+  {
+    "guid": "com.AugSphere.BetterDrag",
+    "repo": "https://github.com/AugSphere/BetterDrag",
+    "version": "v1.4.0"
+  },
+  {
+    "guid": "com.raddude.betternpcboats",
+    "repo": "https://github.com/bryon82/SailwindBetterNPCBoats",
+    "version": "v0.3.1"
+  },
+  {
+    "guid": "com.nandbrew.borderexpander",
+    "repo": "https://github.com/NANDbrew/BorderExpander",
+    "version": "v0.5.0"
+  },
+  {
+    "guid": "com.keevi.defthands",
+    "repo": "https://github.com/KeeviDev/SailwindDeftHands",
+    "version": "v1.2.0"
+  },
+  {
+    "guid": "com.dizzy.sailwind.firewoodbundle",
+    "repo": "https://github.com/foxyv/DizzyFirewoodBundle",
+    "version": "v0.3.1"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.dropsafety",
+    "repo": "https://github.com/Skeptic043/Sailwind-Drop-Safety",
+    "version": "v1.1.0"
+  },
+  {
+    "guid": "pr0skynesis.paraw",
+    "repo": "https://github.com/alesparise/FFLParaw-Sailwind-Mod",
+    "version": "v0.0.0-beta.4"
+  },
+  {
+    "guid": "com.larsonlogistics.sailwind.navsuite",
+    "repo": "https://github.com/Kemylar/KemyNavigationTools",
+    "version": "v1.2.2"
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.marinershud",
+    "repo": "https://github.com/Dixiecapt/Sailwind-InstrumentDisplay-MOD",
+    "version": "Instrument-Display_v3.0.2"
+  },
+  {
+    "guid": "com.august.moresailwindsails",
+    "repo": "https://github.com/sum-rock/MoreSailwindSails",
+    "version": "v0.2.1"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.newbeginnings",
+    "repo": "https://github.com/Skeptic043/sailwind-new-beginnings",
+    "version": "v1.2.2"
+  },
+  {
+    "guid": "DogEggz.JetPump",
+    "repo": "https://github.com/DogEggz01/Propeller",
+    "version": "1.1.0"
+  },
+  {
+    "guid": "local.sailwind.fastforward",
+    "repo": "https://github.com/Skeptic043/Sailwind-Fast-Forward",
+    "version": "v1.2.1"
+  },
+  {
+    "guid": "com.diamondminer99.playermodel",
+    "repo": "https://github.com/DiamondMiner99/sailwind-playermodel",
+    "version": "v0.1.5"
+  },
+  {
+    "guid": "local.sailwind.radio",
+    "repo": "https://github.com/Skeptic043/Sailwind-Radio",
+    "version": "v1.2.0"
+  },
+  {
+    "guid": "skeptic043.sailwind.receiptalert",
+    "repo": "https://github.com/Skeptic043/SailwindReceiptAlert",
+    "version": "v1.1.0"
+  },
+  {
+    "guid": "com.nandbrew.scrambledseas",
+    "repo": "https://github.com/NANDbrew/scrambled-seas",
+    "version": "v7.1.9"
+  },
+  {
+    "guid": "com.nandbrew.shipshape",
+    "repo": "https://github.com/NANDbrew/ShipShape",
+    "version": "v1.3.1"
+  },
+  {
+    "guid": "com.diamondminer99.threesheets",
+    "repo": "https://github.com/DiamondMiner99/sailwind-threesheets",
+    "version": "v0.2.1"
+  },
+  {
+    "guid": "DogEggz.Cigar",
+    "repo": "https://github.com/DogEggz01/TobaccoPotAndCigar",
+    "version": "1.2.3"
+  },
+  {
+    "guid": "com.zorkinian.virtualcrew",
+    "repo": "https://github.com/JohnGilb/SailwindVirtualCrew",
+    "version": "0.2.2"
   }
 ]

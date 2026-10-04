@@ -112,5 +112,131 @@
     "repo": "https://github.com/TheOriginOfAllEvil/Shattered-Seas-Expansion",
     "name": "ShatteredSeasExpansion",
     "plugin_folders": ["ShatteredSeasExpansion"]
+  },
+  {
+    "guid": "com.AugSphere.BetterDrag",
+    "repo": "https://github.com/AugSphere/BetterDrag",
+    "name": "BetterDrag",
+    "plugin_folders": ["BetterDrag"]
+  },
+  {
+    "guid": "com.raddude.betternpcboats",
+    "repo": "https://github.com/bryon82/SailwindBetterNPCBoats",
+    "name": "BetterNPCBoats",
+    "plugin_folders": ["BetterNPCBoats"]
+  },
+  {
+    "guid": "com.nandbrew.borderexpander",
+    "repo": "https://github.com/NANDbrew/BorderExpander",
+    "name": "Border Expander",
+    "plugin_folders": ["BorderExpander"]
+  },
+  {
+    "guid": "com.keevi.defthands",
+    "repo": "https://github.com/KeeviDev/SailwindDeftHands",
+    "name": "Deft Hands",
+    "plugin_folders": ["DeftHands"]
+  },
+  {
+    "guid": "com.dizzy.sailwind.firewoodbundle",
+    "repo": "https://github.com/foxyv/DizzyFirewoodBundle",
+    "name": "Dizzy Firewood Bundle",
+    "plugin_folders": ["Dizzy.FirewoodBundle"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.dropsafety",
+    "repo": "https://github.com/Skeptic043/Sailwind-Drop-Safety",
+    "name": "Drop Safety",
+    "plugin_folders": ["DropSafety"]
+  },
+  {
+    "guid": "pr0skynesis.paraw",
+    "repo": "https://github.com/alesparise/FFLParaw-Sailwind-Mod",
+    "name": "FFL Paraw",
+    "plugin_folders": ["Paraw"]
+  },
+  {
+    "guid": "com.larsonlogistics.sailwind.navsuite",
+    "repo": "https://github.com/Kemylar/KemyNavigationTools",
+    "name": "Kemy Navigation Tools",
+    "plugin_folders": ["KemyNavigationTools"]
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.marinershud",
+    "repo": "https://github.com/Dixiecapt/Sailwind-InstrumentDisplay-MOD",
+    "name": "Mariner's HUD / Instrument Display",
+    "plugin_folders": ["InstrumentDisplay"]
+  },
+  {
+    "guid": "com.august.moresailwindsails",
+    "repo": "https://github.com/sum-rock/MoreSailwindSails",
+    "name": "MoreSailwindSails",
+    "plugin_folders": ["MoreSailwindSails"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.newbeginnings",
+    "repo": "https://github.com/Skeptic043/sailwind-new-beginnings",
+    "name": "New Beginnings",
+    "plugin_folders": ["NewBeginnings"]
+  },
+  {
+    "guid": "DogEggz.JetPump",
+    "repo": "https://github.com/DogEggz01/Propeller",
+    "name": "Propeller",
+    "plugin_folders": ["Propeller"]
+  },
+  {
+    "guid": "local.sailwind.fastforward",
+    "repo": "https://github.com/Skeptic043/Sailwind-Fast-Forward",
+    "name": "Sailwind Fast Forward",
+    "plugin_folders": ["SailwindFastForward"]
+  },
+  {
+    "guid": "com.diamondminer99.playermodel",
+    "repo": "https://github.com/DiamondMiner99/sailwind-playermodel",
+    "name": "Sailwind Player Model",
+    "plugin_folders": ["SailwindPlayerModel"]
+  },
+  {
+    "guid": "local.sailwind.radio",
+    "repo": "https://github.com/Skeptic043/Sailwind-Radio",
+    "name": "Sailwind Radio",
+    "plugin_folders": ["SailwindRadio"]
+  },
+  {
+    "guid": "skeptic043.sailwind.receiptalert",
+    "repo": "https://github.com/Skeptic043/SailwindReceiptAlert",
+    "name": "Sailwind Receipt Alert",
+    "plugin_folders": ["SailwindReceiptAlert"]
+  },
+  {
+    "guid": "com.nandbrew.scrambledseas",
+    "repo": "https://github.com/NANDbrew/scrambled-seas",
+    "name": "Scrambled Seas",
+    "plugin_folders": ["ScrambledSeas"]
+  },
+  {
+    "guid": "com.nandbrew.shipshape",
+    "repo": "https://github.com/NANDbrew/ShipShape",
+    "name": "ShipShape",
+    "plugin_folders": ["ShipShape"]
+  },
+  {
+    "guid": "com.diamondminer99.threesheets",
+    "repo": "https://github.com/DiamondMiner99/sailwind-threesheets",
+    "name": "Three Sheets",
+    "plugin_folders": ["ThreeSheets"]
+  },
+  {
+    "guid": "DogEggz.Cigar",
+    "repo": "https://github.com/DogEggz01/TobaccoPotAndCigar",
+    "name": "Tobacco Pot and Cigar",
+    "plugin_folders": ["TobaccoPotAndCigar"]
+  },
+  {
+    "guid": "com.zorkinian.virtualcrew",
+    "repo": "https://github.com/JohnGilb/SailwindVirtualCrew",
+    "name": "Virtual Crew",
+    "plugin_folders": ["SailwindVirtualCrew"]
   }
 ]
