@@ -256,7 +256,7 @@ class MainWindow(QMainWindow):
         import_game_action.triggered.connect(self._import_game_plugins)
         vanilla_action = self.menuBar().addAction("Launch vanilla")
         vanilla_action.triggered.connect(self._play_vanilla)
-        downloads_menu = self.menuBar().addMenu("Download Management")
+        downloads_menu = self.menuBar().addMenu("Tools")
         manage_downloads = downloads_menu.addAction("Manage downloads…")
         manage_downloads.setStatusTip("Open cached mod downloads")
         manage_downloads.triggered.connect(self._open_downloads)
@@ -268,6 +268,9 @@ class MainWindow(QMainWindow):
         open_appdata = downloads_menu.addAction("Open AppData")
         open_appdata.setStatusTip("Open the Sailwind Mod Synchronizer data folder in File Explorer")
         open_appdata.triggered.connect(self._open_appdata)
+        self.open_profile_plugins_action = downloads_menu.addAction("Open Plugins Folder")
+        self.open_profile_plugins_action.triggered.connect(self._open_profile_plugins)
+        self.open_profile_plugins_action.setStatusTip("Open the selected ModPack's BepInEx plugins folder")
         hidden_mods = downloads_menu.addAction("Hidden Mods")
         hidden_mods.setStatusTip("Show catalog mods you hid, and unhide them")
         hidden_mods.triggered.connect(self._manage_hidden_mods)
@@ -358,6 +361,7 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("Set the Sailwind folder in Settings")
         self._update_pack_updates_hint()
+        self.open_profile_plugins_action.setEnabled(pack is not None)
 
     def _update_pack_updates_hint(self) -> None:
         count = self.pack_view.available_updates()
@@ -1502,6 +1506,20 @@ class MainWindow(QMainWindow):
         self._downloads.show()
         self._downloads.raise_()
         self._downloads.activateWindow()
+
+    def _open_profile_plugins(self) -> None:
+        pack_id = self.current_pack_id()
+        if not pack_id:
+            return
+        folder = self.manager.packs.plugins_dir(pack_id)
+        if not folder.is_dir():
+            QMessageBox.warning(self, "Open Plugins Folder", f"The plugin folder does not exist: {folder}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
+            QMessageBox.warning(self, "Open Plugins Folder", f"Could not open {folder}")
+            return
+        self.statusBar().showMessage(f"Opened {folder}")
+
 
     def _open_appdata(self) -> None:
         self.manager.paths.ensure()

@@ -834,7 +834,7 @@ def test_help_menu_has_check_for_updates(paths: AppPaths) -> None:
         downloads_menu = next(
             action.menu()
             for action in window.menuBar().actions()
-            if action.menu() and action.menu().title().replace("&", "") == "Download Management"
+            if action.menu() and action.menu().title().replace("&", "") == "Tools"
         )
         download_items = [action.text().replace("&", "") for action in downloads_menu.actions()]
         assert download_items == [
@@ -842,6 +842,7 @@ def test_help_menu_has_check_for_updates(paths: AppPaths) -> None:
             "Import mod file…",
             "Scan updates",
             "Open AppData",
+            "Open Plugins Folder",
             "Hidden Mods",
         ]
         labels = [button.text() for button in window.findChildren(QPushButton)]
