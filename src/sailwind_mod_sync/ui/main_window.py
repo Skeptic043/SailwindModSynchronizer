@@ -356,12 +356,12 @@ class MainWindow(QMainWindow):
         self.catalog_view.set_data(self.manager.catalog, pack, self.manager.config.hidden_catalog_mods)
         self.library_view.set_entries(library, pack, display_names)
         game = self.manager.game_dir()
+        self.open_profile_plugins_action.setEnabled(pack is not None)
         if game:
             self.statusBar().showMessage(f"Game: {game}")
         else:
             self.statusBar().showMessage("Set the Sailwind folder in Settings")
         self._update_pack_updates_hint()
-        self.open_profile_plugins_action.setEnabled(pack is not None)
 
     def _update_pack_updates_hint(self) -> None:
         count = self.pack_view.available_updates()
