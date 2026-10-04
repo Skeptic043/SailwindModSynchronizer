@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from contextlib import nullcontext
+
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -34,6 +36,7 @@ class _VersionCombo(QComboBox):
 
 
 class PackView(QWidget):
+    bulk_enabled = Signal(bool)
     toggle_enabled = Signal(str, bool)
     update_requested = Signal(str)
     import_requested = Signal(str)
@@ -46,12 +49,28 @@ class PackView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._shown_pack_id: str | None = None
+        self._enabled_by_guid: dict[str, bool] = {}
+        self._subtitle_tail = ""
+        self._progress_prefix = ""
+        self._bulk_busy = False
+        self._actions_blocked = False
+        self._freeze_bulk_actions = False
+        self._bulk_available = (False, False)
         self.title = QLabel("No pack selected")
         self.subtitle = QLabel("")
         self.import_file = QPushButton("Import Mod DLL/ZIP")
         self.import_file.setToolTip("Import a .dll or .zip into the library and add it to this pack")
         self.import_file.setEnabled(False)
         self.import_file.clicked.connect(self.import_file_clicked.emit)
+        self.check_all = QPushButton("Check All")
+        self.uncheck_all = QPushButton("Uncheck All")
+        self.check_all.clicked.connect(lambda: self.bulk_enabled.emit(True))
+        self.uncheck_all.clicked.connect(lambda: self.bulk_enabled.emit(False))
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setSingleShot(True)
+        self._progress_timer.setInterval(3000)
+        self._progress_timer.timeout.connect(self._reset_operation_progress)
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["On", "Mod", "GUID", "Version", "Latest", ""])
         enable_column_resize(self.table, [48, 180, 220, 140, 110, 220])
@@ -67,6 +86,8 @@ class PackView(QWidget):
         titles.addWidget(self.title)
         titles.addWidget(self.subtitle)
         header.addLayout(titles, 1)
+        header.addWidget(self.check_all)
+        header.addWidget(self.uncheck_all)
         header.addWidget(self.import_file)
 
         layout = QVBoxLayout(self)
@@ -81,6 +102,17 @@ class PackView(QWidget):
         library_versions: dict[str, list[tuple[str, str]]] | None = None,
         display_names: dict[str, str] | None = None,
     ) -> None:
+        pack_id = pack.id if pack else None
+        if self._shown_pack_id != pack_id:
+            self._progress_timer.stop()
+            self._reset_operation_progress()
+        self._shown_pack_id = pack_id
+        self._enabled_by_guid = {mod.guid: mod.enabled for mod in pack.mods} if pack else {}
+        self._bulk_available = (
+            bool(pack and any(not mod.enabled for mod in pack.mods)),
+            bool(pack and any(mod.enabled for mod in pack.mods)),
+        )
+        self.set_actions_blocked(self._actions_blocked)
         if pack is None:
             self.title.setText("No pack selected")
             self.subtitle.setText("")
@@ -89,7 +121,7 @@ class PackView(QWidget):
             with sorting_paused(self.table):
                 self.table.setRowCount(0)
             return
-        self.import_file.setEnabled(True)
+        self.import_file.setEnabled(not self._bulk_busy)
         missing = missing_guids or set()
         versions = library_versions or {}
         latest_by_guid = {}
@@ -108,10 +140,10 @@ class PackView(QWidget):
                 repo_by_guid.setdefault(guid, entry.repo)
         self.title.setText(pack.name)
         missing_count = sum(1 for pinned in pack.mods if pinned.guid in missing)
-        subtitle = f"{len(pack.mods)} mods · BepInEx {pack.bepinex or '—'}"
+        self._subtitle_tail = f"BepInEx {pack.bepinex or '—'}"
         if missing_count:
-            subtitle += f" · {missing_count} missing"
-        self.subtitle.setText(subtitle)
+            self._subtitle_tail += f" · {missing_count} missing"
+        self._update_subtitle()
         self._row_state = {}
         with sorting_paused(self.table):
             self.table.setRowCount(len(pack.mods))
@@ -119,7 +151,9 @@ class PackView(QWidget):
                 checkbox = QCheckBox()
                 checkbox.setChecked(pinned.enabled)
                 guid = pinned.guid
-                checkbox.toggled.connect(lambda checked, value=guid: self.toggle_enabled.emit(value, checked))
+                checkbox.toggled.connect(
+                    lambda checked, value=guid, widget=checkbox: self._checkbox_toggled(value, checked, widget)
+                )
                 wrap = QWidget()
                 wrap_layout = QHBoxLayout(wrap)
                 wrap_layout.setContentsMargins(8, 0, 0, 0)
@@ -180,6 +214,121 @@ class PackView(QWidget):
                 self._enable_row_context_menu(actions, guid)
                 self.table.setCellWidget(index, 5, actions)
 
+    def refresh_enabled(self, pack: ModPack) -> bool:
+        """Update checkbox state without rebuilding rows or rescanning artifacts."""
+        by_guid = {mod.guid: mod.enabled for mod in pack.mods}
+        if self._shown_pack_id != pack.id or set(self._row_state) != set(by_guid):
+            return False
+        self._enabled_by_guid = by_guid
+        with self._enabled_sorting_paused():
+            for row in range(self.table.rowCount()):
+                guid = self.table.item(row, 2).text()
+                self._set_row_enabled(row, by_guid[guid])
+        self._refresh_enabled_header()
+        return True
+
+    def mod_enabled_changed(self, guid: str, enabled: bool) -> None:
+        """Receive committed state from the worker through a queued Qt signal."""
+        if guid not in self._enabled_by_guid:
+            return
+        self._enabled_by_guid[guid] = enabled
+        with self._enabled_sorting_paused():
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 2).text() == guid:
+                    self._set_row_enabled(row, enabled)
+                    break
+        self._refresh_enabled_header()
+
+    def _enabled_sorting_paused(self):
+        # Enabled changes cannot affect sorting by another column. Avoid
+        # toggling table sorting (and its layout) for those ordinary clicks.
+        return sorting_paused(self.table) if self.table.horizontalHeader().sortIndicatorSection() == 0 else nullcontext()
+
+    def mod_checkbox(self, guid: str) -> QCheckBox | None:
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, 2).text() == guid:
+                return self.table.cellWidget(row, 0).findChild(QCheckBox)
+        return None
+
+    def _checkbox_toggled(self, guid: str, enabled: bool, checkbox: QCheckBox) -> None:
+        if self._bulk_busy:
+            blocked = checkbox.blockSignals(True)
+            checkbox.setChecked(self._enabled_by_guid[guid])
+            checkbox.blockSignals(blocked)
+            return
+        self.toggle_enabled.emit(guid, enabled)
+
+    def _set_row_enabled(self, row: int, enabled: bool) -> None:
+        checkbox = self.table.cellWidget(row, 0).findChild(QCheckBox)
+        blocked = checkbox.blockSignals(True)
+        checkbox.setChecked(enabled)
+        checkbox.blockSignals(blocked)
+        self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, int(enabled))
+
+    def _refresh_enabled_header(self) -> None:
+        values = self._enabled_by_guid.values()
+        self._bulk_available = (any(not value for value in values), any(self._enabled_by_guid.values()))
+        self.set_actions_blocked(self._actions_blocked)
+        self._update_subtitle()
+
+    def _update_subtitle(self) -> None:
+        if self._shown_pack_id is None:
+            self.subtitle.setText("")
+            return
+        count = f"{sum(self._enabled_by_guid.values())}/{len(self._enabled_by_guid)}"
+        if self._progress_prefix in ("All mods enabled", "All mods disabled"):
+            message = f"{self._progress_prefix} ({count})"
+        else:
+            message = f"{self._progress_prefix} {count} mods enabled".strip()
+        self.subtitle.setText(f"{message} · {self._subtitle_tail}")
+
+    def show_operation_progress(self, message: str) -> None:
+        self._progress_timer.stop()
+        self._progress_prefix = message
+        color = "#885c00" if self.palette().color(QPalette.ColorRole.Window).lightness() > 128 else "#efc46d"
+        self.subtitle.setStyleSheet(f"QLabel {{ color: {color}; }}")
+        self._update_subtitle()
+
+    def show_operation_result(self, message: str, *, success: bool) -> None:
+        self._progress_timer.stop()
+        self._progress_prefix = message
+        light = self.palette().color(QPalette.ColorRole.Window).lightness() > 128
+        color = ("#1b6e28" if light else "#79cd86") if success else ("#a34119" if light else "#f4a56d")
+        self.subtitle.setStyleSheet(f"QLabel {{ color: {color}; }}")
+        self._update_subtitle()
+        if success:
+            self._progress_timer.start()
+
+    def _reset_operation_progress(self) -> None:
+        self._progress_prefix = ""
+        self.subtitle.setStyleSheet("")
+        self.subtitle.setToolTip("")
+        self._update_subtitle()
+
+    def set_actions_blocked(self, blocked: bool) -> None:
+        self._actions_blocked = blocked
+        if self._freeze_bulk_actions:
+            return
+        self.check_all.setEnabled(self._bulk_available[0] and not self._bulk_busy and not blocked)
+        self.uncheck_all.setEnabled(self._bulk_available[1] and not self._bulk_busy and not blocked)
+
+    def clear_operation_status(self) -> None:
+        self._progress_timer.stop()
+        if self._progress_prefix or self.subtitle.styleSheet():
+            self._reset_operation_progress()
+
+    def set_bulk_busy(self, busy: bool, *, visual: bool = True) -> None:
+        self._bulk_busy = busy
+        self._freeze_bulk_actions = busy and not visual
+        self.set_actions_blocked(self._actions_blocked)
+        if visual:
+            self.import_file.setEnabled(bool(self._row_state) and not busy)
+            for row in range(self.table.rowCount()):
+                for column in (0, 3, 5):
+                    widget = self.table.cellWidget(row, column)
+                    if widget is not None:
+                        widget.setEnabled(not busy)
+
     def available_updates(self) -> int:
         """Number of mods in the current pack with a newer version in the catalog."""
         return sum(1 for _, _, can_update, _ in self._row_state.values() if can_update)
@@ -223,6 +372,9 @@ class PackView(QWidget):
         return combo
 
     def _on_version_chosen(self, guid: str, combo: QComboBox, index: int) -> None:
+        if self._bulk_busy:
+            self._restore_combo(combo)
+            return
         if index < 0:
             return
         data = combo.itemData(index)
@@ -270,6 +422,7 @@ class PackView(QWidget):
         if state is None:
             return None
         repo, missing, can_update, in_catalog = state
+        editable = not self._bulk_busy
         menu = QMenu(self)
         page = repo_page_url(repo)
         if page:
@@ -279,6 +432,7 @@ class PackView(QWidget):
             open_repo.triggered.connect(lambda _=False, url=page: QDesktopServices.openUrl(QUrl(url)))
         else:
             add_repo = menu.addAction("Add Repository")
+            add_repo.setEnabled(editable)
             add_repo.triggered.connect(lambda _=False, value=guid: self.find_repo_requested.emit(value))
         if in_catalog:
             show_catalog = menu.addAction("Show in Catalog")
@@ -288,10 +442,13 @@ class PackView(QWidget):
         menu.addSeparator()
         if missing:
             import_action = menu.addAction("Import")
+            import_action.setEnabled(editable)
             import_action.triggered.connect(lambda _=False, value=guid: self.import_requested.emit(value))
         else:
             update_action = menu.addAction("Update")
-            update_action.setEnabled(can_update)
+            update_action.setEnabled(can_update and editable)
             update_action.triggered.connect(lambda _=False, value=guid: self.update_requested.emit(value))
-        menu.addAction("Remove").triggered.connect(lambda _=False, value=guid: self.remove_requested.emit(value))
+        remove = menu.addAction("Remove")
+        remove.setEnabled(editable)
+        remove.triggered.connect(lambda _=False, value=guid: self.remove_requested.emit(value))
         return menu
