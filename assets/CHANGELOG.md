@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.4.2 (2026-10-05)
+
+- New **Help → Change log** shows what changed in each version, even without an internet connection.
+- Switching between ModPacks no longer freezes the window for a few seconds.
+- Quick tasks, like updating a mod to a version you already downloaded, no longer flash the **Working** dialog. It only appears when a task takes longer than a quarter second.
+
 ## 0.4.1 (2026-10-05)
 
 - Removed the duplicate **Launch vanilla** menu bar item. The **Launch Vanilla** button under the ModPack list still starts Sailwind without mods.

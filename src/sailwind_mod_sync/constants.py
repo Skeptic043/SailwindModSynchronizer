@@ -3,7 +3,7 @@ GAME_EXE_NAME = "Sailwind.exe"
 DEFAULT_GAME_PATH = r"D:\SteamLibrary\steamapps\common\Sailwind"
 
 APP_NAME = "Sailwind Mod Synchronizer"
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 APP_REPO = "https://github.com/foxyv/SailwindModSynchronizer"
 APP_OWNER = "foxyv"
 APP_REPO_NAME = "SailwindModSynchronizer"
