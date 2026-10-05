@@ -14,6 +14,7 @@ from sailwind_mod_sync.constants import (
     JSDELIVR_MODLIST,
     JSDELIVR_VERSIONS,
 )
+from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, parse_mod_version
 from sailwind_mod_sync.paths import AppPaths
@@ -28,25 +29,20 @@ def refresh_catalog(
 ) -> list[CatalogEntry]:
     if progress:
         progress("Fetching ModVersionChecker catalog…")
-    mod_list = _fetch_json_list(http, JSDELIVR_MODLIST, GITHUB_RAW_MODLIST)
-    versions = _fetch_json_list(http, JSDELIVR_VERSIONS, GITHUB_RAW_VERSIONS)
-    paths.catalog_dir.mkdir(parents=True, exist_ok=True)
-    paths.modlist_file.write_text(json.dumps(mod_list, indent=2), encoding="utf-8")
-    paths.versions_file.write_text(json.dumps(versions, indent=2), encoding="utf-8")
+    mod_list = _cache_list(paths.modlist_file, _fetch_json_list(http, JSDELIVR_MODLIST, GITHUB_RAW_MODLIST))
+    versions = _cache_list(paths.versions_file, _fetch_json_list(http, JSDELIVR_VERSIONS, GITHUB_RAW_VERSIONS))
     mvc = merge_catalog(mod_list, versions)
 
     if progress:
         progress("Fetching Sailwind Mod Synchronizer catalog…")
-    extra_list = _fetch_json_list(http, JSDELIVR_APP_MODLIST, GITHUB_RAW_APP_MODLIST, optional=True)
-    extra_versions = _fetch_json_list(http, JSDELIVR_APP_VERSIONS, GITHUB_RAW_APP_VERSIONS, optional=True)
-    if extra_list is None:
-        extra_list = _read_json_list(paths.extra_modlist_file)
-    else:
-        paths.extra_modlist_file.write_text(json.dumps(extra_list, indent=2), encoding="utf-8")
-    if extra_versions is None:
-        extra_versions = _read_json_list(paths.extra_versions_file)
-    else:
-        paths.extra_versions_file.write_text(json.dumps(extra_versions, indent=2), encoding="utf-8")
+    extra_list = _cache_list(
+        paths.extra_modlist_file,
+        _fetch_json_list(http, JSDELIVR_APP_MODLIST, GITHUB_RAW_APP_MODLIST, optional=True),
+    )
+    extra_versions = _cache_list(
+        paths.extra_versions_file,
+        _fetch_json_list(http, JSDELIVR_APP_VERSIONS, GITHUB_RAW_APP_VERSIONS, optional=True),
+    )
     extra = merge_catalog(extra_list, extra_versions)
     shared = overlay_entries(mvc, extra)
     return merge_with_custom(shared, load_custom_catalog(paths))
@@ -167,6 +163,21 @@ def _read_json_list(path) -> list:
     except (OSError, json.JSONDecodeError):
         return []
     return data if isinstance(data, list) else []
+
+
+def _cache_list(path, fetched: list | None) -> list:
+    """Return ``fetched`` after caching it at ``path``, or the cached list when nothing usable was fetched.
+
+    An empty download never replaces a non-empty cache.
+    """
+    cached = _read_json_list(path)
+    if fetched is None:
+        return cached
+    if not fetched and cached:
+        log.warning("Keeping cached %s: the downloaded list is empty", path.name)
+        return cached
+    atomic_write_json(path, fetched)
+    return fetched
 
 
 def _fetch_json_list(http: HttpClient, primary: str, fallback: str, *, optional: bool = False) -> list | None:

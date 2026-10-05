@@ -5,6 +5,7 @@ import logging
 from dataclasses import replace
 
 from sailwind_mod_sync.catalog.github import canonicalize_repo_url
+from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, parse_mod_version
 from sailwind_mod_sync.paths import AppPaths
 
@@ -30,9 +31,7 @@ def load_custom_catalog(paths: AppPaths) -> list[CatalogEntry]:
 
 
 def save_custom_catalog(paths: AppPaths, entries: list[CatalogEntry]) -> None:
-    paths.catalog_dir.mkdir(parents=True, exist_ok=True)
-    payload = [_entry_to_dict(entry) for entry in entries]
-    paths.custom_catalog_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(paths.custom_catalog_file, [_entry_to_dict(entry) for entry in entries])
 
 
 def store_custom_versions(paths: AppPaths, updated: list[CatalogEntry]) -> None:

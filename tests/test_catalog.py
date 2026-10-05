@@ -751,3 +751,26 @@ def test_merge_with_custom_leaves_custom_entries_unchanged() -> None:
     assert custom.guids == ["com.nandbrew.stickyfix", "com.nandbrew.stickyfix.extra"]
     assert custom.primary_guid == "com.nandbrew.stickyfix"
     assert not custom.custom
+
+
+def test_refresh_catalog_keeps_cache_when_download_is_empty(paths: AppPaths) -> None:
+    from sailwind_mod_sync.catalog.mvc import find_entry, load_cached_catalog, refresh_catalog
+    from sailwind_mod_sync.constants import JSDELIVR_MODLIST, JSDELIVR_VERSIONS
+
+    full = _CatalogHttp(
+        {
+            JSDELIVR_MODLIST: [
+                {"guid": "com.nandbrew.stickyfix", "repo": "https://github.com/NANDbrew/StickyFix"},
+            ],
+            JSDELIVR_VERSIONS: [{"guid": "com.nandbrew.stickyfix", "version": "v1.0.0"}],
+        }
+    )
+    refresh_catalog(paths, full)
+    empty = _CatalogHttp({JSDELIVR_MODLIST: [], JSDELIVR_VERSIONS: []})
+
+    entries = refresh_catalog(paths, empty)
+
+    assert find_entry(entries, "com.nandbrew.stickyfix") is not None
+    cached = load_cached_catalog(paths)
+    assert cached is not None and find_entry(cached, "com.nandbrew.stickyfix") is not None
+    assert not list(paths.catalog_dir.glob("*.tmp"))

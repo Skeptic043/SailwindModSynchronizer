@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 
-from sailwind_mod_sync.constants import CONFIG_FILENAME
+from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.paths import AppPaths
 
 
@@ -52,23 +50,7 @@ def load_config(paths: AppPaths) -> AppConfig:
 def save_config(paths: AppPaths, config: AppConfig) -> None:
     paths.ensure()
     payload = asdict(config)
-    _atomic_write_json(paths.config_file, payload)
-
-
-def _atomic_write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=CONFIG_FILENAME, dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-            handle.write("\n")
-        Path(tmp_name).replace(path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    atomic_write_json(paths.config_file, payload)
 
 
 def _as_str_list(value: object) -> list[str]:
