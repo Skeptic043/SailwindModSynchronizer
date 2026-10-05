@@ -1206,3 +1206,45 @@ def test_set_mod_repo_for_one_pack_keeps_the_sources_of_other_packs(paths: AppPa
     assert repo_of(other.id) == "https://github.com/example/mod"
     assert repo_of(blank.id) == "https://github.com/me/mod-fork"
     assert manager.library.read_mod_meta("com.example.mod", "1.2.0").repo == "https://github.com/example/mod"
+
+
+def test_first_start_restores_catalog_sources_used_by_packs_and_downloads(paths: AppPaths, tmp_path: Path) -> None:
+    import json
+
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, remove_custom_entry, save_custom_catalog
+    from sailwind_mod_sync.library.store import LibraryStore
+    from sailwind_mod_sync.packs.modpack import PackStore
+
+    paths.modlist_file.write_text(
+        json.dumps([{"guid": "com.example.mod", "repo": "https://github.com/example/mod"}]), encoding="utf-8"
+    )
+    paths.versions_file.write_text(json.dumps([{"guid": "com.example.mod", "version": "v1.3.0"}]), encoding="utf-8")
+    LibraryStore(paths).ingest_mod_zip(
+        "com.example.mod",
+        "1.1.0",
+        _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"}),
+        version_raw="v1.1.0",
+        repo="https://github.com/you/mod",
+        source_url="https://github.com/you/mod/releases/download/v1.1.0/Mod.zip",
+    )
+    packs = PackStore(paths)
+    pack = packs.create("Fork pack")
+    packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/me/mod-fork"))
+    packs.upsert_mod(pack.id, PinnedMod(guid="com.unlisted.mod", version="1.0.0", repo="https://github.com/me/x"))
+
+    manager = Manager(paths=paths, config=AppConfig(game_path=str(tmp_path)), http=_NoHttp())
+    manager.close()
+
+    restored = {(entry.primary_guid, entry.repo, entry.latest_raw) for entry in load_custom_catalog(paths)}
+    assert restored == {
+        ("com.example.mod", "https://github.com/me/mod-fork", "1.2.0"),
+        ("com.example.mod", "https://github.com/you/mod", "v1.1.0"),
+    }
+    assert find_entry(manager.catalog, "com.example.mod").repo == "https://github.com/example/mod"
+    assert find_entry(manager.catalog, "com.example.mod", "https://github.com/me/mod-fork").custom
+    assert load_config(paths).catalog_sources_restored
+
+    remaining = remove_custom_entry(load_custom_catalog(paths), "com.example.mod", "https://github.com/me/mod-fork")
+    save_custom_catalog(paths, remaining)
+    Manager(paths=paths, config=load_config(paths), http=_NoHttp()).close()
+    assert len(load_custom_catalog(paths)) == 1

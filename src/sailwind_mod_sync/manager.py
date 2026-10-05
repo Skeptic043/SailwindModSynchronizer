@@ -12,6 +12,7 @@ from sailwind_mod_sync.catalog.custom import (
     load_custom_catalog,
     merge_with_custom,
     remove_custom_entry,
+    repo_key,
     save_custom_catalog,
     same_repo,
     store_custom_versions,
@@ -105,6 +106,10 @@ class Manager:
         default_pack = self.packs.ensure_default()
         if not self.config.last_pack_id or not self.packs.exists(self.config.last_pack_id):
             self.config.last_pack_id = default_pack.id
+            self.save_config()
+        if not self.config.catalog_sources_restored:
+            self.restore_catalog_sources()
+            self.config.catalog_sources_restored = True
             self.save_config()
 
     def close(self) -> None:
@@ -372,6 +377,49 @@ class Manager:
         self.config.hidden_catalog_mods = hidden
         self.save_config()
         log.info("Unhid catalog mod %s", guid)
+
+    def restore_catalog_sources(self) -> list[CatalogEntry]:
+        """Add custom catalog entries for the sources of catalog mods that packs or downloads use but the catalog lacks.
+
+        Return the added entries, at most one per mod and repository, each at the newest version in use.
+        """
+        newest: dict[tuple[str, str], PinnedMod] = {}
+        for pinned in self._pins_and_downloads():
+            if not pinned.repo or find_entry(self.catalog, pinned.guid) is None:
+                continue
+            if find_entry(self.catalog, pinned.guid, pinned.repo) is not None:
+                continue
+            key = (pinned.guid, repo_key(pinned.repo))
+            current = newest.get(key)
+            if current is None or version_key(pinned.version) > version_key(current.version):
+                newest[key] = pinned
+        if not newest:
+            return []
+        custom = load_custom_catalog(self.paths)
+        added = [self._catalog_entry_from_pin(pinned) for pinned in newest.values()]
+        for entry in added:
+            custom = upsert_custom_entry(custom, entry)
+        save_custom_catalog(self.paths, custom)
+        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        sources = ", ".join(f"{entry.primary_guid} from {entry.repo}" for entry in added)
+        log.info("Restored %s catalog source(s): %s", len(added), sources)
+        return added
+
+    def _pins_and_downloads(self) -> list[PinnedMod]:
+        pins = [pinned for pack in self.packs.list_packs() for pinned in pack.mods]
+        for item in self.library.list_mods():
+            source = artifact_source(item.meta)
+            if source:
+                pins.append(
+                    PinnedMod(
+                        guid=item.guid,
+                        version=item.meta.version,
+                        repo=source,
+                        plugin_folders=list(item.meta.plugin_folders),
+                        version_raw=item.meta.version_raw,
+                    )
+                )
+        return pins
 
     def ensure_catalog_mods(self, mods: list[PinnedMod]) -> list[CatalogEntry]:
         if not self.catalog:

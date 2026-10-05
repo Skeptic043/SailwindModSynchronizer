@@ -19,6 +19,7 @@ class AppConfig:
     last_update_check: str = ""
     skipped_update_version: str = ""
     hidden_catalog_mods: list[str] = field(default_factory=list)
+    catalog_sources_restored: bool = False
 
     def token(self) -> str:
         return self.github_token.strip() or os.environ.get("GITHUB_TOKEN", "").strip()
@@ -44,6 +45,7 @@ def load_config(paths: AppPaths) -> AppConfig:
         last_update_check=str(data.get("last_update_check") or ""),
         skipped_update_version=str(data.get("skipped_update_version") or ""),
         hidden_catalog_mods=_as_str_list(data.get("hidden_catalog_mods")),
+        catalog_sources_restored=_as_bool(data.get("catalog_sources_restored"), False),
     )
 
 
