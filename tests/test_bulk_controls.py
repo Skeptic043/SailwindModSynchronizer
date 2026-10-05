@@ -973,3 +973,40 @@ def test_slow_task_shows_progress_dialog_after_delay(window):
         release.set()
     assert _pump_until(app, lambda: results == ["done"])
     assert window._progress_dialog is None
+
+
+def test_update_all_updates_pack_mods_and_reports_failures(window, manager, monkeypatch):
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    calls: list[tuple[str, list[str]]] = []
+
+    def fake_update_mods(pack_id, guids, progress=None):
+        calls.append((pack_id, list(guids)))
+        return [PinnedMod(guid="example.test", version="1.0.0")], ["example.broken: No GitHub release"]
+
+    warnings: list[str] = []
+    monkeypatch.setattr(manager, "update_mods", fake_update_mods)
+    monkeypatch.setattr(QMessageBox, "exec", lambda box: warnings.append(box.detailedText()) or 0)
+
+    window._update_all_mods(["example.test", "example.broken"])
+    deadline = time.monotonic() + 5
+    while window._busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(.005)
+
+    app.processEvents()
+    assert calls == [(pack.id, ["example.test", "example.broken"])]
+    assert warnings == ["example.broken: No GitHub release"]
+    assert window.statusBar().currentMessage() == "Updated 1 mod(s), 1 could not be updated"
+
+
+def test_update_all_names_the_running_update_scan(window, manager):
+    app, window = window
+    window._mod_scan_running = True
+    window._update_bulk_actions_availability()
+    assert not window.pack_view.update_all.isEnabled()
+    assert window.pack_view.update_all.text() == "Checking for updates…"
+    window._mod_scan_running = False
+    window._update_bulk_actions_availability()
+    assert window.pack_view.update_all.isEnabled()
+    assert window.pack_view.update_all.text() == "Update all"

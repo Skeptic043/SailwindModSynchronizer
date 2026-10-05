@@ -1410,3 +1410,51 @@ def test_background_catalog_refresh_waits_for_running_tasks_and_setting(paths: A
         window.deleteLater()
         manager.close()
     app.processEvents()
+
+
+def test_pack_view_offers_update_all_for_updatable_mods() -> None:
+    app = QApplication.instance() or QApplication([])
+    view = PackView()
+    pack = ModPack(
+        id="crew",
+        name="Crew",
+        mods=[
+            PinnedMod(guid="com.example.mod", version="1.0.0", repo="https://github.com/example/mod"),
+            PinnedMod(guid="com.example.old", version="1.0.0", repo="https://github.com/example/old"),
+            PinnedMod(guid="com.example.gone", version="1.0.0", repo="https://github.com/example/gone"),
+            PinnedMod(guid="com.example.locked", version="1.2.0", repo="https://github.com/example/locked"),
+        ],
+    )
+    catalog = [
+        _catalog_entry("com.example.mod", "1.2.0"),
+        _catalog_entry("com.example.old", "2.0.0"),
+        _catalog_entry("com.example.gone", "2.0.0"),
+        _catalog_entry("com.example.locked", "1.2.0"),
+    ]
+    caught: list[list[str]] = []
+    view.update_all_requested.connect(caught.append)
+    try:
+        view.show()
+        view.set_pack(pack, catalog, {"com.example.gone"})
+        assert view.update_all.isVisible()
+        assert view.available_updates() == 2
+        view.update_all.click()
+        assert caught == [["com.example.mod", "com.example.old"]]
+        view.set_actions_blocked(True)
+        assert not view.update_all.isEnabled()
+        assert view.update_all.text() == "Update all"
+        view.set_actions_blocked(True, "Checking for updates…")
+        assert not view.update_all.isEnabled()
+        assert view.update_all.text() == "Checking for updates…"
+        assert "becomes available when it finishes" in view.update_all.toolTip()
+        view.set_actions_blocked(False)
+        assert view.update_all.isEnabled()
+        assert view.update_all.text() == "Update all"
+        assert view.update_all.toolTip() == "Update 2 mod(s) to the latest version from their source"
+        view.set_pack(pack, [_catalog_entry("com.example.locked", "1.2.0")], set())
+        assert not view.update_all.isVisible()
+        view.set_pack(None, [])
+        assert not view.update_all.isVisible()
+    finally:
+        view.deleteLater()
+    app.processEvents()

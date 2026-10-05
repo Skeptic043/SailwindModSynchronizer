@@ -40,6 +40,7 @@ class PackView(QWidget):
     bulk_enabled = Signal(bool)
     toggle_enabled = Signal(str, bool)
     update_requested = Signal(str)
+    update_all_requested = Signal(list)
     import_requested = Signal(str)
     import_file_clicked = Signal()
     find_repo_requested = Signal(str)
@@ -56,6 +57,7 @@ class PackView(QWidget):
         self._progress_prefix = ""
         self._bulk_busy = False
         self._actions_blocked = False
+        self._blocked_reason = ""
         self._freeze_bulk_actions = False
         self._bulk_available = (False, False)
         self.title = QLabel("No pack selected")
@@ -64,6 +66,9 @@ class PackView(QWidget):
         self.import_file.setToolTip("Import a .dll or .zip into the library and add it to this pack")
         self.import_file.setEnabled(False)
         self.import_file.clicked.connect(self.import_file_clicked.emit)
+        self.update_all = QPushButton("Update all")
+        self.update_all.hide()
+        self.update_all.clicked.connect(lambda: self.update_all_requested.emit(self.updatable_guids()))
         self.check_all = QPushButton("Check All")
         self.uncheck_all = QPushButton("Uncheck All")
         self.check_all.clicked.connect(lambda: self.bulk_enabled.emit(True))
@@ -87,6 +92,7 @@ class PackView(QWidget):
         titles.addWidget(self.title)
         titles.addWidget(self.subtitle)
         header.addLayout(titles, 1)
+        header.addWidget(self.update_all)
         header.addWidget(self.check_all)
         header.addWidget(self.uncheck_all)
         header.addWidget(self.import_file)
@@ -113,12 +119,13 @@ class PackView(QWidget):
             bool(pack and any(not mod.enabled for mod in pack.mods)),
             bool(pack and any(mod.enabled for mod in pack.mods)),
         )
-        self.set_actions_blocked(self._actions_blocked)
+        self._apply_action_state()
         if pack is None:
             self.title.setText("No pack selected")
             self.subtitle.setText("")
             self.import_file.setEnabled(False)
             self._row_state = {}
+            self._apply_action_state()
             with sorting_paused(self.table):
                 self.table.setRowCount(0)
             return
@@ -215,6 +222,7 @@ class PackView(QWidget):
                 actions_layout.addWidget(remove_btn)
                 self._enable_row_context_menu(actions, guid)
                 self.table.setCellWidget(index, 5, actions)
+        self._apply_action_state()
 
     def refresh_enabled(self, pack: ModPack) -> bool:
         """Update checkbox state without rebuilding rows or rescanning artifacts."""
@@ -270,7 +278,7 @@ class PackView(QWidget):
     def _refresh_enabled_header(self) -> None:
         values = self._enabled_by_guid.values()
         self._bulk_available = (any(not value for value in values), any(self._enabled_by_guid.values()))
-        self.set_actions_blocked(self._actions_blocked)
+        self._apply_action_state()
         self._update_subtitle()
 
     def _update_subtitle(self) -> None:
@@ -307,12 +315,31 @@ class PackView(QWidget):
         self.subtitle.setToolTip("")
         self._update_subtitle()
 
-    def set_actions_blocked(self, blocked: bool) -> None:
+    def set_actions_blocked(self, blocked: bool, reason: str = "") -> None:
+        """Disable or re-enable the pack-wide buttons.
+
+        While blocked, ``reason`` replaces the Update all label, so the wait it shows has a visible cause.
+        """
         self._actions_blocked = blocked
+        self._blocked_reason = reason if blocked else ""
+        self._apply_action_state()
+
+    def _apply_action_state(self) -> None:
+        count = len(self.updatable_guids())
+        self.update_all.setVisible(count > 0)
         if self._freeze_bulk_actions:
             return
-        self.check_all.setEnabled(self._bulk_available[0] and not self._bulk_busy and not blocked)
-        self.uncheck_all.setEnabled(self._bulk_available[1] and not self._bulk_busy and not blocked)
+        idle = not self._bulk_busy and not self._actions_blocked
+        self.check_all.setEnabled(self._bulk_available[0] and idle)
+        self.uncheck_all.setEnabled(self._bulk_available[1] and idle)
+        self.update_all.setEnabled(idle)
+        waiting = self._blocked_reason if not idle else ""
+        self.update_all.setText(waiting or "Update all")
+        self.update_all.setToolTip(
+            f"{waiting} Update all becomes available when it finishes."
+            if waiting
+            else f"Update {count} mod(s) to the latest version from their source"
+        )
 
     def clear_operation_status(self) -> None:
         self._progress_timer.stop()
@@ -322,7 +349,7 @@ class PackView(QWidget):
     def set_bulk_busy(self, busy: bool, *, visual: bool = True) -> None:
         self._bulk_busy = busy
         self._freeze_bulk_actions = busy and not visual
-        self.set_actions_blocked(self._actions_blocked)
+        self._apply_action_state()
         if visual:
             self.import_file.setEnabled(bool(self._row_state) and not busy)
             for row in range(self.table.rowCount()):
@@ -332,8 +359,12 @@ class PackView(QWidget):
                         widget.setEnabled(not busy)
 
     def available_updates(self) -> int:
-        """Number of mods in the current pack with a newer version in the catalog."""
-        return sum(1 for _, _, can_update, _ in self._row_state.values() if can_update)
+        """Number of mods in the current pack that its Update buttons can update."""
+        return len(self.updatable_guids())
+
+    def updatable_guids(self) -> list[str]:
+        """Return the GUIDs of the pack's downloaded mods whose source has a newer version."""
+        return [guid for guid, (_, missing, can_update, _) in self._row_state.items() if can_update and not missing]
 
     def _version_combo(
         self,

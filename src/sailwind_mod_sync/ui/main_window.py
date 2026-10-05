@@ -235,6 +235,7 @@ class MainWindow(QMainWindow):
         self.pack_view.bulk_enabled.connect(self._set_all_mods_enabled)
         self.pack_view.toggle_enabled.connect(self._toggle_mod)
         self.pack_view.update_requested.connect(self._update_mod)
+        self.pack_view.update_all_requested.connect(self._update_all_mods)
         self.pack_view.import_requested.connect(self._import_missing_mod)
         self.pack_view.import_file_clicked.connect(self._import_local_mod)
         self.pack_view.find_repo_requested.connect(self._find_pack_repo)
@@ -436,7 +437,10 @@ class MainWindow(QMainWindow):
         )
 
     def _update_bulk_actions_availability(self) -> None:
-        self.pack_view.set_actions_blocked(self._busy or self._mod_scan_running)
+        self.pack_view.set_actions_blocked(
+            self._busy or self._mod_scan_running,
+            "Checking for updates…" if self._mod_scan_running else "",
+        )
 
     def _update_pack_updates_hint(self) -> None:
         count = self.pack_view.available_updates()
@@ -1242,6 +1246,34 @@ class MainWindow(QMainWindow):
         )
 
     @_unless_bulk_running
+    def _update_all_mods(self, guids: list[str]) -> None:
+        pack_id = self.current_pack_id()
+        if not pack_id or not guids:
+            return
+        self._run(
+            lambda progress: self.manager.update_mods(pack_id, guids, progress=progress),
+            self._mods_updated,
+            f"Updating {len(guids)} mods…",
+        )
+
+    def _mods_updated(self, result) -> None:
+        updated, failures = result
+        self._reload_views()
+        summary = f"Updated {len(updated)} mod(s)"
+        if failures:
+            summary = f"{summary}, {len(failures)} could not be updated"
+            box = QMessageBox(
+                QMessageBox.Icon.Warning,
+                "Some mods could not be updated",
+                f"{summary}.",
+                QMessageBox.StandardButton.Ok,
+                self,
+            )
+            box.setDetailedText("\n\n".join(failures))
+            box.exec()
+        self.statusBar().showMessage(summary)
+
+    @_unless_bulk_running
     def _remove_mod(self, guid: str) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
@@ -1806,7 +1838,12 @@ class MainWindow(QMainWindow):
                     in_table = self.pack_view.table.isAncestorOf(watched)
                     if kind == QEvent.Type.Wheel and in_table:
                         return super().eventFilter(watched, event)
-                    roots = (self.pack_view.check_all, self.pack_view.uncheck_all, self.pack_view.import_file)
+                    roots = (
+                        self.pack_view.update_all,
+                        self.pack_view.check_all,
+                        self.pack_view.uncheck_all,
+                        self.pack_view.import_file,
+                    )
                     blocked = any(watched is root or root.isAncestorOf(watched) for root in roots)
                     cell = watched
                     while not blocked and cell is not None:

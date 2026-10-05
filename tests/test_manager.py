@@ -1266,3 +1266,25 @@ def test_apply_catalog_keeps_newer_versions_found_by_a_scan(paths: AppPaths) -> 
         manager.close()
     assert manager.catalog is refreshed
     assert [entry.latest_raw for entry in manager.catalog] == ["v1.3.0", "v0.5.0"]
+
+
+def test_update_mods_continues_past_failures(paths: AppPaths, monkeypatch) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    pack = manager.packs.create("Crew")
+
+    def fake_update(pack_id, guid, progress=None):
+        if guid == "com.example.broken":
+            raise RuntimeError("No GitHub release")
+        return PinnedMod(guid=guid, version="2.0.0")
+
+    monkeypatch.setattr(manager, "update_mod", fake_update)
+    messages: list[str] = []
+    try:
+        updated, failures = manager.update_mods(
+            pack.id, ["com.example.broken", "com.example.mod"], progress=messages.append
+        )
+    finally:
+        manager.close()
+    assert [pin.guid for pin in updated] == ["com.example.mod"]
+    assert failures == ["com.example.broken: No GitHub release"]
+    assert messages == ["Updating com.example.broken (1/2)…", "Updating com.example.mod (2/2)…"]

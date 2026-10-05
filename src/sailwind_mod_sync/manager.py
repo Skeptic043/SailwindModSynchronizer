@@ -970,6 +970,28 @@ class Manager:
             progress=progress,
         )
 
+    def update_mods(
+        self,
+        pack_id: str,
+        guids: list[str],
+        progress: ProgressFn | None = None,
+    ) -> tuple[list[PinnedMod], list[str]]:
+        """Update each mod of ``guids`` in the pack, carrying on past mods that fail.
+
+        Return the updated pins and a ``"guid: reason"`` line for each mod that could not be updated.
+        """
+        updated: list[PinnedMod] = []
+        failures: list[str] = []
+        for index, guid in enumerate(guids, start=1):
+            if progress:
+                progress(f"Updating {guid} ({index}/{len(guids)})…")
+            try:
+                updated.append(self.update_mod(pack_id, guid, progress=progress))
+            except Exception as exc:
+                log.warning("Could not update %s in pack %s: %s", guid, pack_id, exc)
+                failures.append(f"{guid}: {str(exc).strip() or type(exc).__name__}")
+        return updated, failures
+
     def set_mod_enabled(self, pack_id: str, guid: str, enabled: bool) -> ModPack:
         self._check_bulk_recovery(pack_id)
         self._set_bulk_mod_enabled(pack_id, guid, enabled)
