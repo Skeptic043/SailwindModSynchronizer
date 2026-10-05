@@ -281,8 +281,6 @@ class MainWindow(QMainWindow):
         import_game_action = backup_menu.addAction("Import game plugins")
         import_game_action.setStatusTip("Create a ModPack from plugins currently in the game BepInEx folder")
         import_game_action.triggered.connect(self._import_game_plugins)
-        vanilla_action = self.menuBar().addAction("Launch vanilla")
-        vanilla_action.triggered.connect(self._play_vanilla)
         downloads_menu = self.menuBar().addMenu("Tools")
         manage_downloads = downloads_menu.addAction("Manage downloads…")
         manage_downloads.setStatusTip("Open cached mod downloads")
@@ -309,11 +307,10 @@ class MainWindow(QMainWindow):
         test_splash.triggered.connect(self._test_splash)
         about = help_menu.addAction("About")
         about.triggered.connect(self._about)
-        self._vanilla_action = vanilla_action
         self._bulk_actions = [
             settings_action, self.backup_action, self.restore_action,
             self.backup_saves_action, self.restore_saves_action, import_game_action,
-            vanilla_action, import_mod_action, scan_action, check_updates, hidden_mods,
+            import_mod_action, scan_action, check_updates, hidden_mods,
         ]
         self._pack_buttons = [
             layout.itemAt(index).widget()
@@ -1649,7 +1646,7 @@ class MainWindow(QMainWindow):
         self._update_bulk_actions_availability()
         controls = []
         if guid is None:
-            controls.extend([self.pack_list, self.play_button, self.vanilla_button, self._vanilla_action])
+            controls.extend([self.pack_list, self.play_button, self.vanilla_button])
             controls.extend([*self._pack_buttons, *self._bulk_actions])
             for view in (self.catalog_view, self.library_view):
                 controls.extend(view.findChildren(QPushButton))

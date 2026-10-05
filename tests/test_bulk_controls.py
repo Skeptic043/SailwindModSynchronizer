@@ -552,7 +552,6 @@ def test_single_pending_blocks_other_inputs_and_all_launch_paths_without_graying
         assert window.pack_list.isEnabled()
         assert window.play_button.isEnabled()
         assert window.vanilla_button.isEnabled()
-        assert window._vanilla_action.isEnabled()
         assert window.pack_view.check_all.isEnabled() and window.pack_view.uncheck_all.isEnabled()
         second.setChecked(False)
         assert second.isChecked()
@@ -560,7 +559,6 @@ def test_single_pending_blocks_other_inputs_and_all_launch_paths_without_graying
         assert combo.currentIndex() == initial_index
         window._play()
         window._play_vanilla()
-        window._vanilla_action.trigger()
         window._delete_pack()
         window._remove_mod("example.second")
         assert not launches
@@ -575,7 +573,6 @@ def test_single_pending_blocks_other_inputs_and_all_launch_paths_without_graying
     assert calls == [{"example.first"}]
     assert first.isChecked() and first.isEnabled()
     assert not launches
-    assert window._vanilla_action.isEnabled()
     assert window.pack_view.subtitle.styleSheet() == ""
     assert window.pack_view.subtitle.font() == subtitle_font
     assert "2/2 mods enabled" in window.pack_view.subtitle.text()
@@ -682,7 +679,6 @@ def test_single_input_filter_blocks_actual_input_without_repainting_controls(win
         assert appearance == [(widget.isEnabled(), widget.palette(), widget.font(), widget.styleSheet()) for widget in controls]
         QTest.mouseClick(window.play_button, Qt.MouseButton.LeftButton)
         QTest.mouseClick(window.vanilla_button, Qt.MouseButton.LeftButton)
-        window._vanilla_action.trigger()
         window._play()
         window._play_vanilla()
         QTest.mouseClick(window.pack_view.check_all, Qt.MouseButton.LeftButton)
