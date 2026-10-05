@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -59,6 +60,57 @@ def test_export_import_bundle(paths: AppPaths, tmp_path: Path) -> None:
     imported = packs.import_file(dest, library)
     assert imported.mods[0].guid == "com.dizzy.sailwind.gamma"
     assert library.has_mod("com.dizzy.sailwind.gamma", "0.3.3")
+
+
+def test_bundle_carries_bepinex_configs_and_extracted_only_mods(paths: AppPaths, tmp_path: Path) -> None:
+    library = LibraryStore(paths)
+    bx_archive = tmp_path / "bx.zip"
+    with zipfile.ZipFile(bx_archive, "w") as zf:
+        zf.writestr("BepInExPack/BepInEx/core/BepInEx.Preloader.dll", b"MZ")
+        zf.writestr("BepInExPack/winhttp.dll", b"MZ")
+    library.ingest_bepinex_zip("5.4.2100", bx_archive)
+    plugin = tmp_path / "Local.Mod"
+    plugin.mkdir()
+    (plugin / "Local.Mod.dll").write_bytes(b"MZ")
+    library.ingest_plugin_paths("local.mod", "1.0.0", [plugin], version_raw="1.0.0", repo="", source_url="")
+    for stray in library.mod_dir("local.mod", "1.0.0").glob("*.zip"):
+        stray.unlink()
+    packs = PackStore(paths)
+    pack = packs.create("Offline", bepinex="5.4.2100")
+    packs.upsert_mod(pack.id, PinnedMod(guid="local.mod", version="1.0.0"))
+    config = packs.instance_dir(pack.id) / "BepInEx" / "config" / "local.mod.cfg"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text("speed = 3", encoding="utf-8")
+    dest = tmp_path / "offline.zip"
+    messages: list[str] = []
+    packs.export_bundle(pack.id, dest, library, include_context=True, progress=messages.append)
+    assert any("BepInEx 5.4.2100" in m for m in messages)
+    assert any("(1/1)" in m for m in messages)
+    assert any("local.mod.cfg" in m for m in messages)
+    with zipfile.ZipFile(dest) as zf:
+        names = zf.namelist()
+    assert "bepinex/BepInExPack-5.4.2100.zip" in names
+    assert "config/local.mod.cfg" in names
+
+    packs.delete(pack.id)
+    library.delete_mod("local.mod", "1.0.0")
+    shutil.rmtree(library.bepinex_dir("5.4.2100"))
+    imported = packs.import_file(dest, library)
+    assert library.has_bepinex("5.4.2100")
+    assert library.has_mod("local.mod", "1.0.0")
+    restored = packs.instance_dir(imported.id) / "BepInEx" / "config" / "local.mod.cfg"
+    assert restored.read_text(encoding="utf-8") == "speed = 3"
+
+
+def test_bundle_import_ignores_config_path_traversal(paths: AppPaths, tmp_path: Path) -> None:
+    dest = tmp_path / "evil.zip"
+    with zipfile.ZipFile(dest, "w") as zf:
+        zf.writestr("modpack.json", json.dumps({"name": "Evil", "mods": []}))
+        zf.writestr("config/../../escaped.cfg", "x")
+    packs = PackStore(paths)
+    imported = packs.import_file(dest, LibraryStore(paths))
+    assert not (packs.instance_dir(imported.id) / "escaped.cfg").exists()
+    assert not (packs.pack_dir(imported.id) / "escaped.cfg").exists()
 
 
 def test_duplicate_and_delete(paths: AppPaths) -> None:

@@ -45,6 +45,7 @@ from sailwind_mod_sync.ui.associate_dialog import AssociateCatalogDialog, Associ
 from sailwind_mod_sync.ui.catalog_view import CatalogView
 from sailwind_mod_sync.ui.downloads_window import DownloadsWindow
 from sailwind_mod_sync.ui.hidden_mods_dialog import HiddenModsDialog
+from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
 from sailwind_mod_sync.ui.launch_splash import LaunchSplash
 from sailwind_mod_sync.ui.links import help_text_to_html
@@ -695,24 +696,32 @@ class MainWindow(QMainWindow):
         if not pack_id:
             return
         pack = self.manager.packs.get(pack_id)
-        path, selected = QFileDialog.getSaveFileName(
-            self,
-            "Export ModPack",
-            f"{pack.id}.json",
-            "ModPack JSON (*.json);;ModPack bundle (*.zip)",
-        )
+        dialog = ExportDialog(pack.name, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        kind = dialog.kind()
+        file_filter = "ModPack JSON (*.json)" if kind is ExportKind.RECIPE else "ModPack bundle (*.zip)"
+        path, _ = QFileDialog.getSaveFileName(self, "Export ModPack", f"{pack.id}{kind.suffix}", file_filter)
         if not path:
             return
-        bundle = selected.startswith("ModPack bundle") or path.lower().endswith(".zip")
         dest = Path(path)
-        if bundle and dest.suffix.lower() != ".zip":
-            dest = dest.with_suffix(".zip")
-        try:
-            self.manager.export_pack(pack_id, dest, bundle=bundle)
-        except Exception as exc:
-            QMessageBox.critical(self, "Export failed", str(exc))
+        if dest.suffix.lower() != kind.suffix:
+            dest = dest.with_suffix(kind.suffix)
+        if kind is ExportKind.RECIPE:
+            try:
+                self.manager.export_pack(pack_id, dest)
+            except Exception as exc:
+                QMessageBox.critical(self, "Export failed", str(exc))
+                return
+            self.statusBar().showMessage(f"Exported {dest}")
             return
-        self.statusBar().showMessage(f"Exported {dest}")
+
+        def work(progress):
+            return self.manager.export_pack(
+                pack_id, dest, bundle=True, include_context=kind is ExportKind.FULL, progress=progress
+            )
+
+        self._run(work, lambda path: self.statusBar().showMessage(f"Exported {path}"), "Exporting ModPack bundle…")
 
     @_unless_bulk_running
     def _import_pack(self) -> None:

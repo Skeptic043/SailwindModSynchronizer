@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import logging
 import re
@@ -8,12 +9,15 @@ import zipfile
 from pathlib import Path
 
 from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION, DEFAULT_PACK_NAME
+from sailwind_mod_sync.http_util import ProgressFn
 from sailwind_mod_sync.models import ModPack, PinnedMod
 from sailwind_mod_sync.paths import AppPaths, sanitize_segment
 
 log = logging.getLogger(__name__)
 
 PACK_FILENAME = "modpack.json"
+BUNDLE_BEPINEX_DIR = "bepinex"
+BUNDLE_CONFIG_DIR = "config"
 SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -136,21 +140,51 @@ class PackStore:
         dest.write_text(json.dumps(pack.to_dict(), indent=2) + "\n", encoding="utf-8")
         return dest
 
-    def export_bundle(self, pack_id: str, dest: Path, library) -> Path:
+    def export_bundle(
+        self,
+        pack_id: str,
+        dest: Path,
+        library,
+        include_context: bool = False,
+        progress: ProgressFn | None = None,
+    ) -> Path:
+        """Write a bundle of manifest and mod zips; with include_context, also BepInExPack and pack configs."""
         pack = self.get(pack_id)
+        total = len(pack.mods)
+
+        def report(message: str) -> None:
+            if progress:
+                progress(message)
+
         dest.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(PACK_FILENAME, json.dumps(pack.to_dict(), indent=2) + "\n")
-            for mod in pack.mods:
+            if include_context and pack.bepinex and library.has_bepinex(pack.bepinex):
+                bx_zip = library.bepinex_zip_path(pack.bepinex)
+                if bx_zip.exists():
+                    report(f"Adding BepInEx {pack.bepinex} ({bx_zip.name})…")
+                    zf.write(bx_zip, f"{BUNDLE_BEPINEX_DIR}/{bx_zip.name}")
+            for index, mod in enumerate(pack.mods, start=1):
                 if not library.has_mod(mod.guid, mod.version):
+                    report(f"Skipping {mod.guid} {mod.version}: not downloaded ({index}/{total})")
                     continue
                 zip_path = library.mod_zip_path(mod.guid, mod.version)
                 meta_path = library.mod_dir(mod.guid, mod.version) / "metadata.json"
                 prefix = f"artifacts/{sanitize_segment(mod.guid)}/{sanitize_segment(mod.version)}"
+                report(f"Adding {zip_path.name} ({index}/{total})…")
                 if zip_path.exists():
                     zf.write(zip_path, f"{prefix}/{zip_path.name}")
+                else:
+                    _write_dir_as_zip(zf, library.mod_extracted(mod.guid, mod.version), f"{prefix}/{zip_path.name}")
                 if meta_path.exists():
                     zf.write(meta_path, f"{prefix}/metadata.json")
+            config_dir = self.instance_dir(pack_id) / "BepInEx" / "config"
+            if include_context and config_dir.is_dir():
+                for path in sorted(config_dir.rglob("*")):
+                    if path.is_file() and not _is_ignored_log(path.name):
+                        report(f"Adding config {path.relative_to(config_dir).as_posix()}…")
+                        zf.write(path, f"{BUNDLE_CONFIG_DIR}/{path.relative_to(config_dir).as_posix()}")
+        report(f"Finished writing {dest.name}")
         return dest
 
     def import_manifest(self, payload: dict) -> ModPack:
@@ -183,6 +217,7 @@ class PackStore:
                 raise ValueError("Bundle is missing modpack.json")
             payload = json.loads(zf.read(manifest_name).decode("utf-8"))
             pack = self.import_manifest(payload)
+            self._import_bundle_extras(zf, pack, library)
             for info in zf.infolist():
                 name = info.filename.replace("\\", "/")
                 if not name.startswith("artifacts/") or info.is_dir():
@@ -219,6 +254,31 @@ class PackStore:
         log.info("Created pack %s (%s) from bundle with %s mod(s)", pack.id, pack.name, len(pack.mods))
         return pack
 
+    def _import_bundle_extras(self, zf: zipfile.ZipFile, pack: ModPack, library) -> None:
+        config_dir = self.instance_dir(pack.id) / "BepInEx" / "config"
+        for info in zf.infolist():
+            name = info.filename.replace("\\", "/")
+            if info.is_dir():
+                continue
+            if name.startswith(f"{BUNDLE_BEPINEX_DIR}/") and name.lower().endswith(".zip"):
+                if not pack.bepinex or library.has_bepinex(pack.bepinex):
+                    continue
+                target = library.bepinex_zip_path(pack.bepinex)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, target.open("wb") as out:
+                    shutil.copyfileobj(src, out)
+                library.ingest_bepinex_zip(pack.bepinex, target)
+                log.info("Ingested bundled BepInEx %s", pack.bepinex)
+            elif name.startswith(f"{BUNDLE_CONFIG_DIR}/"):
+                relative = name[len(BUNDLE_CONFIG_DIR) + 1 :]
+                target = (config_dir / relative).resolve()
+                if not target.is_relative_to(config_dir.resolve()):
+                    log.warning("Skipping unsafe bundle config path %s", name)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, target.open("wb") as out:
+                    shutil.copyfileobj(src, out)
+
     def _read_manifest(self, path: Path) -> ModPack | None:
         if not path.exists():
             return None
@@ -248,6 +308,22 @@ _INSTANCE_IGNORE = shutil.ignore_patterns(
     "ErrorLog*",
     "harmony.log",
 )
+
+
+def _is_ignored_log(name: str) -> bool:
+    return bool(_INSTANCE_IGNORE(None, [name]))
+
+
+def _write_dir_as_zip(zf: zipfile.ZipFile, source: Path, arcname: str) -> None:
+    """Nest an extracted plugin folder as a zip inside the bundle."""
+    if not source.is_dir():
+        return
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as inner:
+        for path in source.rglob("*"):
+            if path.is_file():
+                inner.write(path, path.relative_to(source).as_posix())
+    zf.writestr(arcname, buffer.getvalue())
 
 
 def _copy_instance(src: Path, dst: Path) -> None:

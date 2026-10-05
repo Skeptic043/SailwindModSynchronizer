@@ -1150,9 +1150,30 @@ class Manager:
         write_doorstop_config(game_dir, enabled=False)
         return launch_vanilla(game_dir)
 
-    def export_pack(self, pack_id: str, dest: Path, bundle: bool = False) -> Path:
+    def export_pack(
+        self,
+        pack_id: str,
+        dest: Path,
+        bundle: bool = False,
+        include_context: bool = False,
+        progress: ProgressFn | None = None,
+    ) -> Path:
+        if bundle and not include_context:
+            return self.packs.export_bundle(pack_id, dest, self.library, progress=progress)
         if bundle:
-            return self.packs.export_bundle(pack_id, dest, self.library)
+            # Cache everything first so the bundle installs without GitHub or Thunderstore.
+            pack = self.packs.get(pack_id)
+            bx_version, _ = ensure_bepinex(
+                self.library,
+                self.http,
+                version=pack.bepinex or DEFAULT_BEPINEX_VERSION,
+                progress=progress,
+            )
+            if pack.bepinex != bx_version:
+                pack.bepinex = bx_version
+                self.packs.save(pack)
+            self.resolve_pack_artifacts(pack_id, progress=progress)
+            return self.packs.export_bundle(pack_id, dest, self.library, include_context=True, progress=progress)
         return self.packs.export_json(pack_id, dest)
 
     def share_pack_text(self, pack_id: str) -> str:
