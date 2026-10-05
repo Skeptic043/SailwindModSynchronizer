@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from sailwind_mod_sync.catalog.custom import same_repo
-from sailwind_mod_sync.catalog.github import repo_page_url
+from sailwind_mod_sync.catalog.github import repo_page_url, repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, is_newer
 from sailwind_mod_sync.ui.tables import (
@@ -127,12 +127,14 @@ class PackView(QWidget):
         versions = library_versions or {}
         names = {}
         catalog_guids: set[str] = set()
+        source_counts: dict[str, int] = {}
         for entry in catalog:
             names[entry.primary_guid] = entry.name
             catalog_guids.add(entry.primary_guid)
             catalog_guids.update(entry.guids)
             for guid in entry.guids:
                 names.setdefault(guid, entry.name)
+                source_counts[guid] = source_counts.get(guid, 0) + 1
         self.title.setText(pack.name)
         missing_count = sum(1 for pinned in pack.mods if pinned.guid in missing)
         self._subtitle_tail = f"BepInEx {pack.bepinex or '—'}"
@@ -158,13 +160,17 @@ class PackView(QWidget):
                 self.table.setItem(index, 0, sortable_item("", 1 if pinned.enabled else 0))
                 self.table.setCellWidget(index, 0, wrap)
 
-                name = (display_names or {}).get(pinned.guid) or names.get(pinned.guid, pinned.guid.split(".")[-1])
-                self.table.setItem(index, 1, sortable_item(name))
-                self.table.setItem(index, 2, sortable_item(pinned.guid))
-                self.table.setItem(index, 3, sortable_item(pinned.version_raw or pinned.version, version_sort_key(pinned.version)))
                 source = find_entry(catalog, guid, pinned.repo)
                 latest = (source.latest_raw if source else "") or ""
                 repo = pinned.repo or (source.repo if source else "")
+                name = (display_names or {}).get(pinned.guid) or names.get(pinned.guid, pinned.guid.split(".")[-1])
+                name_item = sortable_item(name)
+                if repo and source_counts.get(guid, 0) > 1:
+                    name_item.setText(f"{name} · {repo_short_name(repo)}")
+                name_item.setToolTip(repo)
+                self.table.setItem(index, 1, name_item)
+                self.table.setItem(index, 2, sortable_item(pinned.guid))
+                self.table.setItem(index, 3, sortable_item(pinned.version_raw or pinned.version, version_sort_key(pinned.version)))
                 version_combo = self._version_combo(
                     pinned,
                     versions.get(guid, []),

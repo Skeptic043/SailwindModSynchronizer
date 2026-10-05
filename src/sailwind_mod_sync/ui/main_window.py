@@ -1192,7 +1192,8 @@ class MainWindow(QMainWindow):
         pinned = pack.find_mod(guid) if pack else None
         current = parse_mod_version(pinned.version) if pinned else None
         chosen = parse_mod_version(version) or version
-        if pinned and current == chosen and self.manager.library.has_mod(guid, pinned.version):
+        same_source = pinned is not None and (not repo or not pinned.repo or same_repo(repo, pinned.repo))
+        if same_source and current == chosen and self.manager.library.has_mod(guid, pinned.version):
             return
         if self.manager.library.has_mod(guid, version):
             try:

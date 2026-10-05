@@ -86,6 +86,8 @@ class CatalogEntry:
     available: bool
     custom: bool = False
     plugin_folders: list[str] = field(default_factory=list)
+    alternate: bool = False
+    """True when a higher-priority catalog already lists this mod from another repository."""
 
     @property
     def guid_label(self) -> str:

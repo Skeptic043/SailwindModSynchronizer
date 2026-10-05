@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 from unittest.mock import MagicMock, patch
@@ -978,18 +979,20 @@ def test_scan_updates_keeps_custom_entries_the_shared_catalog_covers(paths: AppP
         available=True,
         custom=True,
     )
-    save_custom_catalog(paths, [_custom_fork_entry(), other])
+    covered = replace(_custom_fork_entry(), repo="https://github.com/example/mymod", latest_raw="v0.9.0")
+    save_custom_catalog(paths, [covered, other])
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
     manager.catalog = merge_with_custom(_catalog_with_repo(), load_custom_catalog(paths))
+    assert [entry.custom for entry in manager.catalog if entry.primary_guid == "com.example.mymod"] == [False]
     try:
         manager.scan_updates(live=True)
     finally:
         manager.close()
 
     stored = load_custom_catalog(paths)
-    fork = next(entry for entry in stored if entry.primary_guid == "com.example.mymod")
-    assert fork.repo == "https://github.com/me/mymod-fork"
-    assert fork.latest_raw == "v2.0.0"
+    kept = next(entry for entry in stored if entry.primary_guid == "com.example.mymod")
+    assert kept.repo == "https://github.com/example/mymod"
+    assert kept.latest_raw == "v1.1.0"
     assert len(stored) == 2
 
 
@@ -1038,3 +1041,46 @@ def test_update_mod_uses_the_latest_version_of_the_pinned_source(paths: AppPaths
         manager.close()
     assert calls[0]["repo"] == fork_repo
     assert calls[0]["version"] == "2.1.0"
+
+
+def test_add_catalog_repo_accepts_fork_of_catalog_mod(paths: AppPaths, tmp_path: Path, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog
+    from sailwind_mod_sync.models import ReleaseAsset
+
+    archive = tmp_path / "StickyFix.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("StickyFix/StickyFix.dll", b"MZ" + b"\0" * 16 + b"com.nandbrew.stickyfix\0")
+
+    class _Http(_NoHttp):
+        def download(self, url, dest, progress=None):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(archive.read_bytes())
+
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(
+            tag="v1.1.0",
+            name="v1.1.0",
+            assets=[ReleaseAsset("StickyFix.zip", "https://example/StickyFix.zip")],
+        ),
+    )
+    manager = Manager(paths=paths, config=AppConfig(), http=_Http())
+    manager.catalog = [
+        CatalogEntry(
+            repo="https://github.com/NANDbrew/StickyFix",
+            guids=["com.nandbrew.stickyfix"],
+            primary_guid="com.nandbrew.stickyfix",
+            name="StickyFix",
+            latest_raw="v1.0.0",
+            latest_version="1.0.0",
+            available=True,
+        )
+    ]
+    try:
+        added = manager.add_catalog_repo("https://github.com/me/StickyFix")
+    finally:
+        manager.close()
+    assert [(entry.primary_guid, entry.repo) for entry in added] == [
+        ("com.nandbrew.stickyfix", "https://github.com/me/StickyFix")
+    ]
+    assert [entry.repo for entry in load_custom_catalog(paths)] == ["https://github.com/me/StickyFix"]

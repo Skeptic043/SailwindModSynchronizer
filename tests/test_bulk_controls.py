@@ -417,14 +417,14 @@ def test_filter_rebuild_restores_available_and_unavailable_buttons(window, manag
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         app.processEvents()
         for row in range(window.catalog_view.table.rowCount()):
-            assert all(not button.isEnabled() for button in window.catalog_view.table.cellWidget(row, 4).findChildren(QPushButton))
+            assert all(not button.isEnabled() for button in window.catalog_view.table.cellWidget(row, 5).findChildren(QPushButton))
     finally:
         release.set()
         wait_for_changes(app, window)
     for row in range(window.catalog_view.table.rowCount()):
-        buttons = window.catalog_view.table.cellWidget(row, 4).findChildren(QPushButton)
+        buttons = window.catalog_view.table.cellWidget(row, 5).findChildren(QPushButton)
         assert buttons[0].isEnabled()
-        assert buttons[1].isEnabled() == (window.catalog_view.table.item(row, 1).text() == "example.test")
+        assert buttons[1].isEnabled() == (window.catalog_view.table.item(row, 2).text() == "example.test")
 
 
 def test_success_subtitle_expires_and_next_progress_cancels_old_timeout(window):

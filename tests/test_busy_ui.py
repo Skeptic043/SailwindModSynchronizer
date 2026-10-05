@@ -135,6 +135,10 @@ def _catalog_entry(guid: str = "com.example.mod", latest: str = "1.2.0") -> Cata
     )
 
 
+def _shown_entry(view: CatalogView, guid: str) -> CatalogEntry:
+    return next(entry for entry in view._entries if entry.primary_guid == guid)
+
+
 def test_catalog_pack_button_labels() -> None:
     entry = _catalog_entry()
     assert catalog_pack_button(entry, None)[0] == "Add to pack"
@@ -160,7 +164,7 @@ def test_catalog_view_shows_add_to_pack_button() -> None:
     def action_labels() -> list[str]:
         labels: list[str] = []
         for row in range(view.table.rowCount()):
-            widget = view.table.cellWidget(row, 4)
+            widget = view.table.cellWidget(row, 5)
             if widget is None:
                 continue
             labels.extend(button.text() for button in widget.findChildren(QPushButton))
@@ -185,7 +189,7 @@ def test_catalog_view_shows_add_to_pack_button() -> None:
         view.install_requested.connect(lambda guid, repo: caught.append((guid, repo)))
         add_buttons = [
             button
-            for button in view.table.cellWidget(0, 4).findChildren(QPushButton)
+            for button in view.table.cellWidget(0, 5).findChildren(QPushButton)
             if button.text() == "In pack"
         ]
         assert add_buttons
@@ -216,16 +220,16 @@ def test_catalog_context_menu_removes_custom_entry() -> None:
         labels = [
             button.text()
             for row in range(view.table.rowCount())
-            for button in view.table.cellWidget(row, 4).findChildren(QPushButton)
+            for button in view.table.cellWidget(row, 5).findChildren(QPushButton)
         ]
         assert "Remove" not in labels
         assert view.table.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
-        builtin = view._menu_for_guid("com.example.mod")
+        builtin = view._menu_for_entry(_shown_entry(view, "com.example.mod"))
         assert builtin is not None
         assert [action.text() for action in builtin.actions() if not action.isSeparator()] == [
             "Hide Mod From Catalog"
         ]
-        menu = view._menu_for_guid("com.example.custom")
+        menu = view._menu_for_entry(_shown_entry(view, "com.example.custom"))
         assert menu is not None
         items = [action.text() for action in menu.actions() if not action.isSeparator()]
         assert items == ["Remove from Catalog"]
@@ -246,7 +250,7 @@ def test_catalog_hides_builtin_entry_from_context_menu() -> None:
             [_catalog_entry("com.example.mod"), _catalog_entry("com.example.other")],
             None,
         )
-        menu = view._menu_for_guid("com.example.mod")
+        menu = view._menu_for_entry(_shown_entry(view, "com.example.mod"))
         assert menu is not None
         next(action for action in menu.actions() if action.text() == "Hide Mod From Catalog").trigger()
         assert hidden == ["com.example.mod"]
@@ -256,8 +260,8 @@ def test_catalog_hides_builtin_entry_from_context_menu() -> None:
             hidden_guids=["com.example.mod"],
         )
         assert view.table.rowCount() == 1
-        assert view.table.item(0, 1).text() == "com.example.other"
-        assert view._menu_for_guid("com.example.mod") is not None
+        assert view.table.item(0, 2).text() == "com.example.other"
+        assert view._menu_for_entry(_shown_entry(view, "com.example.mod")) is not None
     finally:
         view.deleteLater()
     app.processEvents()
@@ -388,11 +392,11 @@ def test_catalog_reveal_mod_selects_matching_row(monkeypatch) -> None:
         assert not view.hide_in_pack.isChecked()
         assert view.table.rowCount() == 2
         selected = [
-            view.table.item(index.row(), 1).text()
+            view.table.item(index.row(), 2).text()
             for index in view.table.selectionModel().selectedRows()
         ]
         assert selected == ["com.example.apple"]
-        assert view.table.item(view.table.currentRow(), 1).text() == "com.example.apple"
+        assert view.table.item(view.table.currentRow(), 2).text() == "com.example.apple"
         highlight = view.table.palette().color(QPalette.ColorRole.Highlight)
         assert view.table.item(view.table.currentRow(), 0).background().color() == highlight
         assert QAbstractItemView.ScrollHint.PositionAtCenter in scrolled
@@ -433,10 +437,10 @@ def test_catalog_reveal_clears_when_another_row_selected() -> None:
         zebra_row = next(
             row
             for row in range(view.table.rowCount())
-            if view.table.item(row, 1).text() == "com.example.zebra"
+            if view.table.item(row, 2).text() == "com.example.zebra"
         )
         view.table.selectRow(zebra_row)
-        assert view._revealed_guid == ""
+        assert view._revealed_key == ""
         apple_bg = view.table.item(apple_row, 0).background().color()
         zebra_bg = view.table.item(zebra_row, 0).background().color()
         assert apple_bg != highlight
@@ -477,7 +481,7 @@ def test_catalog_hides_in_pack_rows_and_tints_them() -> None:
 
         def color_for(guid: str):
             for row in range(view.table.rowCount()):
-                if view.table.item(row, 1).text() == guid:
+                if view.table.item(row, 2).text() == guid:
                     return view.table.item(row, 0).background().color()
             raise AssertionError(guid)
 
@@ -485,12 +489,12 @@ def test_catalog_hides_in_pack_rows_and_tints_them() -> None:
         view.hide_in_pack.setChecked(True)
         view._filter.setText("other")
         assert view.table.rowCount() == 1
-        assert view.table.item(0, 1).text() == "com.example.other"
+        assert view.table.item(0, 2).text() == "com.example.other"
         assert view.reveal_mod("com.example.mod")
         assert not view.hide_in_pack.isChecked()
         assert view._filter.text() == ""
         selected = [
-            view.table.item(index.row(), 1).text()
+            view.table.item(index.row(), 2).text()
             for index in view.table.selectionModel().selectedRows()
         ]
         assert selected == ["com.example.mod"]
@@ -1143,8 +1147,8 @@ def test_catalog_header_click_sorts_rows() -> None:
         view.table.sortItems(0, Qt.SortOrder.DescendingOrder)
         names = [view.table.item(row, 0).text() for row in range(view.table.rowCount())]
         assert names == ["mod", "apple"]
-        view.table.sortItems(2, Qt.SortOrder.DescendingOrder)
-        latests = [view.table.item(row, 2).text() for row in range(view.table.rowCount())]
+        view.table.sortItems(3, Qt.SortOrder.DescendingOrder)
+        latests = [view.table.item(row, 3).text() for row in range(view.table.rowCount())]
         assert latests[0].startswith("v2.0.0")
     finally:
         view.deleteLater()
@@ -1244,6 +1248,84 @@ def test_pack_view_reports_available_updates() -> None:
         assert view.available_updates() == 2
         view.set_pack(None, [])
         assert view.available_updates() == 0
+    finally:
+        view.deleteLater()
+    app.processEvents()
+
+
+def _fork_entry(guid: str = "com.example.mod", latest: str = "2.0.0") -> CatalogEntry:
+    return CatalogEntry(
+        repo="https://github.com/me/mod-fork",
+        guids=[guid],
+        primary_guid=guid,
+        name="mod",
+        latest_raw=f"v{latest}",
+        latest_version=latest,
+        available=True,
+        custom=True,
+        alternate=True,
+    )
+
+
+def test_catalog_lists_each_source_and_offers_switching() -> None:
+    app = QApplication.instance() or QApplication([])
+    view = CatalogView()
+    pack = ModPack(
+        id="crew",
+        name="Crew",
+        mods=[PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")],
+    )
+    caught: list[tuple[str, str]] = []
+    view.install_requested.connect(lambda guid, repo: caught.append((guid, repo)))
+    try:
+        view.set_data([_catalog_entry(), _fork_entry()], pack, hidden_guids=["com.example.mod"])
+        rows = {
+            view.table.item(row, 1).text(): (
+                view.table.item(row, 4).text(),
+                view.table.cellWidget(row, 5).findChildren(QPushButton)[1],
+            )
+            for row in range(view.table.rowCount())
+        }
+        assert list(rows) == ["me/mod-fork"]
+        view.set_data([_catalog_entry(), _fork_entry()], pack)
+        rows = {
+            view.table.item(row, 1).text(): (
+                view.table.item(row, 4).text(),
+                view.table.cellWidget(row, 5).findChildren(QPushButton)[1],
+            )
+            for row in range(view.table.rowCount())
+        }
+        assert rows["example/mod"][0] == "Installed 1.2.0"
+        assert rows["example/mod"][1].text() == "In pack"
+        assert rows["me/mod-fork"][0] == "Other source in pack"
+        switch = rows["me/mod-fork"][1]
+        assert switch.text() == "Switch source"
+        switch.click()
+        assert caught == [("com.example.mod", "https://github.com/me/mod-fork")]
+
+        view.hide_in_pack.setChecked(True)
+        assert [view.table.item(row, 1).text() for row in range(view.table.rowCount())] == ["me/mod-fork"]
+        assert view.reveal_mod("com.example.mod", "https://github.com/example/mod")
+        assert view.table.item(view.table.currentRow(), 1).text() == "example/mod"
+    finally:
+        view.deleteLater()
+    app.processEvents()
+
+
+def test_pack_view_names_the_source_of_mods_with_several_sources() -> None:
+    app = QApplication.instance() or QApplication([])
+    view = PackView()
+    pack = ModPack(
+        id="crew",
+        name="Crew",
+        mods=[PinnedMod(guid="com.example.mod", version="1.5.0", repo="https://github.com/me/mod-fork")],
+    )
+    try:
+        view.set_pack(pack, [_catalog_entry("com.example.mod", "1.8.0"), _fork_entry()])
+        assert view.table.item(0, 1).text() == "mod · me/mod-fork"
+        assert view.table.item(0, 4).text() == "v2.0.0 (update)"
+        view.set_pack(pack, [_fork_entry()])
+        assert view.table.item(0, 1).text() == "mod"
     finally:
         view.deleteLater()
     app.processEvents()

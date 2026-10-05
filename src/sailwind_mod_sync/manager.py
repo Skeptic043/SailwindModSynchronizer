@@ -304,7 +304,7 @@ class Manager:
             guid = (getattr(unit, "guid", None) or "").strip()
             if not guid or guid in seen:
                 continue
-            existing = find_entry(self.catalog, guid)
+            existing = find_entry(self.catalog, guid, repo)
             if existing is not None and not existing.custom:
                 skipped.append(existing.name or existing.primary_guid)
                 continue

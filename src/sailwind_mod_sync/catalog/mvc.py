@@ -151,13 +151,13 @@ def merge_catalog(mod_list: list, versions: list) -> list[CatalogEntry]:
 def find_entry(entries: list[CatalogEntry], guid: str, repo: str = "") -> CatalogEntry | None:
     """Return the entry of ``guid`` published from ``repo``.
 
-    Without ``repo``, return the default entry of ``guid``: the shared catalog's one when it has any,
-    otherwise a custom one. Return None when no entry matches.
+    Without ``repo``, return the default entry of ``guid``: the one from the highest-priority catalog that
+    lists it. Return None when no entry matches.
     """
     matches = [entry for entry in entries if guid in entry.guids or entry.primary_guid == guid]
     if repo:
         return next((entry for entry in matches if same_repo(entry.repo, repo)), None)
-    return next((entry for entry in matches if not entry.custom), matches[0] if matches else None)
+    return next((entry for entry in matches if not entry.alternate), matches[0] if matches else None)
 
 
 def _read_json_list(path) -> list:

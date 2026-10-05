@@ -126,6 +126,17 @@ def repo_page_url(repo: str) -> str | None:
         return None
 
 
+def repo_short_name(repo: str) -> str:
+    """Return ``owner/repo`` for a GitHub or GitLab URL, the text itself for anything else, or "" when blank."""
+    text = (repo or "").strip()
+    if not text:
+        return ""
+    try:
+        return parse_repo_url(text).full_path
+    except ValueError:
+        return text
+
+
 def pick_zip_asset(assets: list[ReleaseAsset], guid: str, repo_name: str) -> ReleaseAsset:
     return pick_release_asset(assets, guid, repo_name)
 
