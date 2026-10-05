@@ -41,6 +41,7 @@ class PackView(QWidget):
     toggle_enabled = Signal(str, bool)
     update_requested = Signal(str)
     update_all_requested = Signal(list)
+    download_requested = Signal(str)
     import_requested = Signal(str)
     import_file_clicked = Signal()
     find_repo_requested = Signal(str)
@@ -146,7 +147,7 @@ class PackView(QWidget):
         missing_count = sum(1 for pinned in pack.mods if pinned.guid in missing)
         self._subtitle_tail = f"BepInEx {pack.bepinex or '—'}"
         if missing_count:
-            self._subtitle_tail += f" · {missing_count} missing"
+            self._subtitle_tail += f" · {missing_count} not downloaded"
         self._update_subtitle()
         self._row_state = {}
         with sorting_paused(self.table):
@@ -194,29 +195,19 @@ class PackView(QWidget):
                     same_repo(entry.repo, repo) for entry in catalog if repo
                 )
                 self._row_state[guid] = (repo, is_missing, can_update, in_catalog)
-                latest_label = "Missing" if is_missing else latest
-                latest_key = (1, version_sort_key(None)) if is_missing else (0, version_sort_key(latest))
-                latest_item = sortable_item(latest_label, latest_key)
-                if is_missing:
-                    latest_item.setToolTip("This version is not in the library. Import a .dll or .zip to add it.")
-                elif can_update:
-                    latest_item.setText(f"{latest} (update)")
+                latest_item = sortable_item(f"{latest} (update)" if can_update else latest, version_sort_key(latest))
                 self.table.setItem(index, 4, latest_item)
                 self.table.setItem(index, 5, sortable_item(""))
 
                 actions = QWidget()
                 actions_layout = QHBoxLayout(actions)
                 actions_layout.setContentsMargins(4, 0, 4, 0)
-                if is_missing:
-                    import_btn = QPushButton("Import")
-                    import_btn.setToolTip("Import a .dll or .zip for this missing mod")
-                    import_btn.clicked.connect(lambda _=False, value=guid: self.import_requested.emit(value))
-                    actions_layout.addWidget(import_btn)
-                else:
-                    update_btn = QPushButton("Update")
-                    update_btn.setEnabled(can_update)
-                    update_btn.clicked.connect(lambda _=False, value=guid: self.update_requested.emit(value))
-                    actions_layout.addWidget(update_btn)
+                label, tip = _main_action(repo, is_missing, can_update)
+                main_button = QPushButton(label)
+                main_button.setToolTip(tip)
+                main_button.setEnabled(label != "Update" or can_update)
+                main_button.clicked.connect(lambda _=False, value=guid, action=label: self._run_main_action(action, value))
+                actions_layout.addWidget(main_button)
                 remove_btn = QPushButton("Remove")
                 remove_btn.clicked.connect(lambda _=False, value=guid: self.remove_requested.emit(value))
                 actions_layout.addWidget(remove_btn)
@@ -363,8 +354,16 @@ class PackView(QWidget):
         return len(self.updatable_guids())
 
     def updatable_guids(self) -> list[str]:
-        """Return the GUIDs of the pack's downloaded mods whose source has a newer version."""
-        return [guid for guid, (_, missing, can_update, _) in self._row_state.items() if can_update and not missing]
+        """Return the GUIDs of the pack's mods whose source has a newer version."""
+        return [guid for guid, (_, _, can_update, _) in self._row_state.items() if can_update]
+
+    def _run_main_action(self, action: str, guid: str) -> None:
+        signals = {
+            "Update": self.update_requested,
+            "Download": self.download_requested,
+            "Import": self.import_requested,
+        }
+        signals[action].emit(guid)
 
     def _version_combo(
         self,
@@ -473,15 +472,23 @@ class PackView(QWidget):
                 lambda _=False, value=guid: self.show_in_catalog_requested.emit(value)
             )
         menu.addSeparator()
-        if missing:
-            import_action = menu.addAction("Import")
-            import_action.setEnabled(editable)
-            import_action.triggered.connect(lambda _=False, value=guid: self.import_requested.emit(value))
-        else:
-            update_action = menu.addAction("Update")
-            update_action.setEnabled(can_update and editable)
-            update_action.triggered.connect(lambda _=False, value=guid: self.update_requested.emit(value))
+        label, tip = _main_action(repo, missing, can_update)
+        main_action = menu.addAction(label)
+        main_action.setToolTip(tip)
+        main_action.setEnabled(editable and (label != "Update" or can_update))
+        main_action.triggered.connect(lambda _=False, value=guid, action=label: self._run_main_action(action, value))
         remove = menu.addAction("Remove")
         remove.setEnabled(editable)
         remove.triggered.connect(lambda _=False, value=guid: self.remove_requested.emit(value))
         return menu
+
+
+def _main_action(repo: str, missing: bool, can_update: bool) -> tuple[str, str]:
+    """Return the label and tooltip of a pack row's main action: Update, Download or Import."""
+    if can_update:
+        return "Update", "Download the newest version from the mod's source and use it in this pack"
+    if missing and repo:
+        return "Download", "This version is not downloaded yet. Download it now, or it downloads when you play the pack."
+    if missing:
+        return "Import", "No repository is known for this mod. Import its .dll or .zip, or add a repository."
+    return "Update", "This mod is on the newest version its source has"

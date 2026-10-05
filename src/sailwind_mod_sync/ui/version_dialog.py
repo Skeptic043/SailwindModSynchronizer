@@ -68,7 +68,7 @@ def pack_version_items(
     add(
         pinned.version,
         pinned.version_raw or pinned.version,
-        "(missing)" if missing else "",
+        "(not downloaded)" if missing else "",
     )
     latest_version = catalog_latest_version or parse_mod_version(catalog_latest_raw)
     if latest_version:

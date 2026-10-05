@@ -278,7 +278,7 @@ def test_bulk_partial_failure_restores_controls_and_actual_checkboxes(window, ma
     }
     assert states == {"example.good": True, "example.missing": False}
     assert "1/2 mods enabled" in window.pack_view.subtitle.text()
-    assert "1 missing" in window.pack_view.subtitle.text()
+    assert "1 not downloaded" in window.pack_view.subtitle.text()
     assert "All mods enabled" not in window.pack_view.subtitle.text()
     assert not window.pack_view._progress_timer.isActive()
     assert window.play_button.isEnabled()
@@ -1092,3 +1092,21 @@ def test_play_warns_only_about_mods_that_cannot_be_downloaded(window, manager, m
     manager.packs.upsert_mod(pack.id, PinnedMod(guid="local.mystery", version="1.0.0"))
     assert window._confirm_missing_mods(pack.id)
     assert warned == [["local.mystery"]]
+
+
+def test_download_fetches_the_pinned_version(window, manager, monkeypatch):
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="example.test", version="1.0.0", version_raw="v1.0.0"))
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        manager,
+        "set_pack_mod_version",
+        lambda *args, **kwargs: calls.append(args) or PinnedMod(guid="example.test", version="1.0.0"),
+    )
+    window._download_mod("example.test")
+    deadline = time.monotonic() + 5
+    while window._busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(.005)
+    assert calls == [(pack.id, "example.test", "1.0.0", "v1.0.0")]

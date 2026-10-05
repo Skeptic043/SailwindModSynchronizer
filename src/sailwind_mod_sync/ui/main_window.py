@@ -238,6 +238,7 @@ class MainWindow(QMainWindow):
         self.pack_view.toggle_enabled.connect(self._toggle_mod)
         self.pack_view.update_requested.connect(self._update_mod)
         self.pack_view.update_all_requested.connect(self._update_all_mods)
+        self.pack_view.download_requested.connect(self._download_mod)
         self.pack_view.import_requested.connect(self._import_missing_mod)
         self.pack_view.import_file_clicked.connect(self._import_local_mod)
         self.pack_view.find_repo_requested.connect(self._find_pack_repo)
@@ -1249,6 +1250,20 @@ class MainWindow(QMainWindow):
             lambda progress: self.manager.update_mod(pack_id, guid, progress=progress),
             lambda _r: QTimer.singleShot(0, self._reload_views),
             f"Updating {guid}…",
+        )
+
+    @_unless_bulk_running
+    def _download_mod(self, guid: str) -> None:
+        pack_id = self.current_pack_id()
+        pack = self.manager.packs.get(pack_id) if pack_id else None
+        pinned = pack.find_mod(guid) if pack else None
+        if pinned is None:
+            return
+        version_raw = pinned.version_raw or pinned.version
+        self._run(
+            lambda progress: self.manager.set_pack_mod_version(pack_id, guid, pinned.version, version_raw, progress=progress),
+            lambda _r: self._reload_views(),
+            f"Downloading {guid} {version_raw}…",
         )
 
     @_unless_bulk_running

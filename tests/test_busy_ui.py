@@ -1439,9 +1439,9 @@ def test_pack_view_offers_update_all_for_updatable_mods() -> None:
         view.show()
         view.set_pack(pack, catalog, {"com.example.gone"})
         assert view.update_all.isVisible()
-        assert view.available_updates() == 2
+        assert view.available_updates() == 3
         view.update_all.click()
-        assert caught == [["com.example.mod", "com.example.old"]]
+        assert caught == [["com.example.mod", "com.example.old", "com.example.gone"]]
         view.set_actions_blocked(True)
         assert not view.update_all.isEnabled()
         assert view.update_all.text() == "Update all"
@@ -1452,11 +1452,55 @@ def test_pack_view_offers_update_all_for_updatable_mods() -> None:
         view.set_actions_blocked(False)
         assert view.update_all.isEnabled()
         assert view.update_all.text() == "Update all"
-        assert view.update_all.toolTip() == "Update 2 mod(s) to the latest version from their source"
+        assert view.update_all.toolTip() == "Update 3 mod(s) to the latest version from their source"
         view.set_pack(pack, [_catalog_entry("com.example.locked", "1.2.0")], set())
         assert not view.update_all.isVisible()
         view.set_pack(None, [])
         assert not view.update_all.isVisible()
+    finally:
+        view.deleteLater()
+    app.processEvents()
+
+
+def test_pack_view_keeps_latest_version_and_offers_download_for_mods_not_downloaded() -> None:
+    app = QApplication.instance() or QApplication([])
+    view = PackView()
+    pack = ModPack(
+        id="crew",
+        name="Crew",
+        mods=[
+            PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod"),
+            PinnedMod(guid="com.example.old", version="1.0.0", repo="https://github.com/example/old"),
+            PinnedMod(guid="local.discord.mystery", version="1.0.0"),
+        ],
+    )
+    catalog = [_catalog_entry("com.example.mod", "1.2.0"), _catalog_entry("com.example.old", "2.0.0")]
+    caught: list[tuple[str, str]] = []
+    view.download_requested.connect(lambda guid: caught.append(("download", guid)))
+    view.update_requested.connect(lambda guid: caught.append(("update", guid)))
+    view.import_requested.connect(lambda guid: caught.append(("import", guid)))
+    try:
+        view.set_pack(pack, catalog, {"com.example.mod", "com.example.old", "local.discord.mystery"})
+        rows = {
+            view.table.item(row, 2).text(): (
+                view.table.item(row, 4).text(),
+                view.table.cellWidget(row, 5).findChildren(QPushButton)[0],
+            )
+            for row in range(view.table.rowCount())
+        }
+        assert rows["com.example.mod"][0] == "v1.2.0"
+        assert rows["com.example.old"][0] == "v2.0.0 (update)"
+        assert [rows[guid][1].text() for guid in sorted(rows)] == ["Download", "Update", "Import"]
+        for guid in sorted(rows):
+            rows[guid][1].click()
+        assert caught == [
+            ("download", "com.example.mod"),
+            ("update", "com.example.old"),
+            ("import", "local.discord.mystery"),
+        ]
+        assert "3 not downloaded" in view.subtitle.text()
+        menu = view._menu_for_guid("com.example.mod")
+        assert "Download" in [action.text() for action in menu.actions()]
     finally:
         view.deleteLater()
     app.processEvents()

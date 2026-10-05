@@ -66,7 +66,7 @@ def test_pack_version_items_marks_missing_and_skips_browse_without_repo() -> Non
         missing=True,
     )
     labels = [label for label, _data in items]
-    assert "v0.9.0 (missing)" in labels
+    assert "v0.9.0 (not downloaded)" in labels
     assert "v1.0.0 (download)" in labels
     assert "More versions…" not in labels
 
