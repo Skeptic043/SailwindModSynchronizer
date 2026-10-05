@@ -929,3 +929,46 @@ def test_switching_packs_scans_library_once(window, manager, monkeypatch, tmp_pa
     window.pack_list.setCurrentRow(rows[second.id])
     assert len(calls) == 1
     assert window.current_pack_id() == second.id
+
+
+def _pump_until(app, condition, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    return condition()
+
+
+def test_quick_task_never_shows_progress_dialog(window, monkeypatch):
+    from sailwind_mod_sync.ui.progress_dialog import BusyDialog
+
+    app, window = window
+    shown = []
+    original_show = BusyDialog.show
+    monkeypatch.setattr(BusyDialog, "show", lambda self: shown.append(self) or original_show(self))
+    results = []
+    window._run(lambda progress: "done", results.append, "Updating mod…")
+    assert _pump_until(app, lambda: results == ["done"])
+    assert not window._busy
+    deadline = time.monotonic() + 0.4
+    while time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert shown == []
+
+
+def test_slow_task_shows_progress_dialog_after_delay(window):
+    from sailwind_mod_sync.ui.main_window import PROGRESS_DIALOG_DELAY_MS
+
+    app, window = window
+    release = threading.Event()
+    results = []
+    window._run(lambda progress: release.wait(5) and "done", results.append, "Downloading mod…")
+    try:
+        assert window._progress_dialog is not None
+        assert not window._progress_dialog.isVisible()
+        assert _pump_until(app, lambda: window._progress_dialog.isVisible(), timeout=PROGRESS_DIALOG_DELAY_MS / 1000 + 2)
+    finally:
+        release.set()
+    assert _pump_until(app, lambda: results == ["done"])
+    assert window._progress_dialog is None
