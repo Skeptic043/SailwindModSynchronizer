@@ -1309,3 +1309,74 @@ def test_update_mods_continues_past_failures(paths: AppPaths, monkeypatch) -> No
     assert [pin.guid for pin in updated] == ["com.example.mod"]
     assert failures == ["com.example.broken: No GitHub release"]
     assert messages == ["Updating com.example.broken (1/2)…", "Updating com.example.mod (2/2)…"]
+
+
+def test_clear_cache_deletes_downloadable_data_and_keeps_user_data(paths: AppPaths, tmp_path: Path) -> None:
+    import json
+
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, save_custom_catalog
+    from sailwind_mod_sync.library.store import LibraryStore
+
+    listed = json.dumps([{"guid": "com.example.mod", "repo": "https://github.com/example/mod"}])
+    for cached in (paths.modlist_file, paths.versions_file, paths.extra_modlist_file, paths.scanned_versions_file):
+        cached.write_text(listed, encoding="utf-8")
+    (paths.etag_dir / "example_mod.etag").write_text("W/1", encoding="utf-8")
+    (paths.library_bepinex / "5.4.2305").mkdir(parents=True)
+    (paths.library_bepinex / "5.4.2305" / "BepInExPack.zip").write_bytes(b"zip")
+    (paths.updates_dir / "payload").mkdir(parents=True)
+    store = LibraryStore(paths)
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    store.ingest_mod_zip(
+        "com.example.mod",
+        "1.0.0",
+        archive,
+        version_raw="v1.0.0",
+        repo="https://github.com/example/mod",
+        source_url="https://github.com/example/mod/releases/download/v1.0.0/Mod.zip",
+    )
+    store.ingest_mod_zip("local.discord.mod", "1.0.0", archive, version_raw="1.0.0", repo="", source_url=str(archive))
+    save_custom_catalog(paths, [_custom_fork_entry()])
+    (paths.backups_dir / "BepInEx.zip").write_bytes(b"backup")
+    config = AppConfig(last_catalog_refresh="2026-10-05T08:00:00+00:00")
+    manager = Manager(paths=paths, config=config, http=_NoHttp())
+    pack = manager.packs.create("Crew")
+    try:
+        expected = manager.cache_size()
+        result = manager.clear_cache()
+    finally:
+        manager.close()
+
+    assert result.failures == []
+    assert result.freed_bytes == expected > 0
+    assert manager.cache_size() == 0
+    assert not paths.modlist_file.exists() and not paths.scanned_versions_file.exists()
+    assert paths.etag_dir.is_dir() and not any(paths.etag_dir.iterdir())
+    assert not any(paths.library_bepinex.iterdir()) and not any(paths.updates_dir.iterdir())
+    assert [entry.guid for entry in store.list_mods()] == ["local.discord.mod"]
+    assert not (paths.library_mods / "com.example.mod").exists()
+    assert len(load_custom_catalog(paths)) == 1
+    assert [entry.primary_guid for entry in manager.catalog] == ["com.example.mymod"]
+    assert manager.packs.exists(pack.id)
+    assert (paths.backups_dir / "BepInEx.zip").exists()
+    assert load_config(paths).last_catalog_refresh == ""
+
+
+def test_clear_cache_deletes_imported_mods_only_when_asked(paths: AppPaths, tmp_path: Path) -> None:
+    from sailwind_mod_sync.library.store import LibraryStore
+
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    LibraryStore(paths).ingest_mod_zip(
+        "local.discord.mod", "1.0.0", archive, version_raw="1.0.0", repo="", source_url=str(archive)
+    )
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    try:
+        imported = manager.imported_mods_size()
+        assert imported > 0
+        manager.clear_cache()
+        assert manager.library.has_mod("local.discord.mod", "1.0.0")
+        result = manager.clear_cache(include_imported=True)
+    finally:
+        manager.close()
+    assert result.freed_bytes >= imported
+    assert manager.library.list_mods() == []
+    assert not any(paths.library_mods.iterdir())

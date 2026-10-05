@@ -864,6 +864,8 @@ def test_help_menu_has_check_for_updates(paths: AppPaths) -> None:
             "Open AppData",
             "Open Plugins Folder",
             "Hidden Mods",
+            "",
+            "Clear cache…",
         ]
         labels = [button.text() for button in window.findChildren(QPushButton)]
         assert "Copy" in labels

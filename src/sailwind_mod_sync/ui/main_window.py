@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QComboBox,
     QFileDialog,
@@ -50,6 +51,7 @@ from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
 from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
 from sailwind_mod_sync.ui.launch_splash import LaunchSplash
+from sailwind_mod_sync.ui.library_view import format_size
 from sailwind_mod_sync.ui.links import help_text_to_html
 from sailwind_mod_sync.ui.mod_details_dialog import ModDetailsDialog
 from sailwind_mod_sync.ui.missing_mods_dialog import MissingModsWarningDialog
@@ -314,6 +316,10 @@ class MainWindow(QMainWindow):
         hidden_mods = downloads_menu.addAction("Hidden Mods")
         hidden_mods.setStatusTip("Show catalog mods you hid, and unhide them")
         hidden_mods.triggered.connect(self._manage_hidden_mods)
+        downloads_menu.addSeparator()
+        clear_cache = downloads_menu.addAction("Clear cache…")
+        clear_cache.setStatusTip("Delete downloaded catalogs, mods, BepInEx packs and app updates")
+        clear_cache.triggered.connect(self._clear_cache)
         help_menu = self.menuBar().addMenu("Help")
         check_updates = help_menu.addAction("Check for updates…")
         check_updates.triggered.connect(self._check_for_updates)
@@ -328,7 +334,7 @@ class MainWindow(QMainWindow):
         self._bulk_actions = [
             settings_action, self.backup_action, self.restore_action,
             self.backup_saves_action, self.restore_saves_action, import_game_action,
-            import_mod_action, scan_action, check_updates, hidden_mods,
+            import_mod_action, scan_action, check_updates, hidden_mods, clear_cache,
         ]
         self._pack_buttons = [
             layout.itemAt(index).widget()
@@ -1955,6 +1961,76 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"Opened {folder}")
 
+
+    @_unless_bulk_running
+    def _clear_cache(self) -> None:
+        if self._busy or self._mod_scan_running or self._catalog_refresh_running():
+            QMessageBox.information(
+                self,
+                "Clear cache",
+                "Wait for the current task, update check or catalog refresh to finish, then try again.",
+            )
+            return
+        choice = self._confirm_clear_cache(self.manager.cache_size(), self.manager.imported_mods_size())
+        if choice is None:
+            return
+        include_imported = choice
+        self._run(
+            lambda progress: self.manager.clear_cache(progress=progress, include_imported=include_imported),
+            self._cache_cleared,
+            "Clearing cache…",
+        )
+
+    def _confirm_clear_cache(self, size: int, imported_size: int) -> bool | None:
+        """Ask whether to clear the cache; return None to cancel, otherwise whether to delete imported mods too."""
+        box = QMessageBox(
+            QMessageBox.Icon.Question,
+            "Clear cache",
+            (
+                f"Delete {format_size(size)} of downloaded data?\n\n"
+                "This removes the cached catalogs, update check results, downloaded mods, "
+                "BepInEx packs and app updates. Packs and their mod settings, your own catalog "
+                "entries and backups are kept.\n\n"
+                "The catalog downloads again right away. Packs show their downloaded mods as not "
+                "downloaded until you play them, which downloads the mods again."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            self,
+        )
+        if imported_size:
+            imported = QCheckBox(f"Also delete mods imported from files ({format_size(imported_size)})")
+            imported.setToolTip(
+                "Imported mods may have no release to download them from again, such as your own builds. "
+                "Packs that use them then need the files imported again."
+            )
+            box.setCheckBox(imported)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return None
+        return bool(box.checkBox() and box.checkBox().isChecked())
+
+    def _cache_cleared(self, result) -> None:
+        self._reload_views()
+        summary = f"Cleared {format_size(result.freed_bytes)} of cached data"
+        if result.failures:
+            box = QMessageBox(
+                QMessageBox.Icon.Warning,
+                "Some files could not be deleted",
+                f"{summary}. {len(result.failures)} item(s) are in use or protected and were kept.",
+                QMessageBox.StandardButton.Ok,
+                self,
+            )
+            box.setDetailedText("\n".join(result.failures))
+            box.exec()
+        self.statusBar().showMessage(summary)
+        self._run(
+            lambda progress: self.manager.refresh_catalog(progress=progress),
+            lambda loaded: self._catalog_reloaded_after_clear(loaded, summary),
+            "Downloading the catalog…",
+        )
+
+    def _catalog_reloaded_after_clear(self, loaded, summary: str) -> None:
+        self._catalog_loaded(loaded)
+        self.statusBar().showMessage(f"{summary}. Catalog: {len(self.manager.catalog)} mods")
 
     def _open_appdata(self) -> None:
         self.manager.paths.ensure()

@@ -1010,3 +1010,60 @@ def test_update_all_names_the_running_update_scan(window, manager):
     window._update_bulk_actions_availability()
     assert window.pack_view.update_all.isEnabled()
     assert window.pack_view.update_all.text() == "Update all"
+
+
+def test_clear_cache_asks_first_then_clears_and_downloads_the_catalog(window, manager, monkeypatch):
+    from sailwind_mod_sync.manager import CacheClearResult
+
+    app, window = window
+    calls: list[object] = []
+    answers = [None, True]
+    monkeypatch.setattr(window, "_confirm_clear_cache", lambda size, imported: answers.pop(0))
+    monkeypatch.setattr(manager, "cache_size", lambda **kwargs: 3 * 1024 * 1024)
+    monkeypatch.setattr(manager, "imported_mods_size", lambda: 1024)
+    monkeypatch.setattr(
+        manager,
+        "clear_cache",
+        lambda progress=None, include_imported=False: calls.append(("clear", include_imported)) or CacheClearResult(1024),
+    )
+    monkeypatch.setattr(manager, "refresh_catalog", lambda progress=None: calls.append("refresh") or manager.catalog)
+
+    window._clear_cache()
+    assert calls == []
+
+    window._clear_cache()
+    deadline = time.monotonic() + 5
+    while (window._busy or len(calls) < 2) and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(.005)
+    app.processEvents()
+    assert calls == [("clear", True), "refresh"]
+    assert window.statusBar().currentMessage().startswith("Cleared 1.0 KB of cached data. Catalog:")
+
+
+def test_clear_cache_dialog_offers_imported_mods_only_when_there_are_some(window, monkeypatch):
+    app, window = window
+    seen: list[str | None] = []
+
+    def fake_exec(box):
+        check = box.checkBox()
+        seen.append(check.text() if check else None)
+        if check:
+            check.setChecked(True)
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    assert window._confirm_clear_cache(2048, 0) is False
+    assert window._confirm_clear_cache(2048, 3 * 1024 * 1024) is True
+    assert seen == [None, "Also delete mods imported from files (3.0 MB)"]
+
+
+def test_clear_cache_waits_for_a_running_update_check(window, manager, monkeypatch):
+    app, window = window
+    shown: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda parent, title, text: shown.append(text))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: pytest.fail("asked while busy"))
+    window._mod_scan_running = True
+    window._clear_cache()
+    window._mod_scan_running = False
+    assert shown and "update check" in shown[0]

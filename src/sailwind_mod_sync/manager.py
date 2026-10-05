@@ -5,6 +5,7 @@ import logging
 import shutil
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -44,6 +45,7 @@ from sailwind_mod_sync.game.scan_plugins import discover_local_file, scan_plugin
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
 from sailwind_mod_sync.library.download import ensure_bepinex, ensure_mod_artifact
+from sailwind_mod_sync.library.hashing import dir_size
 from sailwind_mod_sync.library.special_mods import artifact_ready, coop_dll_search_path, known_repo_for
 from sailwind_mod_sync.library.store import LibraryStore, artifact_source, source_matches
 from sailwind_mod_sync.logutil import log_duration, setup_logging
@@ -78,6 +80,12 @@ class TokenAuthError(RuntimeError):
 
 class BulkRollbackError(RuntimeError):
     """An incomplete rollback retained recovery files for the user."""
+
+
+@dataclass
+class CacheClearResult:
+    freed_bytes: int
+    failures: list[str] = field(default_factory=list)
 
 
 class Manager:
@@ -1414,6 +1422,71 @@ class Manager:
             for mod in pack.mods:
                 pinned.add((mod.guid, self.library.pinned_key(mod)))
         return self.library.prune_unused(pinned)
+
+    def cache_targets(self, *, include_imported: bool = False) -> list[Path]:
+        """Return the existing files and folders of data the app can download again.
+
+        Packs, settings, custom catalog entries, backups and display names are never included. Mods imported
+        from files are included only with ``include_imported``, as they may not be downloadable.
+        """
+        paths = self.paths
+        targets = [
+            paths.modlist_file,
+            paths.versions_file,
+            paths.extra_modlist_file,
+            paths.extra_versions_file,
+            paths.scanned_versions_file,
+            paths.etag_dir,
+            paths.library_bepinex,
+            paths.updates_dir,
+        ]
+        targets.extend(
+            entry.path for entry in self.library.list_mods() if include_imported or artifact_source(entry.meta)
+        )
+        return [target for target in targets if target.exists()]
+
+    def cache_size(self, *, include_imported: bool = False) -> int:
+        return sum(dir_size(target) for target in self.cache_targets(include_imported=include_imported))
+
+    def imported_mods_size(self) -> int:
+        """Return the size of the library's mods that were imported from files rather than downloaded."""
+        return sum(entry.size_bytes for entry in self.library.list_mods() if not artifact_source(entry.meta))
+
+    def clear_cache(self, progress: ProgressFn | None = None, *, include_imported: bool = False) -> CacheClearResult:
+        """Delete the data the app can download again and rebuild the catalog from what is left.
+
+        With ``include_imported``, mods imported from files are deleted too. Files that cannot be deleted are
+        skipped and reported in the result.
+        """
+        result = CacheClearResult(freed_bytes=0)
+        for target in self.cache_targets(include_imported=include_imported):
+            if progress:
+                progress(f"Deleting {target.relative_to(self.paths.root)}…")
+            size = dir_size(target)
+            try:
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            except OSError as exc:
+                log.warning("Could not delete cached %s: %s", target, exc)
+                result.failures.append(f"{target}: {exc}")
+                continue
+            result.freed_bytes += size
+        self._remove_empty_mod_folders()
+        self.paths.ensure()
+        self.catalog = load_cached_catalog(self.paths) or []
+        self.config.last_catalog_refresh = ""
+        self.save_config()
+        log.info("Cleared %s bytes of cached data, %s failure(s)", result.freed_bytes, len(result.failures))
+        return result
+
+    def _remove_empty_mod_folders(self) -> None:
+        if not self.paths.library_mods.is_dir():
+            return
+        for guid_dir in self.paths.library_mods.iterdir():
+            if guid_dir.is_dir() and not any(guid_dir.iterdir()):
+                guid_dir.rmdir()
 
     def _setup_logging(self) -> None:
         setup_logging(self.paths.log_file)
