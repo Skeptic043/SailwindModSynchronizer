@@ -14,6 +14,7 @@ from sailwind_mod_sync.catalog.custom import (
     remove_custom_entry,
     save_custom_catalog,
     same_repo,
+    store_custom_versions,
     upsert_custom_entry,
 )
 from sailwind_mod_sync.catalog.github import (
@@ -215,6 +216,7 @@ class Manager:
             return latest
 
         seen_repos: set[str] = set()
+        updated: list[CatalogEntry] = []
         for entry in self.catalog:
             if entry.repo in seen_repos:
                 continue
@@ -251,9 +253,9 @@ class Manager:
             entry.latest_raw = raw
             entry.latest_version = parse_mod_version(raw)
             entry.available = bool(entry.latest_version)
-        custom = [entry for entry in self.catalog if entry.custom]
-        if custom:
-            save_custom_catalog(self.paths, custom)
+            updated.append(entry)
+        if updated:
+            store_custom_versions(self.paths, updated)
         return latest
 
     def add_catalog_repo(self, repo_url: str, progress: ProgressFn | None = None) -> list[CatalogEntry]:

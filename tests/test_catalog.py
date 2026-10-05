@@ -726,3 +726,28 @@ def test_refresh_catalog_keeps_mvc_when_project_list_missing(paths: AppPaths) ->
     entries = refresh_catalog(paths, http)
     assert find_entry(entries, "com.nandbrew.stickyfix") is not None
     assert find_entry(entries, "com.dizzy.sailwind.calendar") is None
+
+
+def test_merge_with_custom_leaves_custom_entries_unchanged() -> None:
+    from sailwind_mod_sync.catalog.custom import merge_with_custom
+    from sailwind_mod_sync.models import CatalogEntry
+
+    mvc = merge_catalog(
+        [{"guid": "com.nandbrew.stickyfix", "repo": "https://github.com/NANDbrew/StickyFix"}],
+        [{"guid": "com.nandbrew.stickyfix", "version": "v1.0.0"}],
+    )
+    custom = CatalogEntry(
+        repo="https://github.com/example/fork",
+        guids=["com.nandbrew.stickyfix", "com.nandbrew.stickyfix.extra"],
+        primary_guid="com.nandbrew.stickyfix",
+        name="StickyFix fork",
+        latest_raw="v9.9.9",
+        latest_version="9.9.9",
+        available=True,
+    )
+    merged = merge_with_custom(mvc, [custom])
+    extra = next(entry for entry in merged if entry.custom)
+    assert extra.guids == ["com.nandbrew.stickyfix.extra"]
+    assert custom.guids == ["com.nandbrew.stickyfix", "com.nandbrew.stickyfix.extra"]
+    assert custom.primary_guid == "com.nandbrew.stickyfix"
+    assert not custom.custom

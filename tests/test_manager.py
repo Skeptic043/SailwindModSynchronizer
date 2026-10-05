@@ -946,3 +946,68 @@ def test_scan_updates_without_token_ignores_401(paths: AppPaths, monkeypatch) ->
     finally:
         manager.close()
     assert latest["com.example.mymod"] == "v1.0.0"
+
+
+def _custom_fork_entry() -> CatalogEntry:
+    return CatalogEntry(
+        repo="https://github.com/me/mymod-fork",
+        guids=["com.example.mymod"],
+        primary_guid="com.example.mymod",
+        name="MyMod fork",
+        latest_raw="v2.0.0",
+        latest_version="2.0.0",
+        available=True,
+        custom=True,
+    )
+
+
+def test_scan_updates_keeps_custom_entries_the_shared_catalog_covers(paths: AppPaths, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, save_custom_catalog
+
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(tag="v1.1.0", name="v1.1.0", assets=[]),
+    )
+    other = CatalogEntry(
+        repo="https://github.com/me/other",
+        guids=["com.me.other"],
+        primary_guid="com.me.other",
+        name="Other",
+        latest_raw="v1.0.0",
+        latest_version="1.0.0",
+        available=True,
+        custom=True,
+    )
+    save_custom_catalog(paths, [_custom_fork_entry(), other])
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = merge_with_custom(_catalog_with_repo(), load_custom_catalog(paths))
+    try:
+        manager.scan_updates(live=True)
+    finally:
+        manager.close()
+
+    stored = load_custom_catalog(paths)
+    fork = next(entry for entry in stored if entry.primary_guid == "com.example.mymod")
+    assert fork.repo == "https://github.com/me/mymod-fork"
+    assert fork.latest_raw == "v2.0.0"
+    assert len(stored) == 2
+
+
+def test_scan_updates_stores_live_versions_of_custom_entries(paths: AppPaths, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, save_custom_catalog
+
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(tag="v2.1.0", name="v2.1.0", assets=[]),
+    )
+    save_custom_catalog(paths, [_custom_fork_entry()])
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = merge_with_custom([], load_custom_catalog(paths))
+    try:
+        manager.scan_updates(live=True)
+    finally:
+        manager.close()
+
+    stored = load_custom_catalog(paths)
+    assert stored[0].latest_raw == "v2.1.0"
+    assert stored[0].latest_version == "2.1.0"
