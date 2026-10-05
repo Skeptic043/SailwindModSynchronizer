@@ -33,8 +33,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QEvent, Signal
 from shiboken6 import isValid
 
-from sailwind_mod_sync.catalog.custom import same_repo
-from sailwind_mod_sync.catalog.github import GitHubDownloadError
+from sailwind_mod_sync.catalog.custom import same_repo, source_key
+from sailwind_mod_sync.catalog.github import GitHubDownloadError, repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
@@ -1111,23 +1111,27 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Removed {guid} from the catalog")
 
     @_unless_bulk_running
-    def _hide_catalog_mod(self, guid: str) -> None:
-        self.manager.hide_catalog_mod(guid)
+    def _hide_catalog_mod(self, guid: str, repo: str = "") -> None:
+        self.manager.hide_catalog_mod(guid, repo)
         self._reload_views()
-        self.statusBar().showMessage(f"Hidden {guid} from the catalog")
+        source = f" from {repo_short_name(repo)}" if repo else ""
+        self.statusBar().showMessage(f"Hidden {guid}{source} from the catalog")
 
     @_unless_bulk_running
-    def _unhide_catalog_mod(self, guid: str) -> None:
-        self.manager.unhide_catalog_mod(guid)
+    def _unhide_catalog_mod(self, key: str) -> None:
+        self.manager.unhide_catalog_mod(key)
         self._reload_views()
+        guid = key.partition("|")[0]
         self.statusBar().showMessage(f"Showing {guid} in the catalog")
 
     @_unless_bulk_running
     def _manage_hidden_mods(self) -> None:
         rows: list[tuple[str, str]] = []
-        for guid in self.manager.config.hidden_catalog_mods:
-            entry = find_entry(self.manager.catalog, guid)
-            rows.append((guid, entry.name if entry else guid))
+        for key in self.manager.config.hidden_catalog_mods:
+            guid, _, repo = key.partition("|")
+            entry = find_entry(self.manager.catalog, guid, repo) or find_entry(self.manager.catalog, guid)
+            source = repo_short_name(repo) if repo else "all sources"
+            rows.append((key, f"{entry.name if entry else guid}  ({guid}, {source})"))
         dialog = HiddenModsDialog(rows, self)
         dialog.unhide_requested.connect(self._unhide_catalog_mod)
         dialog.exec()
@@ -1544,6 +1548,7 @@ class MainWindow(QMainWindow):
             )
             return
         self.manager.unhide_catalog_mod(catalog_entry.primary_guid)
+        self.manager.unhide_catalog_mod(source_key(catalog_entry))
         self._reload_views()
         self.tabs.setCurrentWidget(self.catalog_view)
         self.raise_()

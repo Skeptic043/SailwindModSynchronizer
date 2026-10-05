@@ -11,6 +11,7 @@ from pathlib import Path
 
 from sailwind_mod_sync.catalog.custom import (
     load_custom_catalog,
+    hidden_key,
     remove_custom_entry,
     repo_key,
     save_custom_catalog,
@@ -380,21 +381,26 @@ class Manager:
         self._rebuild_catalog(custom)
         log.info("Removed custom catalog entry %s", guid)
 
-    def hide_catalog_mod(self, guid: str) -> None:
+    def hide_catalog_mod(self, guid: str, repo: str = "") -> None:
+        """Hide the catalog row of ``guid`` from ``repo``; without ``repo``, hide every shared row of the mod."""
         text = guid.strip()
-        if not text or text in self.config.hidden_catalog_mods:
+        if not text:
             return
-        self.config.hidden_catalog_mods.append(text)
+        key = hidden_key(text, repo)
+        if key in self.config.hidden_catalog_mods:
+            return
+        self.config.hidden_catalog_mods.append(key)
         self.save_config()
-        log.info("Hidden catalog mod %s", text)
+        log.info("Hidden catalog mod %s", key)
 
-    def unhide_catalog_mod(self, guid: str) -> None:
-        hidden = [item for item in self.config.hidden_catalog_mods if item != guid]
+    def unhide_catalog_mod(self, key: str) -> None:
+        """Remove ``key``, a GUID or a GUID with its repository, from the hidden catalog mods."""
+        hidden = [item for item in self.config.hidden_catalog_mods if item != key]
         if hidden == self.config.hidden_catalog_mods:
             return
         self.config.hidden_catalog_mods = hidden
         self.save_config()
-        log.info("Unhid catalog mod %s", guid)
+        log.info("Unhid catalog mod %s", key)
 
     def restore_catalog_sources(self) -> list[CatalogEntry]:
         """Add custom catalog entries for the sources of catalog mods that packs or downloads use but the catalog lacks.

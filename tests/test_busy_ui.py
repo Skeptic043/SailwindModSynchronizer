@@ -244,8 +244,8 @@ def test_catalog_context_menu_removes_custom_entry() -> None:
 def test_catalog_hides_builtin_entry_from_context_menu() -> None:
     app = QApplication.instance() or QApplication([])
     view = CatalogView()
-    hidden: list[str] = []
-    view.hide_requested.connect(hidden.append)
+    hidden: list[tuple[str, str]] = []
+    view.hide_requested.connect(lambda guid, repo: hidden.append((guid, repo)))
     try:
         view.set_data(
             [_catalog_entry("com.example.mod"), _catalog_entry("com.example.other")],
@@ -254,7 +254,7 @@ def test_catalog_hides_builtin_entry_from_context_menu() -> None:
         menu = view._menu_for_entry(_shown_entry(view, "com.example.mod"))
         assert menu is not None
         next(action for action in menu.actions() if action.text() == "Hide Mod From Catalog").trigger()
-        assert hidden == ["com.example.mod"]
+        assert hidden == [("com.example.mod", "https://github.com/example/mod")]
         view.set_data(
             [_catalog_entry("com.example.mod"), _catalog_entry("com.example.other")],
             None,
@@ -1501,6 +1501,31 @@ def test_pack_view_keeps_latest_version_and_offers_download_for_mods_not_downloa
         assert "3 not downloaded" in view.subtitle.text()
         menu = view._menu_for_guid("com.example.mod")
         assert "Download" in [action.text() for action in menu.actions()]
+    finally:
+        view.deleteLater()
+    app.processEvents()
+
+
+def test_catalog_hides_one_source_and_bare_guids_hide_every_shared_source() -> None:
+    from dataclasses import replace
+
+    app = QApplication.instance() or QApplication([])
+    view = CatalogView()
+    original = _catalog_entry()
+    app_fork = replace(_catalog_entry(), repo="https://github.com/foxyv/mod", alternate=True)
+    own_fork = _fork_entry()
+    entries = [original, app_fork, own_fork]
+
+    def sources() -> list[str]:
+        return sorted(view.table.item(row, 1).text() for row in range(view.table.rowCount()))
+
+    try:
+        view.set_data(entries, None, hidden_guids=["com.example.mod|https://github.com/foxyv/mod"])
+        assert sources() == ["example/mod", "me/mod-fork"]
+        view.set_data(entries, None, hidden_guids=["com.example.mod"])
+        assert sources() == ["me/mod-fork"]
+        assert view.reveal_mod("com.example.mod", "https://github.com/foxyv/mod")
+        assert "foxyv/mod" in sources()
     finally:
         view.deleteLater()
     app.processEvents()

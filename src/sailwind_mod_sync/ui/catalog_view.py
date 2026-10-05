@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sailwind_mod_sync.catalog.custom import same_repo, source_key
+from sailwind_mod_sync.catalog.custom import is_hidden, same_repo, source_key
 from sailwind_mod_sync.catalog.github import repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, is_newer
@@ -34,7 +34,7 @@ _SOURCE_KEY_ROLE = Qt.ItemDataRole.UserRole + 1
 class CatalogView(QWidget):
     install_requested = Signal(str, str)
     remove_custom_requested = Signal(str, str)
-    hide_requested = Signal(str)
+    hide_requested = Signal(str, str)
     details_requested = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -42,7 +42,7 @@ class CatalogView(QWidget):
         self._entries: list[CatalogEntry] = []
         self._entries_by_key: dict[str, CatalogEntry] = {}
         self._pack: ModPack | None = None
-        self._hidden_guids: set[str] = set()
+        self._hidden: set[str] = set()
         self._revealed_key = ""
         self._syncing_table = False
         self._filter = QLineEdit()
@@ -92,7 +92,7 @@ class CatalogView(QWidget):
         self._entries = entries
         self._entries_by_key = {source_key(entry): entry for entry in entries}
         self._pack = pack
-        self._hidden_guids = {guid for guid in (hidden_guids or []) if guid}
+        self._hidden = {key for key in (hidden_guids or []) if key}
         self._apply_filter()
 
     def _apply_filter(self) -> None:
@@ -102,7 +102,7 @@ class CatalogView(QWidget):
             entry
             for entry in self._entries
             if _entry_matches_filter(entry, query)
-            and not _entry_is_hidden(entry, self._hidden_guids)
+            and not is_hidden(entry, self._hidden)
             and not (hide_in_pack and _pinned_from_entry(entry, self._pack) is not None)
         ]
         in_pack_bg = _in_pack_row_background(self.table)
@@ -159,8 +159,8 @@ class CatalogView(QWidget):
         if target is None:
             return False
         self._revealed_key = source_key(target)
-        self._hidden_guids.discard(target.primary_guid)
-        self._hidden_guids.difference_update(guid for guid in target.guids if guid)
+        self._hidden.discard(source_key(target))
+        self._hidden.difference_update(guid for guid in target.guids if guid)
         self._clear_filters()
         if not self._select_revealed_row():
             return False
@@ -260,11 +260,9 @@ class CatalogView(QWidget):
             )
         else:
             hide = menu.addAction("Hide Mod From Catalog")
-            hide.setToolTip(
-                "Hide this mod from the Catalog tab. Restore it from Download Management → Hidden Mods."
-            )
+            hide.setToolTip("Hide this source of the mod from the Catalog tab. Restore it from Tools → Hidden Mods.")
             hide.triggered.connect(
-                lambda _=False, value=entry.primary_guid: self.hide_requested.emit(value)
+                lambda _=False, value=entry: self.hide_requested.emit(value.primary_guid, value.repo)
             )
         return menu
 
@@ -330,15 +328,6 @@ def _catalog_status(entry: CatalogEntry, pack: ModPack | None) -> str:
     if entry.latest_raw and is_newer(entry.latest_raw, pinned.version):
         return "Update"
     return f"Installed {pinned.version}"
-
-
-def _entry_is_hidden(entry: CatalogEntry, hidden: set[str]) -> bool:
-    if not hidden or entry.custom:
-        return False
-    keys = {guid.casefold() for guid in hidden}
-    if entry.primary_guid.casefold() in keys:
-        return True
-    return any(guid.casefold() in keys for guid in entry.guids)
 
 
 def _entry_matches_filter(entry: CatalogEntry, query: str) -> bool:

@@ -113,6 +113,21 @@ def source_key(entry: CatalogEntry) -> str:
     return f"{entry.primary_guid}|{repo_key(entry.repo)}"
 
 
+def hidden_key(guid: str, repo: str = "") -> str:
+    """Return the hidden-mods key of ``guid`` from ``repo``, or the bare GUID that covers all its sources."""
+    return f"{guid}|{repo_key(repo)}" if repo_key(repo) else guid
+
+
+def is_hidden(entry: CatalogEntry, hidden: set[str]) -> bool:
+    """Return whether ``hidden`` hides ``entry``: by its own source key, or by a bare GUID of the mod."""
+    if not hidden or entry.custom:
+        return False
+    if source_key(entry) in hidden:
+        return True
+    guids = {key.casefold() for key in hidden if "|" not in key}
+    return any(guid.casefold() in guids for guid in entry.guids)
+
+
 @lru_cache(maxsize=4096)
 def repo_key(repo: str) -> str:
     """Return the canonical lower-case form of ``repo`` used to compare repositories, or "" when it is blank."""

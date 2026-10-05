@@ -1399,3 +1399,15 @@ def test_undownloadable_mods_leaves_out_mods_with_a_known_repository(paths: AppP
         assert [mod.guid for mod in manager.undownloadable_mods(pack)] == ["local.discord.mystery"]
     finally:
         manager.close()
+
+
+def test_hide_catalog_mod_keys_the_source(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    try:
+        manager.hide_catalog_mod("com.example.mod", "https://github.com/Foxyv/Mod.git")
+        manager.hide_catalog_mod("com.example.mod", "https://github.com/foxyv/mod")
+        assert manager.config.hidden_catalog_mods == ["com.example.mod|https://github.com/foxyv/mod"]
+        manager.unhide_catalog_mod("com.example.mod|https://github.com/foxyv/mod")
+        assert load_config(paths).hidden_catalog_mods == []
+    finally:
+        manager.close()
