@@ -45,6 +45,7 @@ from sailwind_mod_sync.ui.associate_dialog import AssociateCatalogDialog, Associ
 from sailwind_mod_sync.ui.catalog_view import CatalogView
 from sailwind_mod_sync.ui.downloads_window import DownloadsWindow
 from sailwind_mod_sync.ui.hidden_mods_dialog import HiddenModsDialog
+from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
 from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
 from sailwind_mod_sync.ui.launch_splash import LaunchSplash
@@ -302,6 +303,9 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu("Help")
         check_updates = help_menu.addAction("Check for updates…")
         check_updates.triggered.connect(self._check_for_updates)
+        changelog = help_menu.addAction("Change log")
+        changelog.setStatusTip("See what changed in each version")
+        changelog.triggered.connect(self._show_changelog)
         test_splash = help_menu.addAction("Test splash screen")
         test_splash.setStatusTip("Show the Play splash without launching Sailwind")
         test_splash.triggered.connect(self._test_splash)
@@ -448,6 +452,9 @@ class MainWindow(QMainWindow):
             self.manager.save_config()
             self.manager.reload_http()
             self._reload_views()
+
+    def _show_changelog(self) -> None:
+        ChangelogDialog(self).exec()
 
     def _about(self) -> None:
         QMessageBox.about(

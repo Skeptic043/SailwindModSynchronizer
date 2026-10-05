@@ -29,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ASSETS = REPO_ROOT / "assets"
 PNG_ICON = ASSETS / "icon.png"
 ICO_ICON = ASSETS / "icon.ico"
+CHANGELOG = ASSETS / "CHANGELOG.md"
 EXE_NAME = "SailwindModSynchronizer"
 SHORTCUT_NAME = "Sailwind Mod Synchronizer.lnk"
 DIST_DIR = REPO_ROOT / "dist" / EXE_NAME
@@ -414,6 +415,8 @@ def pyinstaller_args(*, windowed: bool, clean: bool) -> list[str]:
             f"{ICO_ICON}{add_data_sep}assets",
             "--add-data",
             f"{PNG_ICON}{add_data_sep}assets",
+            "--add-data",
+            f"{CHANGELOG}{add_data_sep}assets",
             str(REPO_ROOT / "src" / "sailwind_mod_sync" / "__main__.py"),
         ]
     )
