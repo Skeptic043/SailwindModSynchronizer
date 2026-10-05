@@ -58,26 +58,28 @@ def ensure_mod_artifact(
             )
         )
     if version:
-        cached = _reuse_or_filter_cache(store, guid, version, repo, plugin_folders)
+        key = store.artifact_key(guid, version, repo)
+        cached = _reuse_or_filter_cache(store, guid, key, repo, plugin_folders)
         if cached is not None:
             return cached
-    if version and artifact_needs_refetch(store, guid, version):
-        log.info("Cached %s %s is incomplete; re-fetching official zip", guid, version)
+        if artifact_needs_refetch(store, guid, key):
+            log.info("Cached %s %s is incomplete; re-fetching official zip", guid, key)
 
     release = _fetch_needed_release(http, store, repo, version, version_raw, progress)
     remote_version = release_version(release) or version
     if not remote_version:
         raise RuntimeError(f"Could not parse version from {repo} tag {release.tag!r}")
 
-    cached = _reuse_or_filter_cache(store, guid, remote_version, repo, plugin_folders)
+    key = store.artifact_key(guid, remote_version, repo)
+    cached = _reuse_or_filter_cache(store, guid, key, repo, plugin_folders)
     if cached is not None:
-        log.info("Using cached artifact %s %s after release check", guid, remote_version)
+        log.info("Using cached artifact %s %s after release check", guid, key)
         return cached
 
     repo_name = repo.rstrip("/").split("/")[-1]
     asset = pick_release_asset(release.assets, guid, repo_name, extra_hints=plugin_folders or ())
     log.info("Selected asset %s for %s from %s", asset.name, guid, repo)
-    dest_dir = store.mod_dir(guid, remote_version)
+    dest_dir = store.mod_dir(guid, key)
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / asset.name
     if progress:
@@ -95,7 +97,7 @@ def ensure_mod_artifact(
         if asset.name.lower().endswith(".dll"):
             return store.ingest_plugin_paths(
                 guid,
-                remote_version,
+                key,
                 [dest],
                 version_raw=version_raw,
                 repo=repo,
@@ -103,7 +105,7 @@ def ensure_mod_artifact(
             )
         return store.ingest_mod_zip(
             guid,
-            remote_version,
+            key,
             dest,
             version_raw=version_raw,
             repo=repo,

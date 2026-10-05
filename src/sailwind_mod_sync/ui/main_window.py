@@ -38,8 +38,9 @@ from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
 from sailwind_mod_sync.game.saves import inspect_saves_zip
+from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.manager import Manager
-from sailwind_mod_sync.models import PinnedMod, parse_mod_version, version_key
+from sailwind_mod_sync.models import PinnedMod, parse_mod_version
 from sailwind_mod_sync.packs.share import DISCORD_MESSAGE_LIMIT, parse_share_text
 from sailwind_mod_sync.ui.associate_dialog import AssociateCatalogDialog, AssociateTarget
 from sailwind_mod_sync.ui.catalog_view import CatalogView
@@ -377,13 +378,10 @@ class MainWindow(QMainWindow):
         pack = self.manager.packs.get(pack_id) if pack_id else None
         missing = {mod.guid for mod in self.manager.missing_mods(pack)}
         library = self.manager.library.list_mods()
-        library_version_rows: dict[str, list[tuple[str, str]]] = {}
-        for item in library:
-            library_version_rows.setdefault(item.guid, []).append(
-                (item.version, item.meta.version_raw or item.version)
-            )
-        for rows in library_version_rows.values():
-            rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
+        library_version_rows = {
+            pinned.guid: self.manager.library_versions(pinned.guid, pinned.repo, library)
+            for pinned in (pack.mods if pack else [])
+        }
         all_packs = self.manager.packs.list_packs()
         display_names = {
             item.guid: self.manager.mod_display_name(
@@ -408,7 +406,8 @@ class MainWindow(QMainWindow):
                 )
         self.pack_view.set_pack(pack, self.manager.catalog, missing, library_version_rows, display_names)
         self.catalog_view.set_data(self.manager.catalog, pack, self.manager.config.hidden_catalog_mods)
-        self.library_view.set_entries(library, pack, display_names)
+        pinned_keys = {pinned.guid: self.manager.library.pinned_key(pinned) for pinned in (pack.mods if pack else [])}
+        self.library_view.set_entries(library, pack, display_names, pinned_keys)
         game = self.manager.game_dir()
         self.open_profile_plugins_action.setEnabled(pack is not None)
         if game:
@@ -1179,8 +1178,14 @@ class MainWindow(QMainWindow):
         self._start_mod_changes(pack_id, enabled, guid=guid)
 
     @_unless_bulk_running
-    def _add_library_mod(self, guid: str, version: str) -> None:
-        self._set_pack_mod_version(guid, version, version)
+    def _add_library_mod(self, guid: str, key: str) -> None:
+        meta = self.manager.library.read_mod_meta(guid, key)
+        if meta is None:
+            self._set_pack_mod_version(guid, key, key)
+            return
+        self._set_pack_mod_version(
+            guid, meta.version, meta.version_raw or meta.version, repo=artifact_source(meta)
+        )
 
     @_unless_bulk_running
     def _set_pack_mod_version(self, guid: str, version: str, version_raw: str = "", *, repo: str = "") -> None:
@@ -1192,10 +1197,11 @@ class MainWindow(QMainWindow):
         pinned = pack.find_mod(guid) if pack else None
         current = parse_mod_version(pinned.version) if pinned else None
         chosen = parse_mod_version(version) or version
+        library = self.manager.library
         same_source = pinned is not None and (not repo or not pinned.repo or same_repo(repo, pinned.repo))
-        if same_source and current == chosen and self.manager.library.has_mod(guid, pinned.version):
+        if same_source and current == chosen and library.has_mod(guid, library.pinned_key(pinned)):
             return
-        if self.manager.library.has_mod(guid, version):
+        if library.has_mod(guid, library.artifact_key(guid, version, repo or (pinned.repo if pinned else ""))):
             try:
                 pinned = self.manager.set_pack_mod_version(
                     pack_id, guid, version, version_raw or version, repo=repo
@@ -1220,15 +1226,6 @@ class MainWindow(QMainWindow):
             f"Downloading {guid} {version_raw or version}…",
         )
 
-    def _library_versions_for(self, guid: str) -> list[tuple[str, str]]:
-        rows = [
-            (item.version, item.meta.version_raw or item.version)
-            for item in self.manager.library.list_mods()
-            if item.guid == guid
-        ]
-        rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
-        return rows
-
     def _choose_mod_version(
         self,
         guid: str,
@@ -1242,7 +1239,7 @@ class MainWindow(QMainWindow):
             guid=guid,
             name=name,
             current_version=current_version,
-            library_versions=self._library_versions_for(guid),
+            library_versions=self.manager.library_versions(guid, repo),
             repo=repo,
             parent=self,
             adding=adding,

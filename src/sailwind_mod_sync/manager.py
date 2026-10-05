@@ -45,7 +45,7 @@ from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
 from sailwind_mod_sync.library.download import ensure_bepinex, ensure_mod_artifact
 from sailwind_mod_sync.library.special_mods import artifact_ready, coop_dll_search_path, known_repo_for
-from sailwind_mod_sync.library.store import LibraryStore
+from sailwind_mod_sync.library.store import LibraryStore, artifact_source, source_matches
 from sailwind_mod_sync.logutil import log_duration, setup_logging
 from sailwind_mod_sync.models import (
     CatalogEntry,
@@ -398,7 +398,7 @@ class Manager:
         return resolved
 
     def _catalog_entry_from_pin(self, pinned: PinnedMod) -> CatalogEntry:
-        meta = self.library.read_mod_meta(pinned.guid, pinned.version)
+        meta = self.library.read_mod_meta(pinned.guid, self.library.pinned_key(pinned))
         repo = (pinned.repo or (meta.repo if meta else "") or "").strip()
         if repo:
             try:
@@ -525,7 +525,11 @@ class Manager:
         if catalog is None:
             raise FileNotFoundError(f"{guid} is not in the catalog")
         guids = set(catalog.guids) | {catalog.primary_guid, guid}
-        matches = [item for item in self.library.list_mods() if item.guid in guids]
+        matches = [
+            item
+            for item in self.library.list_mods()
+            if item.guid in guids and source_matches(item.meta, catalog.repo)
+        ]
         if matches:
             newest = max(matches, key=lambda item: version_key(item.version))
             return self.local_mod_details(newest.guid, newest.version)
@@ -609,7 +613,7 @@ class Manager:
         return self.add_library_mod_to_pack(
             pack_id,
             guid,
-            meta.version,
+            self.library.artifact_key(guid, meta.version, repo),
             repo=repo,
             progress=progress,
         )
@@ -644,11 +648,12 @@ class Manager:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
         repo = repo or (pinned.repo if pinned else "") or None
-        if self.library.has_mod(guid, version):
+        key = self.library.artifact_key(guid, version, repo or "")
+        if self.library.has_mod(guid, key):
             return self.add_library_mod_to_pack(
                 pack_id,
                 guid,
-                version,
+                key,
                 repo=repo,
                 progress=progress,
             )
@@ -665,14 +670,18 @@ class Manager:
         self,
         pack_id: str,
         guid: str,
-        version: str,
+        key: str,
         *,
         repo: str | None = None,
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
-        meta = self.library.read_mod_meta(guid, version)
+        """Pin the library artifact ``key`` of ``guid`` on the pack and copy it into the pack's plugins.
+
+        The pin's repository is ``repo``, or else the repository the artifact was downloaded from.
+        """
+        meta = self.library.read_mod_meta(guid, key)
         if meta is None:
-            raise FileNotFoundError(f"{guid} {version} is not in the library")
+            raise FileNotFoundError(f"{guid} {key} is not in the library")
         if progress:
             progress(f"Adding {guid} {meta.version} to the pack…")
         pack = self.packs.get(pack_id)
@@ -682,14 +691,14 @@ class Manager:
         pinned = PinnedMod(
             guid=guid,
             version=meta.version,
-            repo=repo or meta.repo,
+            repo=repo or artifact_source(meta) or meta.repo,
             enabled=previous.enabled if previous else True,
             plugin_folders=list(meta.plugin_folders),
             version_raw=meta.version_raw,
         )
         folders = install_pinned_into_plugins(
             pinned,
-            self.library.mod_extracted(guid, meta.version),
+            self.library.mod_extracted(guid, key),
             self.packs.plugins_dir(pack_id),
         )
         pinned.plugin_folders = folders
@@ -713,7 +722,7 @@ class Manager:
             if meta is None:
                 continue
             meta.repo = page
-            self.library.write_mod_meta(meta)
+            self.library.write_mod_meta(meta, entry.version)
         return page
 
     def associate_mod(
@@ -741,7 +750,7 @@ class Manager:
             meta = self.library.read_mod_meta(new_guid, version)
             if meta is not None:
                 meta.repo = page
-                self.library.write_mod_meta(meta)
+                self.library.write_mod_meta(meta, version)
         else:
             self.set_mod_repo(guid, page)
         if new_guid != guid and guid in self.aliases:
@@ -777,7 +786,25 @@ class Manager:
     def missing_mods(self, pack: ModPack | None) -> list[PinnedMod]:
         if pack is None:
             return []
-        return [mod for mod in pack.mods if not artifact_ready(self.library, mod.guid, mod.version)]
+        return [mod for mod in pack.mods if not artifact_ready(self.library, mod.guid, self.library.pinned_key(mod))]
+
+    def library_versions(
+        self,
+        guid: str,
+        repo: str = "",
+        entries: list[LibraryEntry] | None = None,
+    ) -> list[tuple[str, str]]:
+        """Return ``(version, raw version)`` of the library artifacts of ``guid`` usable for ``repo``, newest first.
+
+        ``entries`` is the library listing to search, read from the library when omitted.
+        """
+        rows = [
+            (item.meta.version, item.meta.version_raw or item.meta.version)
+            for item in (self.library.list_mods() if entries is None else entries)
+            if item.guid == guid and item.version == self.library.artifact_key(guid, item.meta.version, repo)
+        ]
+        rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
+        return rows
 
     def import_local_mod(
         self,
@@ -911,7 +938,7 @@ class Manager:
             raise FileNotFoundError(guid)
         if pinned.enabled == enabled:
             return
-        extracted = self.library.mod_extracted(guid, pinned.version)
+        extracted = self.library.mod_extracted(guid, self.library.pinned_key(pinned))
         # A selection can precede installation. Only usable extracted files
         # can be staged here; retain missing selections and their folder names.
         install = enabled and extracted.is_dir() and any(extracted.rglob("*.dll"))
@@ -1073,9 +1100,10 @@ class Manager:
                     if known:
                         pinned.repo = known
                         log.info("Filled repo for %s from known mods: %s", pinned.guid, pinned.repo)
-            if artifact_ready(self.library, pinned.guid, pinned.version):
-                log.info("Library hit %s %s", pinned.guid, pinned.version)
-                meta = self.library.read_mod_meta(pinned.guid, pinned.version)
+            key = self.library.pinned_key(pinned)
+            if artifact_ready(self.library, pinned.guid, key):
+                log.info("Library hit %s %s", pinned.guid, key)
+                meta = self.library.read_mod_meta(pinned.guid, key)
                 if meta and not pinned.plugin_folders:
                     pinned.plugin_folders = list(meta.plugin_folders)
                 continue
@@ -1116,7 +1144,7 @@ class Manager:
                 if progress:
                     progress(f"Missing {pinned.guid} — import a file later")
                 continue
-            meta = self.library.read_mod_meta(pinned.guid, pinned.version)
+            meta = self.library.read_mod_meta(pinned.guid, self.library.pinned_key(pinned))
             if meta and not pinned.plugin_folders:
                 pinned.plugin_folders = list(meta.plugin_folders)
         self.packs.save(pack)
@@ -1290,7 +1318,7 @@ class Manager:
         pinned: set[tuple[str, str]] = set()
         for pack in self.packs.list_packs():
             for mod in pack.mods:
-                pinned.add((mod.guid, mod.version))
+                pinned.add((mod.guid, self.library.pinned_key(mod)))
         return self.library.prune_unused(pinned)
 
     def _setup_logging(self) -> None:

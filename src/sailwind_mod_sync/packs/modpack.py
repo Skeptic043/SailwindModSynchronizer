@@ -165,17 +165,18 @@ class PackStore:
                     report(f"Adding BepInEx {pack.bepinex} ({bx_zip.name})…")
                     zf.write(bx_zip, f"{BUNDLE_BEPINEX_DIR}/{bx_zip.name}")
             for index, mod in enumerate(pack.mods, start=1):
-                if not library.has_mod(mod.guid, mod.version):
+                key = library.pinned_key(mod)
+                if not library.has_mod(mod.guid, key):
                     report(f"Skipping {mod.guid} {mod.version}: not downloaded ({index}/{total})")
                     continue
-                zip_path = library.mod_zip_path(mod.guid, mod.version)
-                meta_path = library.mod_dir(mod.guid, mod.version) / "metadata.json"
-                prefix = f"artifacts/{sanitize_segment(mod.guid)}/{sanitize_segment(mod.version)}"
+                zip_path = library.mod_zip_path(mod.guid, key)
+                meta_path = library.mod_dir(mod.guid, key) / "metadata.json"
+                prefix = f"artifacts/{sanitize_segment(mod.guid)}/{sanitize_segment(key)}"
                 report(f"Adding {zip_path.name} ({index}/{total})…")
                 if zip_path.exists():
                     zf.write(zip_path, f"{prefix}/{zip_path.name}")
                 else:
-                    _write_dir_as_zip(zf, library.mod_extracted(mod.guid, mod.version), f"{prefix}/{zip_path.name}")
+                    _write_dir_as_zip(zf, library.mod_extracted(mod.guid, key), f"{prefix}/{zip_path.name}")
                 if meta_path.exists():
                     zf.write(meta_path, f"{prefix}/metadata.json")
             config_dir = self.instance_dir(pack_id) / "BepInEx" / "config"

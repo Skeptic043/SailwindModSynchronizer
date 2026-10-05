@@ -1084,3 +1084,95 @@ def test_add_catalog_repo_accepts_fork_of_catalog_mod(paths: AppPaths, tmp_path:
         ("com.nandbrew.stickyfix", "https://github.com/me/StickyFix")
     ]
     assert [entry.repo for entry in load_custom_catalog(paths)] == ["https://github.com/me/StickyFix"]
+
+
+class _TwoSourceHttp(_NoHttp):
+    """Serves release v1.2.0 of com.example.mod from any GitHub repository, tagging the DLL with its owner."""
+
+    def get_json(self, url, extra_headers=None, etag=None):
+        owner_repo = url.removeprefix("https://api.github.com/repos/").split("/releases/")[0]
+        return {
+            "tag_name": "v1.2.0",
+            "html_url": f"https://github.com/{owner_repo}/releases/tag/v1.2.0",
+            "assets": [
+                {
+                    "name": "Mod.zip",
+                    "browser_download_url": f"https://github.com/{owner_repo}/releases/download/v1.2.0/Mod.zip",
+                }
+            ],
+        }, None, False
+
+    def download(self, url, dest, progress=None):
+        owner_repo = url.removeprefix("https://github.com/").split("/releases/")[0]
+        with zipfile.ZipFile(dest, "w") as zf:
+            zf.writestr("Mod/Mod.dll", b"MZ" + owner_repo.encode())
+
+
+def test_packs_use_their_own_source_of_the_same_version(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_TwoSourceHttp())
+    original = manager.packs.create("Original")
+    fork = manager.packs.create("Fork")
+    manager.packs.upsert_mod(
+        original.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")
+    )
+    manager.packs.upsert_mod(
+        fork.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/me/mod-fork")
+    )
+    try:
+        manager.resolve_pack_artifacts(original.id)
+        manager.resolve_pack_artifacts(fork.id)
+        assert manager.missing_mods(manager.packs.get(fork.id)) == []
+        assert manager.prune_library() == 0
+    finally:
+        manager.close()
+
+    def dll(pack_id: str) -> bytes:
+        return (manager.packs.plugins_dir(pack_id) / "Mod" / "Mod.dll").read_bytes()
+
+    assert dll(original.id) == b"MZexample/mod"
+    assert dll(fork.id) == b"MZme/mod-fork"
+    assert manager.library_versions("com.example.mod", "https://github.com/me/mod-fork") == [("1.2.0", "v1.2.0")]
+
+
+def test_set_pack_mod_version_switches_source_of_same_version(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_TwoSourceHttp())
+    pack = manager.packs.create("Crew")
+    manager.packs.upsert_mod(
+        pack.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")
+    )
+    try:
+        manager.resolve_pack_artifacts(pack.id)
+        pinned = manager.set_pack_mod_version(
+            pack.id, "com.example.mod", "1.2.0", "v1.2.0", repo="https://github.com/me/mod-fork"
+        )
+    finally:
+        manager.close()
+    assert pinned.repo == "https://github.com/me/mod-fork"
+    assert (manager.packs.plugins_dir(pack.id) / "Mod" / "Mod.dll").read_bytes() == b"MZme/mod-fork"
+
+
+def test_bundle_keeps_the_source_of_a_variant_artifact(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_TwoSourceHttp())
+    original = manager.packs.create("Original")
+    fork = manager.packs.create("Fork")
+    manager.packs.upsert_mod(
+        original.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")
+    )
+    manager.packs.upsert_mod(
+        fork.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/me/mod-fork")
+    )
+    bundle = tmp_path / "fork.zip"
+    try:
+        manager.resolve_pack_artifacts(original.id)
+        manager.resolve_pack_artifacts(fork.id)
+        manager.export_pack(fork.id, bundle, bundle=True)
+    finally:
+        manager.close()
+
+    other = Manager(paths=AppPaths(tmp_path / "other"), config=AppConfig(), http=_NoHttp())
+    try:
+        imported = other.import_pack(bundle)
+    finally:
+        other.close()
+    assert other.missing_mods(imported) == []
+    assert (other.packs.plugins_dir(imported.id) / "Mod" / "Mod.dll").read_bytes() == b"MZme/mod-fork"
