@@ -379,23 +379,27 @@ class MainWindow(QMainWindow):
             )
         for rows in library_version_rows.values():
             rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
+        all_packs = self.manager.packs.list_packs()
         display_names = {
             item.guid: self.manager.mod_display_name(
                 item.guid,
                 plugin_folders=list(item.meta.plugin_folders),
                 repo=item.meta.repo,
+                library_entries=library,
+                packs=all_packs,
             )
             for item in library
         }
         if pack:
             for pinned in pack.mods:
-                display_names.setdefault(
+                if pinned.guid in display_names:
+                    continue
+                display_names[pinned.guid] = self.manager.mod_display_name(
                     pinned.guid,
-                    self.manager.mod_display_name(
-                        pinned.guid,
-                        plugin_folders=list(pinned.plugin_folders),
-                        repo=pinned.repo,
-                    ),
+                    plugin_folders=list(pinned.plugin_folders),
+                    repo=pinned.repo,
+                    library_entries=library,
+                    packs=all_packs,
                 )
         self.pack_view.set_pack(pack, self.manager.catalog, missing, library_version_rows, display_names)
         self.catalog_view.set_data(self.manager.catalog, pack, self.manager.config.hidden_catalog_mods)
