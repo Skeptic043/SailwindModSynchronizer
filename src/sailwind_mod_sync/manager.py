@@ -15,6 +15,7 @@ from sailwind_mod_sync.catalog.custom import (
     repo_key,
     save_custom_catalog,
     same_repo,
+    source_key,
     store_custom_versions,
     upsert_custom_entry,
 )
@@ -57,6 +58,7 @@ from sailwind_mod_sync.models import (
     RemoteModInfo,
     catalog_mod_name,
     display_mod_name,
+    is_newer,
     parse_mod_version,
     version_key,
 )
@@ -205,8 +207,24 @@ class Manager:
         return restore_saves_folder(archive, dest, safety_dest=safety_dest, progress=progress)
 
     def refresh_catalog(self, progress: ProgressFn | None = None) -> list[CatalogEntry]:
-        self.catalog = refresh_catalog(self.paths, self.http, progress=progress)
+        self.apply_catalog(self.fetch_catalog(progress=progress))
         return self.catalog
+
+    def fetch_catalog(self, progress: ProgressFn | None = None) -> list[CatalogEntry]:
+        """Download the shared catalogs into the cache and return the merged catalog without applying it."""
+        return refresh_catalog(self.paths, self.http, progress=progress)
+
+    def apply_catalog(self, entries: list[CatalogEntry]) -> None:
+        """Replace the catalog with ``entries``, keeping newer versions an update scan found for the same sources."""
+        previous = {source_key(entry): entry for entry in self.catalog}
+        for entry in entries:
+            found = previous.get(source_key(entry))
+            if found is None or not entry.available or not found.latest_raw:
+                continue
+            if entry.latest_raw and is_newer(found.latest_raw, entry.latest_raw):
+                entry.latest_raw = found.latest_raw
+                entry.latest_version = found.latest_version
+        self.catalog = entries
 
     def scan_updates(self, live: bool = False, progress: ProgressFn | None = None) -> dict[str, str]:
         if not self.catalog:

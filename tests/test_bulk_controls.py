@@ -128,6 +128,7 @@ def window(manager, monkeypatch):
     app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(MainWindow, "_maybe_check_updates", lambda self: None)
     monkeypatch.setattr(MainWindow, "_maybe_auto_scan_mods", lambda self: None)
+    monkeypatch.setattr(MainWindow, "_maybe_refresh_catalog", lambda self: None)
     window = MainWindow(manager)
     yield app, window
     assert window._bulk_pack_id is None

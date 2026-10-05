@@ -88,6 +88,13 @@ class SettingsDialog(QDialog):
         self.auto_scan.setEnabled(bool(config.token()))
         self.token.textChanged.connect(self._sync_auto_scan_enabled)
         form.addRow("Mod updates", self.auto_scan)
+        self.auto_refresh_catalog = QCheckBox("Refresh the catalog once a day")
+        self.auto_refresh_catalog.setToolTip(
+            "Downloads the ModVersionChecker and Sailwind Mod Synchronizer catalogs in the background "
+            "at startup and while the app stays open."
+        )
+        self.auto_refresh_catalog.setChecked(config.auto_refresh_catalog)
+        form.addRow("Catalog", self.auto_refresh_catalog)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -126,3 +133,4 @@ class SettingsDialog(QDialog):
         config.warn_missing_mods = self.warn_missing.isChecked()
         config.check_for_updates = self.check_updates.isChecked()
         config.auto_scan_mods = self.auto_scan.isChecked()
+        config.auto_refresh_catalog = self.auto_refresh_catalog.isChecked()

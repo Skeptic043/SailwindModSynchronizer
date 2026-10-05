@@ -16,7 +16,9 @@ class AppConfig:
     warn_missing_mods: bool = True
     check_for_updates: bool = True
     auto_scan_mods: bool = True
+    auto_refresh_catalog: bool = True
     last_update_check: str = ""
+    last_catalog_refresh: str = ""
     skipped_update_version: str = ""
     hidden_catalog_mods: list[str] = field(default_factory=list)
     catalog_sources_restored: bool = False
@@ -42,7 +44,9 @@ def load_config(paths: AppPaths) -> AppConfig:
         warn_missing_mods=_as_bool(data.get("warn_missing_mods"), True),
         check_for_updates=_as_bool(data.get("check_for_updates"), True),
         auto_scan_mods=_as_bool(data.get("auto_scan_mods"), True),
+        auto_refresh_catalog=_as_bool(data.get("auto_refresh_catalog"), True),
         last_update_check=str(data.get("last_update_check") or ""),
+        last_catalog_refresh=str(data.get("last_catalog_refresh") or ""),
         skipped_update_version=str(data.get("skipped_update_version") or ""),
         hidden_catalog_mods=_as_str_list(data.get("hidden_catalog_mods")),
         catalog_sources_restored=_as_bool(data.get("catalog_sources_restored"), False),

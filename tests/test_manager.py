@@ -1248,3 +1248,21 @@ def test_first_start_restores_catalog_sources_used_by_packs_and_downloads(paths:
     save_custom_catalog(paths, remaining)
     Manager(paths=paths, config=load_config(paths), http=_NoHttp()).close()
     assert len(load_custom_catalog(paths)) == 1
+
+
+def test_apply_catalog_keeps_newer_versions_found_by_a_scan(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    scanned = _catalog_with_repo()
+    scanned[0].latest_raw = "v1.3.0"
+    scanned[0].latest_version = "1.3.0"
+    manager.catalog = scanned
+    refreshed = _catalog_with_repo() + [
+        replace(_catalog_with_repo()[0], guids=["com.example.other"], primary_guid="com.example.other")
+    ]
+    refreshed[1].latest_raw = "v0.5.0"
+    try:
+        manager.apply_catalog(refreshed)
+    finally:
+        manager.close()
+    assert manager.catalog is refreshed
+    assert [entry.latest_raw for entry in manager.catalog] == ["v1.3.0", "v0.5.0"]

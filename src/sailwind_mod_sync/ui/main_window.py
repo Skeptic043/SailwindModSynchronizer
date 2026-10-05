@@ -35,7 +35,7 @@ from shiboken6 import isValid
 from sailwind_mod_sync.catalog.custom import same_repo
 from sailwind_mod_sync.catalog.github import GitHubDownloadError
 from sailwind_mod_sync.catalog.mvc import find_entry
-from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION
+from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
 from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
@@ -83,6 +83,11 @@ AUTO_SCAN_RETRY_DELAY_MS = 10000
 # A manual "scan updates" click within this window after a scan (automatic or
 # manual) just finished asks the user whether they really want to rerun it.
 MOD_SCAN_RECENT_SECONDS = 300.0
+# Delay after startup before a due catalog refresh starts in the background.
+CATALOG_REFRESH_START_DELAY_MS = 1000
+# How often an open window checks whether the daily catalog refresh or the app
+# update check is due.
+PERIODIC_CHECK_INTERVAL_MS = 60 * 60 * 1000
 
 PLAY_BUTTON_STYLE = """
 QPushButton {
@@ -154,6 +159,8 @@ class MainWindow(QMainWindow):
         self._mod_scan_running = False
         self._mod_scan_done_at = float("-inf")
         self._mod_scan_bridge: TaskBridge | None = None
+        self._catalog_bridge: TaskBridge | None = None
+        self._pending_catalog: list | None = None
 
         self._updates_hint = QLabel(self.statusBar())
         self._updates_hint.setStyleSheet(UPDATES_HINT_STYLE)
@@ -334,8 +341,14 @@ class MainWindow(QMainWindow):
         restore_window_state(self, self.splitter, paths=self.manager.paths)
         if not self.manager.catalog:
             self._refresh_catalog()
+        else:
+            QTimer.singleShot(CATALOG_REFRESH_START_DELAY_MS, self._maybe_refresh_catalog)
         QTimer.singleShot(4000, self._maybe_check_updates)
         QTimer.singleShot(AUTO_SCAN_START_DELAY_MS, self._maybe_auto_scan_mods)
+        self._periodic_checks = QTimer(self)
+        self._periodic_checks.setInterval(PERIODIC_CHECK_INTERVAL_MS)
+        self._periodic_checks.timeout.connect(self._run_periodic_checks)
+        self._periodic_checks.start()
 
     def current_pack_id(self) -> str | None:
         item = self.pack_list.currentItem()
@@ -966,8 +979,74 @@ class MainWindow(QMainWindow):
         self._run(lambda progress: self.manager.refresh_catalog(progress=progress), self._catalog_loaded, "Refreshing catalog…")
 
     def _catalog_loaded(self, _result) -> None:
+        self._mark_catalog_refreshed()
         self._reload_views()
         self.statusBar().showMessage(f"Catalog: {len(self.manager.catalog)} mods")
+
+    def _mark_catalog_refreshed(self) -> None:
+        self.manager.config.last_catalog_refresh = utc_now_iso()
+        self.manager.save_config()
+
+    def _run_periodic_checks(self) -> None:
+        self._maybe_refresh_catalog()
+        self._maybe_check_updates()
+
+    def _catalog_refresh_running(self) -> bool:
+        return self._catalog_bridge is not None or self._pending_catalog is not None
+
+    def _catalog_refresh_blocked(self) -> bool:
+        return self._busy or self._mod_scan_running or self._bulk_pack_id is not None
+
+    def _maybe_refresh_catalog(self) -> None:
+        """Start a quiet background catalog refresh when the daily one is due."""
+        config = self.manager.config
+        if not config.auto_refresh_catalog or self._catalog_refresh_running():
+            return
+        if not update_check_due(config.last_catalog_refresh, CATALOG_REFRESH_HOURS):
+            return
+        if self._catalog_refresh_blocked():
+            QTimer.singleShot(AUTO_SCAN_RETRY_DELAY_MS, self._maybe_refresh_catalog)
+            return
+        log.info("Refreshing the catalog in the background")
+        bridge = TaskBridge(self)
+        self._catalog_bridge = bridge
+        queued = Qt.ConnectionType.QueuedConnection
+        bridge.finished.connect(self._background_catalog_fetched, queued)
+        bridge.failed.connect(self._background_catalog_failed, queued)
+        run_background(lambda progress: self.manager.fetch_catalog(progress=progress), bridge)
+
+    def _clear_catalog_bridge(self) -> None:
+        if self._catalog_bridge is not None:
+            self._catalog_bridge.deleteLater()
+            self._catalog_bridge = None
+
+    @Slot(object)
+    def _background_catalog_fetched(self, entries: object) -> None:
+        self._clear_catalog_bridge()
+        self._pending_catalog = entries if isinstance(entries, list) else None
+        self._apply_pending_catalog()
+
+    @Slot(str)
+    def _background_catalog_failed(self, message: str) -> None:
+        self._clear_catalog_bridge()
+        log.warning("Background catalog refresh failed: %s", message)
+
+    def _apply_pending_catalog(self) -> None:
+        """Apply a background refresh once no task that reads or changes the catalog is running."""
+        entries = self._pending_catalog
+        if entries is None:
+            return
+        if self._catalog_refresh_blocked():
+            QTimer.singleShot(AUTO_SCAN_RETRY_DELAY_MS, self._apply_pending_catalog)
+            return
+        self._pending_catalog = None
+        previous = self.manager.catalog
+        self.manager.apply_catalog(entries)
+        self._mark_catalog_refreshed()
+        log.info("Background catalog refresh applied: %s mods", len(self.manager.catalog))
+        if self.manager.catalog != previous:
+            self._reload_views()
+            self.statusBar().showMessage(f"Catalog refreshed: {len(self.manager.catalog)} mods")
 
     @_unless_bulk_running
     def _add_catalog_repo(self) -> None:
@@ -1068,7 +1147,7 @@ class MainWindow(QMainWindow):
         if not self.manager.config.token():
             log.info("Skipping automatic mod update scan: no GitHub token configured")
             return
-        if self._busy or self._mod_scan_running:
+        if self._busy or self._mod_scan_running or self._catalog_refresh_running():
             log.info("Deferring automatic mod update scan: another task is running")
             QTimer.singleShot(AUTO_SCAN_RETRY_DELAY_MS, self._maybe_auto_scan_mods)
             return

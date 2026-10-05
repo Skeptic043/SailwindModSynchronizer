@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -15,7 +16,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
 )
 
-from sailwind_mod_sync.config import AppConfig
+from sailwind_mod_sync.config import AppConfig, load_config
 from sailwind_mod_sync.models import CatalogEntry, LibraryEntry, ArtifactMeta, ModDetails, ModPack, PinnedMod
 from sailwind_mod_sync.paths import AppPaths
 from sailwind_mod_sync.updater import AppUpdate
@@ -762,6 +763,21 @@ def test_settings_has_update_checkbox(paths: AppPaths) -> None:
     app.processEvents()
 
 
+def test_settings_has_daily_catalog_refresh_checkbox(paths: AppPaths) -> None:
+    app = QApplication.instance() or QApplication([])
+    dialog = SettingsDialog(AppConfig(), paths)
+    try:
+        assert dialog.auto_refresh_catalog.isChecked()
+        dialog.auto_refresh_catalog.setChecked(False)
+        config = AppConfig()
+        dialog.apply_to(config)
+        assert config.auto_refresh_catalog is False
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+    app.processEvents()
+
+
 def test_settings_has_create_github_token_button(paths: AppPaths) -> None:
     from sailwind_mod_sync.constants import GITHUB_NEW_TOKEN_URL
 
@@ -1328,4 +1344,69 @@ def test_pack_view_names_the_source_of_mods_with_several_sources() -> None:
         assert view.table.item(0, 1).text() == "mod"
     finally:
         view.deleteLater()
+    app.processEvents()
+
+
+def _refresh_window(paths: AppPaths, monkeypatch, **config):
+    from sailwind_mod_sync.http_util import HttpClient
+    from sailwind_mod_sync.manager import Manager
+    from sailwind_mod_sync.ui.main_window import MainWindow
+
+    class _NoHttp(HttpClient):
+        def __init__(self) -> None:
+            self.token = ""
+            self._owns_client = False
+            self._client = None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(MainWindow, "_maybe_check_updates", lambda self: None)
+    monkeypatch.setattr(MainWindow, "_maybe_auto_scan_mods", lambda self: None)
+    manager = Manager(paths=paths, config=AppConfig(check_for_updates=False, **config), http=_NoHttp())
+    manager.catalog = [_catalog_entry()]
+    return manager, MainWindow(manager)
+
+
+def test_background_catalog_refresh_applies_when_due(paths: AppPaths, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    manager, window = _refresh_window(paths, monkeypatch, last_catalog_refresh="2026-01-01T00:00:00+00:00")
+    fetched = [_catalog_entry(), _catalog_entry("com.example.other")]
+    monkeypatch.setattr(manager, "fetch_catalog", lambda progress=None: fetched)
+    try:
+        window._maybe_refresh_catalog()
+        assert window._catalog_bridge is not None
+        deadline = time.monotonic() + 5
+        while window._catalog_refresh_running() and time.monotonic() < deadline:
+            app.processEvents()
+        assert manager.catalog is fetched
+        assert window.catalog_view.table.rowCount() == 2
+        assert load_config(paths).last_catalog_refresh > "2026-01-01"
+        window._maybe_refresh_catalog()
+        assert window._catalog_bridge is None
+    finally:
+        window.close()
+        window.deleteLater()
+        manager.close()
+    app.processEvents()
+
+
+def test_background_catalog_refresh_waits_for_running_tasks_and_setting(paths: AppPaths, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    manager, window = _refresh_window(paths, monkeypatch)
+    fetches: list[object] = []
+    monkeypatch.setattr(manager, "fetch_catalog", lambda progress=None: fetches.append(progress) or [])
+    try:
+        window._busy = True
+        window._maybe_refresh_catalog()
+        assert window._catalog_bridge is None
+        window._busy = False
+        manager.config.auto_refresh_catalog = False
+        window._maybe_refresh_catalog()
+        assert window._catalog_bridge is None
+        assert fetches == []
+    finally:
+        window.close()
+        window.deleteLater()
+        manager.close()
     app.processEvents()
