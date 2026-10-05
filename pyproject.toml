@@ -1,6 +1,6 @@
 [project]
 name = "sailwind-mod-sync"
-version = "0.3.9"
+version = "0.4.0"
 description = "Qt-based Sailwind mod manager with isolated ModPacks and a local artifact library"
 readme = "README.md"
 license = { text = "MIT" }
