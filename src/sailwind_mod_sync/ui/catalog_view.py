@@ -27,10 +27,10 @@ from sailwind_mod_sync.ui.tables import (
 
 
 class CatalogView(QWidget):
-    install_requested = Signal(str)
-    remove_custom_requested = Signal(str)
+    install_requested = Signal(str, str)
+    remove_custom_requested = Signal(str, str)
     hide_requested = Signal(str)
-    details_requested = Signal(str)
+    details_requested = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -126,7 +126,9 @@ class CatalogView(QWidget):
                     else:
                         button.setToolTip(tip)
                     guid = entry.primary_guid
-                    button.clicked.connect(lambda _=False, value=guid: self.install_requested.emit(value))
+                    button.clicked.connect(
+                        lambda _=False, value=guid, repo=entry.repo: self.install_requested.emit(value, repo)
+                    )
                     actions_layout.addWidget(button)
                     self.table.setCellWidget(index, 4, actions)
                     self._enable_row_context_menu(actions, guid)
@@ -251,7 +253,7 @@ class CatalogView(QWidget):
             remove = menu.addAction("Remove from Catalog")
             remove.setToolTip("Remove this repository from your catalog")
             remove.triggered.connect(
-                lambda _=False, value=entry.primary_guid: self.remove_custom_requested.emit(value)
+                lambda _=False, value=entry.primary_guid, repo=entry.repo: self.remove_custom_requested.emit(value, repo)
             )
         else:
             hide = menu.addAction("Hide Mod From Catalog")
@@ -264,9 +266,9 @@ class CatalogView(QWidget):
         return menu
 
     def _on_double_click(self, row: int, _column: int) -> None:
-        guid = self._guid_at_row(row)
-        if guid:
-            self.details_requested.emit(guid)
+        entry = _entry_for_mod(self._entries, self._guid_at_row(row))
+        if entry is not None:
+            self.details_requested.emit(entry.primary_guid, entry.repo)
 
     def _guid_at_row(self, row: int) -> str:
         item = self.table.item(row, 1)

@@ -51,12 +51,14 @@ def store_custom_versions(paths: AppPaths, updated: list[CatalogEntry]) -> None:
 
 
 def upsert_custom_entry(entries: list[CatalogEntry], incoming: CatalogEntry) -> list[CatalogEntry]:
+    """Return ``entries`` with the entries of the same mod and repository as ``incoming`` replaced by it."""
     out: list[CatalogEntry] = []
     replaced = False
     incoming_guids = set(incoming.guids) | {incoming.primary_guid}
+    incoming_repo = _repo_key(incoming.repo)
     for entry in entries:
         overlap = incoming_guids & (set(entry.guids) | {entry.primary_guid})
-        if overlap:
+        if overlap and _repo_key(entry.repo) == incoming_repo:
             out.append(incoming)
             replaced = True
         else:
@@ -66,12 +68,14 @@ def upsert_custom_entry(entries: list[CatalogEntry], incoming: CatalogEntry) -> 
     return out
 
 
-def remove_custom_entry(entries: list[CatalogEntry], guid: str) -> list[CatalogEntry]:
+def remove_custom_entry(entries: list[CatalogEntry], guid: str, repo: str = "") -> list[CatalogEntry]:
+    """Return ``entries`` without those of ``guid``; with ``repo``, only those published from it are removed."""
     wanted = (guid or "").strip()
     return [
         entry
         for entry in entries
-        if wanted not in entry.guids and entry.primary_guid != wanted
+        if (wanted not in entry.guids and entry.primary_guid != wanted)
+        or (repo and not same_repo(entry.repo, repo))
     ]
 
 

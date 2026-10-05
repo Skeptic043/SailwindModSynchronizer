@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from sailwind_mod_sync.catalog.custom import same_repo
 from sailwind_mod_sync.catalog.github import repo_page_url
+from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, is_newer
 from sailwind_mod_sync.ui.tables import (
     enable_column_resize,
@@ -124,20 +125,14 @@ class PackView(QWidget):
         self.import_file.setEnabled(not self._bulk_busy)
         missing = missing_guids or set()
         versions = library_versions or {}
-        latest_by_guid = {}
-        latest_version_by_guid = {}
         names = {}
-        repo_by_guid = {}
         catalog_guids: set[str] = set()
         for entry in catalog:
             names[entry.primary_guid] = entry.name
             catalog_guids.add(entry.primary_guid)
             catalog_guids.update(entry.guids)
             for guid in entry.guids:
-                latest_by_guid[guid] = entry.latest_raw or ""
-                latest_version_by_guid[guid] = entry.latest_version
                 names.setdefault(guid, entry.name)
-                repo_by_guid.setdefault(guid, entry.repo)
         self.title.setText(pack.name)
         missing_count = sum(1 for pinned in pack.mods if pinned.guid in missing)
         self._subtitle_tail = f"BepInEx {pack.bepinex or '—'}"
@@ -167,20 +162,21 @@ class PackView(QWidget):
                 self.table.setItem(index, 1, sortable_item(name))
                 self.table.setItem(index, 2, sortable_item(pinned.guid))
                 self.table.setItem(index, 3, sortable_item(pinned.version_raw or pinned.version, version_sort_key(pinned.version)))
+                source = find_entry(catalog, guid, pinned.repo)
+                latest = (source.latest_raw if source else "") or ""
+                repo = pinned.repo or (source.repo if source else "")
                 version_combo = self._version_combo(
                     pinned,
                     versions.get(guid, []),
-                    catalog_latest_raw=latest_by_guid.get(guid, ""),
-                    catalog_latest_version=latest_version_by_guid.get(guid),
-                    has_repo=bool(pinned.repo or repo_by_guid.get(guid, "")),
+                    catalog_latest_raw=latest,
+                    catalog_latest_version=source.latest_version if source else None,
+                    has_repo=bool(repo),
                     missing=guid in missing,
                 )
                 self._enable_row_context_menu(version_combo, guid)
                 self.table.setCellWidget(index, 3, version_combo)
-                latest = latest_by_guid.get(pinned.guid, "")
                 is_missing = guid in missing
                 can_update = bool(latest and is_newer(latest, pinned.version))
-                repo = pinned.repo or repo_by_guid.get(guid, "")
                 in_catalog = guid in catalog_guids or any(
                     same_repo(entry.repo, repo) for entry in catalog if repo
                 )

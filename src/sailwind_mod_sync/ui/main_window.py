@@ -1016,8 +1016,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Catalog: added {len(names)} mods ({', '.join(names)})")
 
     @_unless_bulk_running
-    def _remove_custom_catalog(self, guid: str) -> None:
-        self.manager.remove_catalog_repo(guid)
+    def _remove_custom_catalog(self, guid: str, repo: str = "") -> None:
+        self.manager.remove_catalog_repo(guid, repo)
         self._reload_views()
         self.statusBar().showMessage(f"Removed {guid} from the catalog")
 
@@ -1121,13 +1121,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Update scan complete")
 
     @_unless_bulk_running
-    def _install_from_catalog(self, guid: str) -> None:
+    def _install_from_catalog(self, guid: str, repo: str = "") -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
             QMessageBox.warning(self, "No pack", "Create or select a ModPack first.")
             return
         pack = self.manager.packs.get(pack_id)
-        entry = find_entry(self.manager.catalog, guid)
+        entry = find_entry(self.manager.catalog, guid, repo)
         pinned = None
         if pack is not None:
             search = list(entry.guids) if entry else [guid]
@@ -1137,7 +1137,7 @@ class MainWindow(QMainWindow):
                 pinned = pack.find_mod(candidate)
                 if pinned is not None:
                     break
-        repo = (pinned.repo if pinned else "") or (entry.repo if entry else "")
+        source = (entry.repo if entry else "") or repo or (pinned.repo if pinned else "")
         name = (entry.name if entry else "") or guid
         current = pinned.version if pinned else ((entry.latest_version if entry else "") or "")
         target_guid = pinned.guid if pinned is not None else (entry.primary_guid if entry else guid)
@@ -1145,12 +1145,12 @@ class MainWindow(QMainWindow):
             target_guid,
             name=name,
             current_version=current,
-            repo=repo,
+            repo=source,
             adding=pinned is None,
         )
         if chosen is None:
             return
-        self._set_pack_mod_version(target_guid, chosen[0], chosen[1])
+        self._set_pack_mod_version(target_guid, chosen[0], chosen[1], repo=source)
 
     @_unless_bulk_running
     def _update_mod(self, guid: str) -> None:
@@ -1183,7 +1183,7 @@ class MainWindow(QMainWindow):
         self._set_pack_mod_version(guid, version, version)
 
     @_unless_bulk_running
-    def _set_pack_mod_version(self, guid: str, version: str, version_raw: str = "") -> None:
+    def _set_pack_mod_version(self, guid: str, version: str, version_raw: str = "", *, repo: str = "") -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
             QMessageBox.warning(self, "No pack", "Create or select a ModPack first.")
@@ -1197,7 +1197,7 @@ class MainWindow(QMainWindow):
         if self.manager.library.has_mod(guid, version):
             try:
                 pinned = self.manager.set_pack_mod_version(
-                    pack_id, guid, version, version_raw or version
+                    pack_id, guid, version, version_raw or version, repo=repo
                 )
             except Exception as exc:
                 QMessageBox.warning(self, "Could not change version", str(exc))
@@ -1212,6 +1212,7 @@ class MainWindow(QMainWindow):
                 guid,
                 version,
                 version_raw or version,
+                repo=repo,
                 progress=progress,
             ),
             lambda _r: QTimer.singleShot(0, self._reload_views),
@@ -1260,7 +1261,7 @@ class MainWindow(QMainWindow):
         pinned = pack.find_mod(guid) if pack else None
         if pack is None or pinned is None:
             return
-        entry = find_entry(self.manager.catalog, guid)
+        entry = find_entry(self.manager.catalog, guid, pinned.repo)
         repo = pinned.repo or (entry.repo if entry else "")
         name = self.manager.mod_display_name(
             guid,
@@ -1396,7 +1397,7 @@ class MainWindow(QMainWindow):
                 if entry.guid == guid:
                     repo = entry.meta.repo
                     break
-        catalog_entry = find_entry(self.manager.catalog, guid)
+        catalog_entry = find_entry(self.manager.catalog, guid, repo) or find_entry(self.manager.catalog, guid)
         if catalog_entry is None and repo:
             catalog_entry = next(
                 (item for item in self.manager.catalog if same_repo(item.repo, repo)),
@@ -1423,9 +1424,9 @@ class MainWindow(QMainWindow):
             f"{guid} is not in the catalog. Use Add Repository to link it to a GitHub repository.",
         )
 
-    def _show_catalog_details(self, guid: str) -> None:
+    def _show_catalog_details(self, guid: str, repo: str = "") -> None:
         try:
-            details = self.manager.catalog_mod_details(guid)
+            details = self.manager.catalog_mod_details(guid, repo)
         except Exception as exc:
             QMessageBox.warning(self, "Mod details", str(exc))
             return

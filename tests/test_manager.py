@@ -1011,3 +1011,30 @@ def test_scan_updates_stores_live_versions_of_custom_entries(paths: AppPaths, mo
     stored = load_custom_catalog(paths)
     assert stored[0].latest_raw == "v2.1.0"
     assert stored[0].latest_version == "2.1.0"
+
+
+def test_update_mod_uses_the_latest_version_of_the_pinned_source(paths: AppPaths, monkeypatch) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    fork_repo = "https://github.com/me/mymod-fork"
+    manager.catalog = _catalog_with_repo() + [
+        CatalogEntry(
+            repo=fork_repo,
+            guids=["com.example.mymod"],
+            primary_guid="com.example.mymod",
+            name="MyMod",
+            latest_raw="v2.1.0",
+            latest_version="2.1.0",
+            available=True,
+            custom=True,
+        )
+    ]
+    pack = manager.packs.create("Fork pack")
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mymod", version="2.0.0", repo=fork_repo))
+    calls: list[dict] = []
+    monkeypatch.setattr(manager, "install_mod", lambda *args, **kwargs: calls.append(kwargs))
+    try:
+        manager.update_mod(pack.id, "com.example.mymod")
+    finally:
+        manager.close()
+    assert calls[0]["repo"] == fork_repo
+    assert calls[0]["version"] == "2.1.0"

@@ -346,13 +346,13 @@ class Manager:
         self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
         resolved: list[CatalogEntry] = []
         for entry in added:
-            found = find_entry(self.catalog, entry.primary_guid)
+            found = find_entry(self.catalog, entry.primary_guid, entry.repo)
             resolved.append(found or entry)
         log.info("Added %s catalog plugin(s) from %s", len(resolved), repo)
         return resolved
 
-    def remove_catalog_repo(self, guid: str) -> None:
-        custom = remove_custom_entry(load_custom_catalog(self.paths), guid)
+    def remove_catalog_repo(self, guid: str, repo: str = "") -> None:
+        custom = remove_custom_entry(load_custom_catalog(self.paths), guid, repo)
         save_custom_catalog(self.paths, custom)
         self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
         log.info("Removed custom catalog entry %s", guid)
@@ -381,7 +381,7 @@ class Manager:
         added: list[CatalogEntry] = []
         for pinned in mods:
             guid = (pinned.guid or "").strip()
-            if not guid or find_entry(working, guid) is not None:
+            if not guid or find_entry(working, guid, pinned.repo) is not None:
                 continue
             entry = self._catalog_entry_from_pin(pinned)
             custom = upsert_custom_entry(custom, entry)
@@ -393,7 +393,7 @@ class Manager:
         self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
         resolved: list[CatalogEntry] = []
         for entry in added:
-            resolved.append(find_entry(self.catalog, entry.primary_guid) or entry)
+            resolved.append(find_entry(self.catalog, entry.primary_guid, entry.repo) or entry)
         log.info("Added %s imported mod(s) to the catalog", len(resolved))
         return resolved
 
@@ -488,7 +488,7 @@ class Manager:
             key=version_key,
             reverse=True,
         )
-        catalog = find_entry(self.catalog, guid)
+        catalog = find_entry(self.catalog, guid, meta.repo)
         name = self.mod_display_name(
             guid,
             plugin_folders=list(meta.plugin_folders),
@@ -520,8 +520,8 @@ class Manager:
             pack_pins=pack_pins,
         )
 
-    def catalog_mod_details(self, guid: str) -> ModDetails:
-        catalog = find_entry(self.catalog, guid)
+    def catalog_mod_details(self, guid: str, repo: str = "") -> ModDetails:
+        catalog = find_entry(self.catalog, guid, repo)
         if catalog is None:
             raise FileNotFoundError(f"{guid} is not in the catalog")
         guids = set(catalog.guids) | {catalog.primary_guid, guid}
@@ -584,7 +584,7 @@ class Manager:
         version_raw: str | None = None,
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
-        entry = find_entry(self.catalog, guid)
+        entry = find_entry(self.catalog, guid, repo or "")
         repo = repo or (entry.repo if entry else "") or (known_repo_for(guid) or "")
         if not repo:
             raise ValueError(f"No repository known for {guid}")
@@ -637,11 +637,13 @@ class Manager:
         guid: str,
         version: str,
         version_raw: str | None = None,
+        *,
+        repo: str = "",
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
-        repo = (pinned.repo if pinned else "") or None
+        repo = repo or (pinned.repo if pinned else "") or None
         if self.library.has_mod(guid, version):
             return self.add_library_mod_to_pack(
                 pack_id,
@@ -848,7 +850,7 @@ class Manager:
     def update_mod(self, pack_id: str, guid: str, progress: ProgressFn | None = None) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
-        entry = find_entry(self.catalog, guid)
+        entry = find_entry(self.catalog, guid, pinned.repo if pinned else "")
         repo = (pinned.repo if pinned else "") or (entry.repo if entry else "")
         version_raw = entry.latest_raw if entry else None
         version = entry.latest_version if entry else None

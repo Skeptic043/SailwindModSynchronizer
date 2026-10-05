@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
-from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, overlay_entries
+from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, overlay_entries, same_repo
 from sailwind_mod_sync.constants import (
     GITHUB_RAW_APP_MODLIST,
     GITHUB_RAW_APP_VERSIONS,
@@ -148,11 +148,16 @@ def merge_catalog(mod_list: list, versions: list) -> list[CatalogEntry]:
     return entries
 
 
-def find_entry(entries: list[CatalogEntry], guid: str) -> CatalogEntry | None:
-    for entry in entries:
-        if guid in entry.guids or entry.primary_guid == guid:
-            return entry
-    return None
+def find_entry(entries: list[CatalogEntry], guid: str, repo: str = "") -> CatalogEntry | None:
+    """Return the entry of ``guid`` published from ``repo``.
+
+    Without ``repo``, return the default entry of ``guid``: the shared catalog's one when it has any,
+    otherwise a custom one. Return None when no entry matches.
+    """
+    matches = [entry for entry in entries if guid in entry.guids or entry.primary_guid == guid]
+    if repo:
+        return next((entry for entry in matches if same_repo(entry.repo, repo)), None)
+    return next((entry for entry in matches if not entry.custom), matches[0] if matches else None)
 
 
 def _read_json_list(path) -> list:

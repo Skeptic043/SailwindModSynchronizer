@@ -125,7 +125,7 @@ def test_catalog_view_has_add_repo_button() -> None:
 
 def _catalog_entry(guid: str = "com.example.mod", latest: str = "1.2.0") -> CatalogEntry:
     return CatalogEntry(
-        repo="https://github.com/example/mod",
+        repo=f"https://github.com/example/{guid.rsplit('.', 1)[-1]}",
         guids=[guid],
         primary_guid=guid,
         name="mod",
@@ -181,8 +181,8 @@ def test_catalog_view_shows_add_to_pack_button() -> None:
         labels = action_labels()
         assert "In pack" in labels
         assert "Add to pack" not in labels
-        caught: list[str] = []
-        view.install_requested.connect(caught.append)
+        caught: list[tuple[str, str]] = []
+        view.install_requested.connect(lambda guid, repo: caught.append((guid, repo)))
         add_buttons = [
             button
             for button in view.table.cellWidget(0, 4).findChildren(QPushButton)
@@ -190,7 +190,7 @@ def test_catalog_view_shows_add_to_pack_button() -> None:
         ]
         assert add_buttons
         add_buttons[0].click()
-        assert caught == ["com.example.mod"]
+        assert caught == [("com.example.mod", "https://github.com/example/mod")]
     finally:
         view.deleteLater()
     app.processEvents()
@@ -199,8 +199,8 @@ def test_catalog_view_shows_add_to_pack_button() -> None:
 def test_catalog_context_menu_removes_custom_entry() -> None:
     app = QApplication.instance() or QApplication([])
     view = CatalogView()
-    removed: list[str] = []
-    view.remove_custom_requested.connect(removed.append)
+    removed: list[tuple[str, str]] = []
+    view.remove_custom_requested.connect(lambda guid, repo: removed.append((guid, repo)))
     custom = CatalogEntry(
         repo="https://github.com/example/custom",
         guids=["com.example.custom"],
@@ -230,7 +230,7 @@ def test_catalog_context_menu_removes_custom_entry() -> None:
         items = [action.text() for action in menu.actions() if not action.isSeparator()]
         assert items == ["Remove from Catalog"]
         menu.actions()[0].trigger()
-        assert removed == ["com.example.custom"]
+        assert removed == [("com.example.custom", "https://github.com/example/custom")]
     finally:
         view.deleteLater()
     app.processEvents()
@@ -449,12 +449,12 @@ def test_catalog_reveal_clears_when_another_row_selected() -> None:
 def test_catalog_double_click_requests_details() -> None:
     app = QApplication.instance() or QApplication([])
     view = CatalogView()
-    caught: list[str] = []
-    view.details_requested.connect(caught.append)
+    caught: list[tuple[str, str]] = []
+    view.details_requested.connect(lambda guid, repo: caught.append((guid, repo)))
     try:
         view.set_data([_catalog_entry("com.example.mod", "1.2.0")], None)
         view._on_double_click(0, 0)
-        assert caught == ["com.example.mod"]
+        assert caught == [("com.example.mod", "https://github.com/example/mod")]
     finally:
         view.deleteLater()
     app.processEvents()
