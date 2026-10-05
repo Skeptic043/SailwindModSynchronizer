@@ -2,6 +2,12 @@
 
 A Qt (PySide6) mod manager for [Sailwind](https://store.steampowered.com/app/1764530/Sailwind/). It catalogs mods from [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker), caches versioned zips in a Maven-like local library, and launches isolated ModPacks through UnityDoorstop so the Steam game folder stays vanilla.
 
+## Download
+
+Grab `SailwindModSynchronizer-<version>-windows.zip` from the [latest release](https://github.com/foxyv/SailwindModSynchronizer/releases/latest), extract it anywhere, and run `SailwindModSynchronizer.exe`. Later versions install themselves through **Help → Check for updates**.
+
+The exe is signed, but not yet with a publicly trusted certificate, so the first time you run it Windows SmartScreen may show **Windows protected your PC**. Click **More info**, then **Run anyway**.
+
 ## Requirements
 
 - Python 3.11+
