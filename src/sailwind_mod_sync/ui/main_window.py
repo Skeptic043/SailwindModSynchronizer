@@ -71,6 +71,8 @@ from sailwind_mod_sync.updater import (
 
 log = logging.getLogger(__name__)
 
+PROGRESS_DIALOG_DELAY_MS = 250
+
 # Delay after startup before the catalog is scanned in the background for
 # updates, so the window can appear and stay responsive.
 AUTO_SCAN_START_DELAY_MS = 2000
@@ -144,6 +146,9 @@ class MainWindow(QMainWindow):
         self._update_bridge: TaskBridge | None = None
         self._on_ok: Callable | None = None
         self._progress_dialog: BusyDialog | None = None
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setSingleShot(True)
+        self._progress_timer.timeout.connect(self._show_progress_dialog)
         self._launch_splash: LaunchSplash | None = None
         self._mod_scan_running = False
         self._mod_scan_done_at = float("-inf")
@@ -1614,10 +1619,11 @@ class MainWindow(QMainWindow):
         self._set_views_enabled(False)
         self.statusBar().showMessage(busy_message)
 
+        # Only show the dialog for tasks that outlast PROGRESS_DIALOG_DELAY_MS,
+        # so quick ones (like updating to an already-downloaded mod) don't flash it.
         dialog = BusyDialog(self, "Working", busy_message)
         self._progress_dialog = dialog
-        dialog.show()
-        dialog.raise_()
+        self._progress_timer.start(PROGRESS_DIALOG_DELAY_MS)
         QApplication.processEvents()
 
         bridge = TaskBridge(self)
@@ -1845,7 +1851,15 @@ class MainWindow(QMainWindow):
         self.pack_view.setEnabled(enabled)
         self._downloads.setEnabled(enabled)
 
+    def _show_progress_dialog(self) -> None:
+        dialog = self._progress_dialog
+        if dialog is None:
+            return
+        dialog.show()
+        dialog.raise_()
+
     def _close_progress(self) -> None:
+        self._progress_timer.stop()
         dialog = self._progress_dialog
         self._progress_dialog = None
         if dialog is None:
