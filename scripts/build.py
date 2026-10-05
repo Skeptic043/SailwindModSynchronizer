@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,7 @@ ICO_ICON = ASSETS / "icon.ico"
 EXE_NAME = "SailwindModSynchronizer"
 SHORTCUT_NAME = "Sailwind Mod Synchronizer.lnk"
 DIST_DIR = REPO_ROOT / "dist" / EXE_NAME
+BUILD_DIR = REPO_ROOT / "build"
 SIGN_EXTENSIONS = {".exe", ".dll", ".pyd"}
 SIGN_BATCH = 16
 MIN_SIGNTOOL_VERSION = (10, 0, 22621)
@@ -119,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
 
     _ensure_build_deps()
     write_ico(PNG_ICON, ICO_ICON)
+    if exe_in_use(DIST_DIR / f"{EXE_NAME}.exe"):
+        raise SystemExit(f"{EXE_NAME}.exe is running from {DIST_DIR}. Close it and build again.")
+    clear_readonly(BUILD_DIR, DIST_DIR)
     _run_pyinstaller(windowed=not args.console, clean=args.release)
 
     exe = DIST_DIR / f"{EXE_NAME}.exe"
@@ -415,6 +420,42 @@ def pyinstaller_args(*, windowed: bool, clean: bool) -> list[str]:
     for module in QT_EXCLUDES:
         args.extend(["--exclude-module", module])
     return args
+
+
+def exe_in_use(exe: Path) -> bool:
+    """Windows refuses write access to a running executable."""
+    if not exe.is_file():
+        return False
+    try:
+        mode = exe.stat().st_mode
+        if not mode & stat.S_IWRITE:
+            os.chmod(exe, mode | stat.S_IWRITE)
+        with exe.open("r+b"):
+            return False
+    except PermissionError:
+        return True
+
+
+def clear_readonly(*roots: Path) -> int:
+    """Clear read-only flags OneDrive leaves on synced folders, which make PyInstaller's cleanup fail."""
+    cleared = 0
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in [root, *root.rglob("*")]:
+            try:
+                mode = path.stat().st_mode
+            except OSError:
+                continue
+            if not mode & stat.S_IWRITE:
+                try:
+                    os.chmod(path, mode | stat.S_IWRITE)
+                    cleared += 1
+                except OSError as exc:
+                    print(f"Could not clear read-only flag on {path}: {exc}")
+    if cleared:
+        print(f"Cleared read-only flags on {cleared} item(s)")
+    return cleared
 
 
 def _run_pyinstaller(*, windowed: bool, clean: bool) -> None:

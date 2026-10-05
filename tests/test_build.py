@@ -135,3 +135,28 @@ def test_sign_files_batches(tmp_path: Path, monkeypatch) -> None:
     assert str(metadata) in calls[0]
     assert str(files[0]) in calls[0]
     assert str(files[-1]) in calls[1]
+
+
+def test_clear_readonly_makes_files_and_folders_writable(tmp_path: Path) -> None:
+    import os
+    import stat
+
+    build = _load_build()
+    folder = tmp_path / "dist" / "plugins"
+    folder.mkdir(parents=True)
+    dll = folder / "qico.dll"
+    dll.write_bytes(b"MZ")
+    for path in (dll, folder):
+        os.chmod(path, stat.S_IREAD)
+    assert build.clear_readonly(tmp_path / "dist", tmp_path / "missing") == 2
+    assert os.access(dll, os.W_OK)
+    dll.unlink()
+    folder.rmdir()
+
+
+def test_exe_in_use_is_false_for_missing_or_idle_exe(tmp_path: Path) -> None:
+    build = _load_build()
+    exe = tmp_path / "App.exe"
+    assert not build.exe_in_use(exe)
+    exe.write_bytes(b"MZ")
+    assert not build.exe_in_use(exe)
