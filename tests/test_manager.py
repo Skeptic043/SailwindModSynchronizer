@@ -1176,3 +1176,33 @@ def test_bundle_keeps_the_source_of_a_variant_artifact(paths: AppPaths, tmp_path
         other.close()
     assert other.missing_mods(imported) == []
     assert (other.packs.plugins_dir(imported.id) / "Mod" / "Mod.dll").read_bytes() == b"MZme/mod-fork"
+
+
+def test_set_mod_repo_for_one_pack_keeps_the_sources_of_other_packs(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    manager.library.ingest_mod_zip(
+        "com.example.mod",
+        "1.2.0",
+        archive,
+        version_raw="v1.2.0",
+        repo="https://github.com/example/mod",
+        source_url="https://github.com/example/mod/releases/download/v1.2.0/Mod.zip",
+    )
+    target = manager.packs.create("Target")
+    other = manager.packs.create("Other")
+    blank = manager.packs.create("Blank")
+    for pack, repo in ((target, "https://github.com/example/mod"), (other, "https://github.com/example/mod"), (blank, "")):
+        manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo=repo))
+    try:
+        manager.set_mod_repo("com.example.mod", "https://github.com/me/mod-fork", target.id)
+    finally:
+        manager.close()
+
+    def repo_of(pack_id: str) -> str:
+        return manager.packs.get(pack_id).find_mod("com.example.mod").repo
+
+    assert repo_of(target.id) == "https://github.com/me/mod-fork"
+    assert repo_of(other.id) == "https://github.com/example/mod"
+    assert repo_of(blank.id) == "https://github.com/me/mod-fork"
+    assert manager.library.read_mod_meta("com.example.mod", "1.2.0").repo == "https://github.com/example/mod"

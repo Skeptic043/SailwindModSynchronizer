@@ -787,7 +787,7 @@ class MainWindow(QMainWindow):
     def _game_plugins_imported(self, pack) -> None:
         self._imported(pack)
         pack = self.manager.packs.get(pack.id)
-        self._offer_catalog_association(list(pack.mods))
+        self._offer_catalog_association(list(pack.mods), pack_id=pack.id)
 
     @_unless_bulk_running
     def _backup_bepinex(self) -> None:
@@ -1292,6 +1292,7 @@ class MainWindow(QMainWindow):
             [pinned],
             names={guid: name},
             force=True,
+            pack_id=pack_id,
         )
 
     @_unless_bulk_running
@@ -1318,6 +1319,7 @@ class MainWindow(QMainWindow):
         *,
         names: dict[str, str] | None = None,
         force: bool = False,
+        pack_id: str | None = None,
     ) -> None:
         targets: list[AssociateTarget] = []
         labels = names or {}
@@ -1326,7 +1328,7 @@ class MainWindow(QMainWindow):
             if not force:
                 if catalog_hit:
                     if not pin.repo:
-                        self.manager.set_mod_repo(pin.guid, catalog_hit.repo)
+                        self.manager.set_mod_repo(pin.guid, catalog_hit.repo, pack_id)
                     continue
             name = labels.get(pin.guid) or self.manager.mod_display_name(
                 pin.guid,
@@ -1336,7 +1338,7 @@ class MainWindow(QMainWindow):
             targets.append(
                 AssociateTarget(
                     guid=pin.guid,
-                    version=pin.version,
+                    version=self.manager.library.pinned_key(pin),
                     name=name,
                     repo=pin.repo,
                 )
@@ -1356,6 +1358,7 @@ class MainWindow(QMainWindow):
                     choice.version,
                     catalog_entry=choice.entry,
                     repo=choice.repo,
+                    pack_id=pack_id,
                 )
                 associated += 1
             except Exception as exc:
@@ -1511,7 +1514,7 @@ class MainWindow(QMainWindow):
             return
         names = ", ".join(f"{item.guid} {item.version}" for item in imported)
         self.statusBar().showMessage(f"Imported {names}")
-        self._offer_catalog_association(list(imported))
+        self._offer_catalog_association(list(imported), pack_id=self.current_pack_id())
 
     @_unless_bulk_running
     def _play(self) -> None:

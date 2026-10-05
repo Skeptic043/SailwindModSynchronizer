@@ -707,16 +707,21 @@ class Manager:
         self.packs.upsert_mod(pack_id, pinned)
         return pinned
 
-    def set_mod_repo(self, guid: str, repo: str) -> str:
+    def set_mod_repo(self, guid: str, repo: str, pack_id: str | None = None) -> str:
+        """Set the repository of ``guid`` and return its canonical URL.
+
+        With ``pack_id``, the pin of that pack changes and the pins of other packs change only when they have
+        no repository; without it, every pin changes. Library artifacts downloaded from a repository keep it.
+        """
         page = canonicalize_repo_url(repo)
         for pack in self.packs.list_packs():
             pinned = pack.find_mod(guid)
-            if pinned is None:
+            if pinned is None or not _takes_repo(pack, pinned, pack_id):
                 continue
             pinned.repo = page
             self.packs.save(pack)
         for entry in self.library.list_mods():
-            if entry.guid != guid:
+            if entry.guid != guid or artifact_source(entry.meta):
                 continue
             meta = self.library.read_mod_meta(entry.guid, entry.version)
             if meta is None:
@@ -732,14 +737,20 @@ class Manager:
         *,
         catalog_entry: CatalogEntry | None = None,
         repo: str = "",
+        pack_id: str | None = None,
     ) -> str:
+        """Link the library artifact ``guid`` ``version`` and its pins to a catalog entry or repository.
+
+        Pins in other packs than ``pack_id`` keep a repository they already have. Return the mod's GUID,
+        which becomes the catalog entry's when the artifact had a different one.
+        """
         entry = catalog_entry
         page = ""
         if entry is None and repo:
             page = canonicalize_repo_url(repo)
             entry = next((item for item in self.catalog if same_repo(item.repo, page)), None)
             if entry is None:
-                return self.set_mod_repo(guid, page)
+                return self.set_mod_repo(guid, page, pack_id)
         if entry is None:
             raise ValueError("No catalog entry or repository to associate")
         page = canonicalize_repo_url(entry.repo)
@@ -752,7 +763,7 @@ class Manager:
                 meta.repo = page
                 self.library.write_mod_meta(meta, version)
         else:
-            self.set_mod_repo(guid, page)
+            self.set_mod_repo(guid, page, pack_id)
         if new_guid != guid and guid in self.aliases:
             self.aliases[new_guid] = self.aliases.pop(guid)
             save_aliases(self.paths, self.aliases)
@@ -760,21 +771,24 @@ class Manager:
             pinned = pack.find_mod(guid)
             if pinned is None:
                 continue
+            takes_repo = _takes_repo(pack, pinned, pack_id)
             if new_guid == guid:
-                pinned.repo = page
-                self.packs.save(pack)
+                if takes_repo:
+                    pinned.repo = page
+                    self.packs.save(pack)
                 continue
             existing = pack.find_mod(new_guid)
             remaining = [mod for mod in pack.mods if mod.guid != guid]
             pinned.guid = new_guid
-            pinned.repo = page
+            if takes_repo:
+                pinned.repo = page
             if existing is None:
                 remaining.append(pinned)
             else:
                 remaining = [mod for mod in remaining if mod.guid != new_guid]
                 existing.version = pinned.version
                 existing.version_raw = pinned.version_raw or existing.version_raw
-                existing.repo = page
+                existing.repo = page if takes_repo else existing.repo or pinned.repo
                 existing.enabled = pinned.enabled
                 existing.plugin_folders = list(pinned.plugin_folders or existing.plugin_folders)
                 remaining.append(existing)
@@ -1323,6 +1337,10 @@ class Manager:
 
     def _setup_logging(self) -> None:
         setup_logging(self.paths.log_file)
+
+
+def _takes_repo(pack: ModPack, pinned: PinnedMod, pack_id: str | None) -> bool:
+    return pack_id is None or pack.id == pack_id or not pinned.repo
 
 
 def _copy_matching_configs(source: Path, dest: Path, guids: set[str]) -> None:
