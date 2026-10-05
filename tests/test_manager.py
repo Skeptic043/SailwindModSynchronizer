@@ -1380,3 +1380,22 @@ def test_clear_cache_deletes_imported_mods_only_when_asked(paths: AppPaths, tmp_
     assert result.freed_bytes >= imported
     assert manager.library.list_mods() == []
     assert not any(paths.library_mods.iterdir())
+
+
+def test_undownloadable_mods_leaves_out_mods_with_a_known_repository(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = _catalog_with_repo()
+    pack = manager.packs.create("Crew")
+    for pinned in (
+        PinnedMod(guid="com.example.pinned", version="1.0.0", repo="https://github.com/example/pinned"),
+        PinnedMod(guid="com.example.mymod", version="1.0.0"),
+        PinnedMod(guid=COOP_GUID, version="0.3.2"),
+        PinnedMod(guid="local.discord.mystery", version="1.0.0"),
+    ):
+        manager.packs.upsert_mod(pack.id, pinned)
+    try:
+        pack = manager.packs.get(pack.id)
+        assert len(manager.missing_mods(pack)) == 4
+        assert [mod.guid for mod in manager.undownloadable_mods(pack)] == ["local.discord.mystery"]
+    finally:
+        manager.close()

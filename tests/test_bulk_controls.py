@@ -1067,3 +1067,28 @@ def test_clear_cache_waits_for_a_running_update_check(window, manager, monkeypat
     window._clear_cache()
     window._mod_scan_running = False
     assert shown and "update check" in shown[0]
+
+
+def test_play_warns_only_about_mods_that_cannot_be_downloaded(window, manager, monkeypatch):
+    from sailwind_mod_sync.ui import main_window as main_window_module
+
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="example.test", version="1.0.0"))
+    warned: list[list[str]] = []
+
+    class _Dialog:
+        def __init__(self, missing, pack_name, parent):
+            warned.append([mod.guid for mod in missing])
+            self.stop_reminding = False
+
+        def exec(self):
+            return 1
+
+    monkeypatch.setattr(main_window_module, "MissingModsWarningDialog", _Dialog)
+    assert window._confirm_missing_mods(pack.id)
+    assert warned == []
+
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="local.mystery", version="1.0.0"))
+    assert window._confirm_missing_mods(pack.id)
+    assert warned == [["local.mystery"]]

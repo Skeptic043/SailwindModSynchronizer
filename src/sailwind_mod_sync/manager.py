@@ -868,6 +868,14 @@ class Manager:
             return []
         return [mod for mod in pack.mods if not artifact_ready(self.library, mod.guid, self.library.pinned_key(mod))]
 
+    def undownloadable_mods(self, pack: ModPack | None) -> list[PinnedMod]:
+        """Return the pack's missing mods that preparing the pack cannot download, as no repository is known."""
+        return [mod for mod in self.missing_mods(pack) if not self._download_repo(mod)]
+
+    def _download_repo(self, pinned: PinnedMod) -> str:
+        entry = find_entry(self.catalog, pinned.guid)
+        return pinned.repo or (entry.repo if entry else "") or (known_repo_for(pinned.guid) or "")
+
     def library_versions(
         self,
         guid: str,
@@ -1193,15 +1201,9 @@ class Manager:
             if progress:
                 progress(f"Resolving {pinned.guid} ({index}/{total})…")
             if not pinned.repo:
-                entry = find_entry(self.catalog, pinned.guid)
-                if entry:
-                    pinned.repo = entry.repo
-                    log.info("Filled repo for %s from catalog: %s", pinned.guid, pinned.repo)
-                else:
-                    known = known_repo_for(pinned.guid)
-                    if known:
-                        pinned.repo = known
-                        log.info("Filled repo for %s from known mods: %s", pinned.guid, pinned.repo)
+                pinned.repo = self._download_repo(pinned)
+                if pinned.repo:
+                    log.info("Filled repo for %s: %s", pinned.guid, pinned.repo)
             key = self.library.pinned_key(pinned)
             if artifact_ready(self.library, pinned.guid, key):
                 log.info("Library hit %s %s", pinned.guid, key)

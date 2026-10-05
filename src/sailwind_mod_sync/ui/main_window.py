@@ -1658,7 +1658,7 @@ class MainWindow(QMainWindow):
         if not self.manager.config.warn_missing_mods:
             return True
         pack = self.manager.packs.get(pack_id)
-        missing = self.manager.missing_mods(pack)
+        missing = self.manager.undownloadable_mods(pack)
         if not missing:
             return True
         dialog = MissingModsWarningDialog(missing, pack.name, self)
@@ -1684,10 +1684,13 @@ class MainWindow(QMainWindow):
         pack = self.manager.packs.get(pack_id) if pack_id else None
         if pack is not None:
             heading = f"Starting Sailwind — {pack.name}"
-        self._open_launch_splash(
-            LaunchSplash(self, process, heading=heading),
-            status="Waiting for Steam to open Sailwind…",
-        )
+        missing = self.manager.missing_mods(pack) if pack is not None else []
+        status = "Waiting for Steam to open Sailwind…"
+        if missing:
+            noun = "mod" if len(missing) == 1 else "mods"
+            status = f"{status} {len(missing)} {noun} could not be downloaded and will not load."
+            self._reload_views()
+        self._open_launch_splash(LaunchSplash(self, process, heading=heading), status=status)
 
     def _test_splash(self) -> None:
         heading = "Starting Sailwind"
