@@ -906,3 +906,26 @@ def test_partial_rollback_retains_already_restored_original_and_remaining_backup
     assert (work / "original-modpack.json").read_bytes() == before
     assert (work / "planned-modpack.json").exists()
     assert "do not delete or replace the current folder" in marker.read_text(encoding="utf-8")
+
+
+def test_switching_packs_scans_library_once(window, manager, monkeypatch, tmp_path):
+    import zipfile
+
+    app, window = window
+    first = manager.packs.ensure_default()
+    second = manager.packs.create("Second")
+    for index in range(5):
+        guid = f"example.repoless{index}"
+        archive = tmp_path / f"{guid}.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr(f"Repoless{index}/Repoless{index}.dll", b"MZ")
+        manager.library.ingest_mod_zip(guid, "1.0.0", archive, version_raw="1.0.0", repo="", source_url="")
+        manager.packs.upsert_mod(second.id, PinnedMod(guid=guid, version="1.0.0"))
+    window._reload_packs(select_id=first.id)
+    calls = []
+    original = manager.library.list_mods
+    monkeypatch.setattr(manager.library, "list_mods", lambda: calls.append(1) or original())
+    rows = {window.pack_list.item(row).data(Qt.ItemDataRole.UserRole): row for row in range(window.pack_list.count())}
+    window.pack_list.setCurrentRow(rows[second.id])
+    assert len(calls) == 1
+    assert window.current_pack_id() == second.id

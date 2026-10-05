@@ -48,6 +48,7 @@ from sailwind_mod_sync.library.store import LibraryStore
 from sailwind_mod_sync.logutil import log_duration, setup_logging
 from sailwind_mod_sync.models import (
     CatalogEntry,
+    LibraryEntry,
     ModDetails,
     ModPack,
     PinnedMod,
@@ -427,12 +428,17 @@ class Manager:
         alias: str | None = None,
         plugin_folders: list[str] | None = None,
         repo: str = "",
+        library_entries: list[LibraryEntry] | None = None,
+        packs: list[ModPack] | None = None,
     ) -> str:
+        """Pass ``library_entries`` and ``packs`` when naming many mods, so the
+        library and pack manifests are read once instead of once per mod."""
         catalog = find_entry(self.catalog, guid)
         folders = plugin_folders
         repo_url = repo
         if folders is None or not repo_url:
-            for entry in self.library.list_mods():
+            entries = self.library.list_mods() if library_entries is None else library_entries
+            for entry in entries:
                 if entry.guid != guid:
                     continue
                 if folders is None:
@@ -440,7 +446,7 @@ class Manager:
                 repo_url = repo_url or entry.meta.repo
                 break
         if not repo_url:
-            for pack in self.packs.list_packs():
+            for pack in self.packs.list_packs() if packs is None else packs:
                 pinned = pack.find_mod(guid)
                 if pinned is None:
                     continue

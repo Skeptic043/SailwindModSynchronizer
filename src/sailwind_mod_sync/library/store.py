@@ -30,8 +30,9 @@ class LibraryStore:
     def mod_dir(self, guid: str, version: str) -> Path:
         return self.paths.mod_artifact_dir(guid, version)
 
-    def mod_zip_path(self, guid: str, version: str) -> Path:
-        meta = self.read_mod_meta(guid, version)
+    def mod_zip_path(self, guid: str, version: str, meta: ArtifactMeta | None = None) -> Path:
+        if meta is None:
+            meta = self.read_mod_meta(guid, version)
         directory = self.mod_dir(guid, version)
         if meta and meta.filename:
             candidate = directory / meta.filename
@@ -178,7 +179,7 @@ class LibraryStore:
                 meta = self.read_mod_meta(guid, version)
                 if meta is None:
                     continue
-                zip_path = self.mod_zip_path(guid, version)
+                zip_path = self.mod_zip_path(guid, version, meta)
                 extracted = self.mod_extracted(guid, version)
                 size = dir_size(zip_path) if zip_path.exists() else dir_size(version_dir)
                 entries.append(
