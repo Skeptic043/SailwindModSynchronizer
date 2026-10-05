@@ -17,6 +17,11 @@ def raster_icon_path() -> Path | None:
     return _first_icon(("icon.png", "icon.ico"))
 
 
+def changelog_path() -> Path | None:
+    """The bundled CHANGELOG.md shown from Help → Change log."""
+    return _first_icon(("CHANGELOG.md",))
+
+
 def load_icon_pixmap(logical_px: int, device_pixel_ratio: float = 1.0) -> QPixmap | None:
     """Scale the app icon to ``logical_px`` using the PNG (or the largest ICO size)."""
     dpr = max(1.0, float(device_pixel_ratio) or 1.0)

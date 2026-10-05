@@ -34,3 +34,26 @@ def test_load_icon_pixmap_downscales_png() -> None:
     assert hidpi.width() == 144
     assert hidpi.devicePixelRatio() == 2.0
     app.processEvents()
+
+
+def test_changelog_has_an_entry_for_the_current_version() -> None:
+    from sailwind_mod_sync.constants import APP_VERSION
+    from sailwind_mod_sync.resources import changelog_path
+    from sailwind_mod_sync.ui.changelog_dialog import load_changelog
+
+    found = changelog_path()
+    assert found is not None
+    assert found.parent == Path(__file__).resolve().parents[1] / "assets"
+    assert f"## {APP_VERSION} " in load_changelog()
+
+
+def test_changelog_dialog_renders_markdown() -> None:
+    from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
+
+    app = QApplication.instance() or QApplication([])
+    dialog = ChangelogDialog()
+    text = dialog.browser.toPlainText()
+    assert "Change Log" in text
+    assert "0.1.0" in text
+    assert "##" not in text
+    dialog.deleteLater()
