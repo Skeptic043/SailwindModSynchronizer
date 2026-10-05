@@ -1045,7 +1045,7 @@ class MainWindow(QMainWindow):
             return
         self._pending_catalog = None
         previous = self.manager.catalog
-        self.manager.apply_catalog(entries)
+        self.manager.catalog = entries
         self._mark_catalog_refreshed()
         log.info("Background catalog refresh applied: %s mods", len(self.manager.catalog))
         if self.manager.catalog != previous:

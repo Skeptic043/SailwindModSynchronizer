@@ -10,13 +10,10 @@ from pathlib import Path
 
 from sailwind_mod_sync.catalog.custom import (
     load_custom_catalog,
-    merge_with_custom,
     remove_custom_entry,
     repo_key,
     save_custom_catalog,
     same_repo,
-    source_key,
-    store_custom_versions,
     upsert_custom_entry,
 )
 from sailwind_mod_sync.catalog.github import (
@@ -28,7 +25,8 @@ from sailwind_mod_sync.catalog.github import (
     parse_repo_url,
     release_version,
 )
-from sailwind_mod_sync.catalog.mvc import find_entry, load_cached_catalog, load_shared_catalog, refresh_catalog
+from sailwind_mod_sync.catalog.mvc import build_catalog, find_entry, load_cached_catalog, load_shared_catalog, refresh_catalog
+from sailwind_mod_sync.catalog.scanned import store_scanned_versions
 from sailwind_mod_sync.config import AppConfig, load_config, save_config
 from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION
 from sailwind_mod_sync.game.backup import BackupResult, RestoreResult, backup_bepinex_folder, inspect_bepinex_zip, restore_bepinex_folder
@@ -58,7 +56,6 @@ from sailwind_mod_sync.models import (
     RemoteModInfo,
     catalog_mod_name,
     display_mod_name,
-    is_newer,
     parse_mod_version,
     version_key,
 )
@@ -207,24 +204,15 @@ class Manager:
         return restore_saves_folder(archive, dest, safety_dest=safety_dest, progress=progress)
 
     def refresh_catalog(self, progress: ProgressFn | None = None) -> list[CatalogEntry]:
-        self.apply_catalog(self.fetch_catalog(progress=progress))
+        self.catalog = self.fetch_catalog(progress=progress)
         return self.catalog
 
     def fetch_catalog(self, progress: ProgressFn | None = None) -> list[CatalogEntry]:
         """Download the shared catalogs into the cache and return the merged catalog without applying it."""
         return refresh_catalog(self.paths, self.http, progress=progress)
 
-    def apply_catalog(self, entries: list[CatalogEntry]) -> None:
-        """Replace the catalog with ``entries``, keeping newer versions an update scan found for the same sources."""
-        previous = {source_key(entry): entry for entry in self.catalog}
-        for entry in entries:
-            found = previous.get(source_key(entry))
-            if found is None or not entry.available or not found.latest_raw:
-                continue
-            if entry.latest_raw and is_newer(found.latest_raw, entry.latest_raw):
-                entry.latest_raw = found.latest_raw
-                entry.latest_version = found.latest_version
-        self.catalog = entries
+    def _rebuild_catalog(self, custom: list[CatalogEntry]) -> None:
+        self.catalog = build_catalog(self.paths, load_shared_catalog(self.paths), custom)
 
     def scan_updates(self, live: bool = False, progress: ProgressFn | None = None) -> dict[str, str]:
         if not self.catalog:
@@ -240,46 +228,50 @@ class Manager:
 
         seen_repos: set[str] = set()
         updated: list[CatalogEntry] = []
-        for entry in self.catalog:
-            if entry.repo in seen_repos:
-                continue
-            seen_repos.add(entry.repo)
-            try:
-                parse_repo_url(entry.repo)
-            except ValueError:
-                continue
-            try:
-                release = fetch_release(
-                    self.http,
-                    entry.repo,
-                    tag=None,
-                    paths=self.paths,
-                    progress=progress,
-                )
-            except HttpError as exc:
-                if exc.status_code == 401 and self.config.token():
-                    raise TokenAuthError(
-                        "Your GitHub token is invalid or expired (GitHub returned HTTP 401). "
-                        "Fix it in Settings."
-                    ) from exc
-                log.warning("Live update check failed for %s: %s", entry.repo, exc)
-                continue
-            except Exception as exc:
-                log.warning("Live update check failed for %s: %s", entry.repo, exc)
-                continue
-            raw = release.tag if parse_mod_version(release.tag) else release_version(release) or release.tag
-            if not raw:
-                continue
-            latest[entry.primary_guid] = raw
-            for guid in entry.guids:
-                latest[guid] = raw
-            entry.latest_raw = raw
-            entry.latest_version = parse_mod_version(raw)
-            entry.available = bool(entry.latest_version)
-            updated.append(entry)
-        if updated:
-            store_custom_versions(self.paths, updated)
+        try:
+            for entry in self.catalog:
+                if entry.repo in seen_repos:
+                    continue
+                seen_repos.add(entry.repo)
+                raw = self._scan_latest_release(entry, progress)
+                if not raw:
+                    continue
+                latest[entry.primary_guid] = raw
+                for guid in entry.guids:
+                    latest[guid] = raw
+                entry.latest_raw = raw
+                entry.latest_version = parse_mod_version(raw)
+                entry.available = bool(entry.latest_version)
+                updated.append(entry)
+        finally:
+            if updated:
+                store_scanned_versions(self.paths, updated)
         return latest
+
+    def _scan_latest_release(self, entry: CatalogEntry, progress: ProgressFn | None) -> str:
+        """Return the latest release version of the entry's repository, or "" when it cannot be checked.
+
+        Raises:
+            TokenAuthError: GitHub rejected the configured token.
+        """
+        try:
+            parse_repo_url(entry.repo)
+        except ValueError:
+            return ""
+        try:
+            release = fetch_release(self.http, entry.repo, tag=None, paths=self.paths, progress=progress)
+        except HttpError as exc:
+            if exc.status_code == 401 and self.config.token():
+                raise TokenAuthError(
+                    "Your GitHub token is invalid or expired (GitHub returned HTTP 401). "
+                    "Fix it in Settings."
+                ) from exc
+            log.warning("Live update check failed for %s: %s", entry.repo, exc)
+            return ""
+        except Exception as exc:
+            log.warning("Live update check failed for %s: %s", entry.repo, exc)
+            return ""
+        return release.tag if parse_mod_version(release.tag) else release_version(release) or release.tag
 
     def add_catalog_repo(self, repo_url: str, progress: ProgressFn | None = None) -> list[CatalogEntry]:
         repo = canonicalize_repo_url(repo_url)
@@ -366,7 +358,7 @@ class Manager:
             extra = f" as {known}" if known else ""
             raise ValueError(f"All plugins from {repo} are already in the catalog{extra}")
         save_custom_catalog(self.paths, custom)
-        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        self._rebuild_catalog(custom)
         resolved: list[CatalogEntry] = []
         for entry in added:
             found = find_entry(self.catalog, entry.primary_guid, entry.repo)
@@ -377,7 +369,7 @@ class Manager:
     def remove_catalog_repo(self, guid: str, repo: str = "") -> None:
         custom = remove_custom_entry(load_custom_catalog(self.paths), guid, repo)
         save_custom_catalog(self.paths, custom)
-        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        self._rebuild_catalog(custom)
         log.info("Removed custom catalog entry %s", guid)
 
     def hide_catalog_mod(self, guid: str) -> None:
@@ -418,7 +410,7 @@ class Manager:
         for entry in added:
             custom = upsert_custom_entry(custom, entry)
         save_custom_catalog(self.paths, custom)
-        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        self._rebuild_catalog(custom)
         sources = ", ".join(f"{entry.primary_guid} from {entry.repo}" for entry in added)
         log.info("Restored %s catalog source(s): %s", len(added), sources)
         return added
@@ -456,7 +448,7 @@ class Manager:
         if not added:
             return []
         save_custom_catalog(self.paths, custom)
-        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        self._rebuild_catalog(custom)
         resolved: list[CatalogEntry] = []
         for entry in added:
             resolved.append(find_entry(self.catalog, entry.primary_guid, entry.repo) or entry)

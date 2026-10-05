@@ -4,6 +4,7 @@ import json
 import logging
 
 from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, overlay_entries, same_repo
+from sailwind_mod_sync.catalog.scanned import apply_scanned_versions, load_scanned_versions
 from sailwind_mod_sync.constants import (
     GITHUB_RAW_APP_MODLIST,
     GITHUB_RAW_APP_VERSIONS,
@@ -44,8 +45,12 @@ def refresh_catalog(
         _fetch_json_list(http, JSDELIVR_APP_VERSIONS, GITHUB_RAW_APP_VERSIONS, optional=True),
     )
     extra = merge_catalog(extra_list, extra_versions)
-    shared = overlay_entries(mvc, extra)
-    return merge_with_custom(shared, load_custom_catalog(paths))
+    return build_catalog(paths, overlay_entries(mvc, extra), load_custom_catalog(paths))
+
+
+def build_catalog(paths: AppPaths, shared: list[CatalogEntry], custom: list[CatalogEntry]) -> list[CatalogEntry]:
+    """Merge the shared and custom entries and apply the release versions update scans found."""
+    return apply_scanned_versions(merge_with_custom(shared, custom), load_scanned_versions(paths))
 
 
 def load_mvc_entries(paths: AppPaths) -> list[CatalogEntry]:
@@ -68,7 +73,7 @@ def load_cached_catalog(paths: AppPaths) -> list[CatalogEntry] | None:
     custom = load_custom_catalog(paths)
     if not shared and not custom:
         return None
-    return merge_with_custom(shared, custom)
+    return build_catalog(paths, shared, custom)
 
 
 def merge_catalog(mod_list: list, versions: list) -> list[CatalogEntry]:

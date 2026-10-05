@@ -35,22 +35,6 @@ def save_custom_catalog(paths: AppPaths, entries: list[CatalogEntry]) -> None:
     atomic_write_json(paths.custom_catalog_file, [_entry_to_dict(entry) for entry in entries])
 
 
-def store_custom_versions(paths: AppPaths, updated: list[CatalogEntry]) -> None:
-    """Write the latest versions of ``updated`` into the custom catalog entries of the same mod and repository."""
-    custom = load_custom_catalog(paths)
-    changed = False
-    for stored in custom:
-        source = next((entry for entry in updated if _same_source(entry, stored)), None)
-        if source is None or source.latest_raw == stored.latest_raw:
-            continue
-        stored.latest_raw = source.latest_raw
-        stored.latest_version = source.latest_version
-        stored.available = source.available
-        changed = True
-    if changed:
-        save_custom_catalog(paths, custom)
-
-
 def upsert_custom_entry(entries: list[CatalogEntry], incoming: CatalogEntry) -> list[CatalogEntry]:
     """Return ``entries`` with the entries of the same mod and repository as ``incoming`` replaced by it."""
     out: list[CatalogEntry] = []
@@ -127,11 +111,6 @@ def same_repo(left: str, right: str) -> bool:
 def source_key(entry: CatalogEntry) -> str:
     """Return a key that identifies ``entry`` by its mod and repository."""
     return f"{entry.primary_guid}|{repo_key(entry.repo)}"
-
-
-def _same_source(left: CatalogEntry, right: CatalogEntry) -> bool:
-    shares_guid = left.primary_guid in right.guids or right.primary_guid in left.guids
-    return shares_guid and same_repo(left.repo, right.repo)
 
 
 @lru_cache(maxsize=4096)

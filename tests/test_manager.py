@@ -992,12 +992,11 @@ def test_scan_updates_keeps_custom_entries_the_shared_catalog_covers(paths: AppP
     stored = load_custom_catalog(paths)
     kept = next(entry for entry in stored if entry.primary_guid == "com.example.mymod")
     assert kept.repo == "https://github.com/example/mymod"
-    assert kept.latest_raw == "v1.1.0"
     assert len(stored) == 2
 
 
-def test_scan_updates_stores_live_versions_of_custom_entries(paths: AppPaths, monkeypatch) -> None:
-    from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, save_custom_catalog
+def test_scan_results_survive_a_restart(paths: AppPaths, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, save_custom_catalog
 
     monkeypatch.setattr(
         "sailwind_mod_sync.manager.fetch_release",
@@ -1005,15 +1004,16 @@ def test_scan_updates_stores_live_versions_of_custom_entries(paths: AppPaths, mo
     )
     save_custom_catalog(paths, [_custom_fork_entry()])
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
-    manager.catalog = merge_with_custom([], load_custom_catalog(paths))
     try:
         manager.scan_updates(live=True)
     finally:
         manager.close()
 
-    stored = load_custom_catalog(paths)
-    assert stored[0].latest_raw == "v2.1.0"
-    assert stored[0].latest_version == "2.1.0"
+    restarted = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    restarted.close()
+    entry = find_entry(restarted.catalog, "com.example.mymod", "https://github.com/me/mymod-fork")
+    assert (entry.latest_raw, entry.latest_version, entry.available) == ("v2.1.0", "2.1.0", True)
+    assert load_custom_catalog(paths)[0].latest_raw == "v2.0.0"
 
 
 def test_update_mod_uses_the_latest_version_of_the_pinned_source(paths: AppPaths, monkeypatch) -> None:
@@ -1250,22 +1250,43 @@ def test_first_start_restores_catalog_sources_used_by_packs_and_downloads(paths:
     assert len(load_custom_catalog(paths)) == 1
 
 
-def test_apply_catalog_keeps_newer_versions_found_by_a_scan(paths: AppPaths) -> None:
-    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
-    scanned = _catalog_with_repo()
-    scanned[0].latest_raw = "v1.3.0"
-    scanned[0].latest_version = "1.3.0"
-    manager.catalog = scanned
-    refreshed = _catalog_with_repo() + [
-        replace(_catalog_with_repo()[0], guids=["com.example.other"], primary_guid="com.example.other")
-    ]
-    refreshed[1].latest_raw = "v0.5.0"
+class _StickyFixCatalogHttp(_NoHttp):
+    """Serves a ModVersionChecker catalog that lists StickyFix with the given version."""
+
+    def __init__(self, version: str) -> None:
+        super().__init__()
+        self.version = version
+
+    def get_json(self, url, extra_headers=None, etag=None):
+        from sailwind_mod_sync import constants
+
+        if url == constants.JSDELIVR_MODLIST:
+            return [{"guid": "com.nandbrew.stickyfix", "repo": "https://github.com/NANDbrew/StickyFix"}], None, False
+        if url == constants.JSDELIVR_VERSIONS:
+            return [{"guid": "com.nandbrew.stickyfix", "version": self.version}], None, False
+        raise HttpError("HTTP 404", status_code=404)
+
+
+def test_scanned_version_keeps_mod_available_that_the_catalog_lists_as_none(paths: AppPaths, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(tag="v1.0.4", name="v1.0.4", assets=[]),
+    )
+    manager = Manager(paths=paths, config=AppConfig(), http=_StickyFixCatalogHttp("none"))
     try:
-        manager.apply_catalog(refreshed)
+        assert not find_entry(manager.refresh_catalog(), "com.nandbrew.stickyfix").available
+        manager.scan_updates(live=True)
+        assert find_entry(manager.refresh_catalog(), "com.nandbrew.stickyfix").latest_raw == "v1.0.4"
     finally:
         manager.close()
-    assert manager.catalog is refreshed
-    assert [entry.latest_raw for entry in manager.catalog] == ["v1.3.0", "v0.5.0"]
+
+    restarted = Manager(paths=paths, config=AppConfig(), http=_StickyFixCatalogHttp("v1.1.0"))
+    try:
+        sticky = find_entry(restarted.catalog, "com.nandbrew.stickyfix")
+        assert (sticky.latest_raw, sticky.available) == ("v1.0.4", True)
+        assert find_entry(restarted.refresh_catalog(), "com.nandbrew.stickyfix").latest_raw == "v1.1.0"
+    finally:
+        restarted.close()
 
 
 def test_update_mods_continues_past_failures(paths: AppPaths, monkeypatch) -> None:

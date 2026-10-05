@@ -24,6 +24,7 @@ class AppPaths:
         self.extra_modlist_file = self.catalog_dir / "sms_ModList.json"
         self.extra_versions_file = self.catalog_dir / "sms_release_versions.json"
         self.custom_catalog_file = self.catalog_dir / "custom.json"
+        self.scanned_versions_file = self.catalog_dir / "scanned_versions.json"
         self.etag_dir = self.catalog_dir / "etags"
         self.library_mods = self.root / "library" / "mods"
         self.library_bepinex = self.root / "library" / "bepinex"
