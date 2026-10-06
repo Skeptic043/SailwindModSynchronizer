@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QPushButton,
     QSizePolicy,
@@ -72,6 +73,13 @@ class PackView(QWidget):
         self.update_all.clicked.connect(lambda: self.update_all_requested.emit(self.updatable_guids()))
         self.check_all = QPushButton("Check All")
         self.uncheck_all = QPushButton("Uncheck All")
+        self.check_all.setToolTip("Enable all mods in this pack, including rows hidden by the filter")
+        self.uncheck_all.setToolTip("Disable all mods in this pack, including rows hidden by the filter")
+        self._filter = QLineEdit()
+        self._filter.setPlaceholderText("Filter mods…")
+        self._filter.setToolTip("Search this pack by mod name or GUID")
+        self._filter.setClearButtonEnabled(True)
+        self._filter.textChanged.connect(self._apply_filter)
         self.check_all.clicked.connect(lambda: self.bulk_enabled.emit(True))
         self.uncheck_all.clicked.connect(lambda: self.bulk_enabled.emit(False))
         self._progress_timer = QTimer(self)
@@ -86,6 +94,7 @@ class PackView(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_table_context_menu)
+        self.table.model().layoutChanged.connect(self._apply_filter)
         self._row_state: dict[str, tuple[str, bool, bool, bool]] = {}
 
         header = QHBoxLayout()
@@ -93,6 +102,7 @@ class PackView(QWidget):
         titles.addWidget(self.title)
         titles.addWidget(self.subtitle)
         header.addLayout(titles, 1)
+        header.addWidget(self._filter, 1)
         header.addWidget(self.update_all)
         header.addWidget(self.check_all)
         header.addWidget(self.uncheck_all)
@@ -112,6 +122,7 @@ class PackView(QWidget):
     ) -> None:
         pack_id = pack.id if pack else None
         if self._shown_pack_id != pack_id:
+            self._filter.clear()
             self._progress_timer.stop()
             self._reset_operation_progress()
         self._shown_pack_id = pack_id
@@ -214,6 +225,14 @@ class PackView(QWidget):
                 self._enable_row_context_menu(actions, guid)
                 self.table.setCellWidget(index, 5, actions)
         self._apply_action_state()
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        query = self._filter.text().strip().casefold()
+        for row in range(self.table.rowCount()):
+            items = [self.table.item(row, column) for column in (1, 2)]
+            matches = any(item is not None and query in item.text().casefold() for item in items)
+            self.table.setRowHidden(row, not matches)
 
     def refresh_enabled(self, pack: ModPack) -> bool:
         """Update checkbox state without rebuilding rows or rescanning artifacts."""
