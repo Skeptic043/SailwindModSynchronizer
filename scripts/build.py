@@ -184,6 +184,19 @@ LINUX_LAUNCHER_SCRIPT = """#!/bin/sh
 # Steam sets LD_LIBRARY_PATH/LD_PRELOAD for its own runtime when it starts
 # non-Steam games, which makes Qt load the wrong libraries and crash.
 here=$(dirname "$(readlink -f "$0")")
+# If an update is still being copied, wait for it (at most a minute), then start the
+# freshly copied launcher. The whole block is read before it runs, so the update
+# replacing this file meanwhile is fine.
+if [ -f "$here/.update-in-progress" ]; then
+  updater=$(cat "$here/.update-in-progress" 2>/dev/null)
+  waited=0
+  while [ -f "$here/.update-in-progress" ] && [ -n "$updater" ] && kill -0 "$updater" 2>/dev/null && [ "$waited" -lt 60 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  rm -f "$here/.update-in-progress"
+  exec "$here/sailwind-mod-sync" "$@"
+fi
 unset LD_LIBRARY_PATH LD_PRELOAD
 exec "$here/SailwindModSynchronizer" "$@"
 """

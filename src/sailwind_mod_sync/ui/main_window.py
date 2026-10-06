@@ -609,7 +609,8 @@ class MainWindow(QMainWindow):
                 self,
                 "Update ready",
                 "Sailwind Mod Synchronizer will close now and finish updating. "
-                "Start it again from your Steam library to use the new version.",
+                "Start it again from your Steam library whenever you like: if the update "
+                "is still finishing, it opens as soon as it's done.",
             )
         try:
             launch_apply_and_exit(payload)

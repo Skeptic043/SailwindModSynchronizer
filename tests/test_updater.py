@@ -391,7 +391,15 @@ def test_linux_apply_script_waits_copies_and_restarts(tmp_path: Path) -> None:
     running = subprocess.Popen(["sleep", "2"])
     script = write_linux_apply_script(src, dest, start, running.pid)
     started = time.monotonic()
-    subprocess.run(["/bin/sh", str(script)], check=True, timeout=30)
+    applying = subprocess.Popen(["/bin/sh", str(script)])
+    lock = dest / ".update-in-progress"
+    for _ in range(20):
+        if lock.exists():
+            break
+        time.sleep(0.05)
+    assert lock.read_text(encoding="utf-8").strip() == str(applying.pid)  # held while waiting
+    assert applying.wait(30) == 0
+    assert not lock.exists()  # released once the copy is done
     assert time.monotonic() - started >= 1.5  # waited for the app to exit
     running.wait(5)
     for _ in range(50):
@@ -432,3 +440,20 @@ def test_linux_apply_script_without_restart(tmp_path: Path) -> None:
     assert 'cp -a "$src/." "$dst/"' in text
     assert "exec" not in text
     assert "not restarting" in text
+
+
+def test_linux_apply_script_releases_the_lock_before_restarting(tmp_path: Path) -> None:
+    from sailwind_mod_sync.updater import UPDATE_LOCK_NAME, write_linux_apply_script
+
+    src = tmp_path / "updates" / "payload" / "extracted" / "SailwindModSynchronizer"
+    src.mkdir(parents=True)
+    lines = write_linux_apply_script(src, tmp_path / "app", tmp_path / "app" / "sailwind-mod-sync", 1).read_text(
+        encoding="utf-8"
+    ).splitlines()
+    take = lines.index('echo $$ > "$lock"')
+    copy = next(i for i, line in enumerate(lines) if line.startswith('if ! cp -a'))
+    release = lines.index('rm -f "$lock"')
+    restart = next(i for i, line in enumerate(lines) if line.startswith('exec "$start"'))
+    assert take < copy < release < restart
+    assert f'lock="$dst/{UPDATE_LOCK_NAME}"' in lines
+    assert "trap 'rm -f \"$lock\"' EXIT" in lines  # also released if the copy fails

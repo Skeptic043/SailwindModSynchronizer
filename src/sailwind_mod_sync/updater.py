@@ -24,6 +24,8 @@ log = logging.getLogger(__name__)
 EXE_NAME = "SailwindModSynchronizer.exe"
 LINUX_BINARY_NAME = "SailwindModSynchronizer"
 LINUX_LAUNCHER_NAME = "sailwind-mod-sync"
+# Present in the install folder while an update is being copied; holds the apply script's pid.
+UPDATE_LOCK_NAME = ".update-in-progress"
 _TRUSTED_HOSTS = {
     "github.com",
     "api.github.com",
@@ -318,7 +320,12 @@ def write_linux_apply_script(src: Path, dest: Path, start: Path, pid: int, *, re
         f"start={_sh_single(str(start))}",
         f"log={_sh_single(str(log_path))}",
         f"pid={int(pid)}",
+        f"lock=\"$dst/{UPDATE_LOCK_NAME}\"",
         'say() { echo "$(date -Iseconds 2>/dev/null || date) $*" >> "$log"; }',
+        # The launcher waits while this lock exists and this script is alive, so starting the
+        # app again during the copy (e.g. right away from the Steam library) is safe.
+        'echo $$ > "$lock"',
+        'trap \'rm -f "$lock"\' EXIT',
         # A process that has exited but not been reaped yet is a zombie ("Z"); kill -0 still
         # succeeds on it, so read its state from /proc instead.
         'alive() {',
@@ -343,6 +350,8 @@ def write_linux_apply_script(src: Path, dest: Path, start: Path, pid: int, *, re
         "  exit 1",
         "fi",
         'chmod +x "$dst/SailwindModSynchronizer" "$dst/sailwind-mod-sync" 2>/dev/null',
+        # Release the lock before exec: exec keeps this pid, and the launcher would wait on it.
+        'rm -f "$lock"',
     ]
     if restart:
         lines += [
