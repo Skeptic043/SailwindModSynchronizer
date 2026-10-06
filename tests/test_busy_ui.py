@@ -1372,6 +1372,33 @@ def _refresh_window(paths: AppPaths, monkeypatch, **config):
     return manager, MainWindow(manager)
 
 
+def test_failed_task_keeps_failure_visible_after_refresh(paths: AppPaths, monkeypatch) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    app = QApplication.instance() or QApplication([])
+    manager, window = _refresh_window(paths, monkeypatch, auto_refresh_catalog=False)
+    errors = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: errors.append(args[-1]))
+
+    def fail(progress):
+        raise OSError("synthetic task failure")
+
+    try:
+        window._run(fail, lambda result: None, "Working…")
+        deadline = time.monotonic() + 3
+        while window._busy and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert not window._busy
+        assert len(errors) == 1 and "synthetic task failure" in errors[0]
+        assert window.statusBar().currentMessage() == errors[0]
+    finally:
+        window.close()
+        window.deleteLater()
+        manager.close()
+    app.processEvents()
+
+
 def test_background_catalog_refresh_applies_when_due(paths: AppPaths, monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     manager, window = _refresh_window(paths, monkeypatch, last_catalog_refresh="2026-01-01T00:00:00+00:00")
