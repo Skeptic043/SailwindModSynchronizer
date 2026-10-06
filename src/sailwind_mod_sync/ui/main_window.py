@@ -854,8 +854,16 @@ class MainWindow(QMainWindow):
 
         self._run(work, self._game_plugins_imported, "Importing installed plugins…")
 
-    def _game_plugins_imported(self, pack) -> None:
+    def _game_plugins_imported(self, result) -> None:
+        pack = result.pack
         self._imported(pack)
+        if result.skipped_plugins:
+            QMessageBox.warning(
+                self,
+                "Some plugins were skipped",
+                f"Imported {pack.name}. These files or folders could not be imported:\n\n"
+                + "\n\n".join(result.skipped_plugins),
+            )
         pack = self.manager.packs.get(pack.id)
         self._offer_catalog_association(list(pack.mods), pack_id=pack.id)
 
