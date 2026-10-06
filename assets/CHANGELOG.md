@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.5.0 (2026-10-06)
+## 0.5.0 (2026-10-05)
 
 - The catalog refreshes in the background once a day, at startup and while the app stays open. Turn it off in **Settings** with **Refresh the catalog once a day**.
 - When a mod is published from more than one repository, such as an original and a fork, the **Catalog** shows a row for each, with a new **Source** column. **Switch source** moves the selected pack to another one, and different packs can use different sources of the same mod.
@@ -15,6 +15,8 @@
 - The warning before **Play** lists only mods that can't be downloaded; other missing mods download while the pack starts.
 - Hiding a catalog row hides only that source of the mod.
 - Linking a mod to a repository in one pack no longer changes it in your other packs.
+- After **Play** downloads a pack's missing mods, the Pack tab shows them as downloaded right away.
+- A small spinner at the bottom right of the window shows while the app checks for mod updates or refreshes the catalog in the background.
 
 ## 0.4.2 (2026-10-05)
 
