@@ -28,10 +28,7 @@ class SaveRestoreResult(RestoreResult):
     safety_backup: Path | None = None
 
 
-def default_saves_dir() -> Path:
-    env = os.environ.get("SAILWIND_SAVES_DIR")
-    if env:
-        return Path(env).expanduser().resolve()
+def default_player_data_dir() -> Path:
     if os.name != "nt":
         candidates = proton_saves_candidates()
         for candidate in candidates:
@@ -40,6 +37,13 @@ def default_saves_dir() -> Path:
         if candidates:
             return candidates[0]
     return Path.home() / "AppData" / "LocalLow" / SAVES_COMPANY / SAVES_PRODUCT
+
+
+def default_saves_dir() -> Path:
+    env = os.environ.get("SAILWIND_SAVES_DIR")
+    if env:
+        return Path(env).expanduser().resolve()
+    return default_player_data_dir()
 
 
 def proton_saves_candidates(libraries: list[Path] | None = None) -> list[Path]:
