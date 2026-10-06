@@ -1256,3 +1256,16 @@ def test_proton_prefix_consent_dialog_requires_understanding():
     dialog.understand.setChecked(True)
     assert dialog.change_button.isEnabled()
     dialog.deleteLater()
+
+
+def test_failed_background_scan_keeps_its_message_visible(window, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    app, window = window
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: None)
+    window._mod_scan_running = True
+    window._mod_scan_failed("GitHub is unreachable")
+    assert window.statusBar().currentMessage() == "GitHub is unreachable"
+    window._mod_scan_running = True
+    window._mod_scan_failed("TokenAuthError: Bad credentials")
+    assert window.statusBar().currentMessage() == "Update scan skipped: invalid GitHub token"

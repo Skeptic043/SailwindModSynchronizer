@@ -1264,6 +1264,8 @@ class MainWindow(QMainWindow):
 
     def _mod_scan_failed(self, message: str) -> None:
         self._clear_mod_scan()
+        # Reload first: it rewrites the status bar, which would hide the failure.
+        self._reload_views()
         text = (message or "").strip() or "The task failed."
         if text.startswith("TokenAuthError: "):
             detail = text.removeprefix("TokenAuthError: ")
@@ -1273,7 +1275,6 @@ class MainWindow(QMainWindow):
         else:
             log.error("Background mod scan failed: %s", text)
             self.statusBar().showMessage(text)
-        self._reload_views()
 
     def _updates_scanned(self, _result) -> None:
         self._reload_views()
@@ -2122,7 +2123,10 @@ class MainWindow(QMainWindow):
             )
 
         def completed(result):
-            message = f"Exported {len(result.included)} log(s) to {result.dest}."
+            message = (
+                f"Exported {len(result.included)} log(s) to {result.dest}. "
+                "Steam IDs, Steam names and your user folder were removed."
+            )
             if result.missing:
                 message += f" Missing: {', '.join(result.missing)}."
             self.statusBar().showMessage(message)

@@ -39,9 +39,12 @@ def test_export_failure_preserves_destination_and_cleans_temporary(tmp_path, mon
     dest = tmp_path / "logs.zip"
     dest.write_bytes(b"previous export")
     if failure == "read":
-        def fail_write(*args, **kwargs):
-            raise PermissionError("locked log")
-        monkeypatch.setattr(zipfile.ZipFile, "write", fail_write)
+        original_read = Path.read_bytes
+        def fail_read(path):
+            if path == source:
+                raise PermissionError("locked log")
+            return original_read(path)
+        monkeypatch.setattr(Path, "read_bytes", fail_read)
     else:
         original = Path.replace
         def fail_replace(path, target):
@@ -98,3 +101,41 @@ def test_export_refuses_overwriting_a_source_log(tmp_path):
         export_logs(source, bepinex_log=tmp_path / "missing-bepinex.log",
                     player_log=tmp_path / "missing-player.log", manager_log=source)
     assert source.read_bytes() == b"original log"
+
+
+def test_export_redacts_steam_ids_user_names_and_home_paths(tmp_path):
+    from sailwind_mod_sync.log_export import redact_log
+
+    home = Path("C:/Users/Sailor")
+    bepinex = tmp_path / "LogOutput.log"
+    bepinex.write_text(
+        "[Info   :Sailwind Coop] Steam initialized successfully. User: Captain Jo (76561198000000001)\n"
+        "[Info   :Sailwind Coop] Steam user: Captain Jo (76561198000000001)\n"
+        "[Info   :Sailwind Coop] Lobby owner 76561198000000002 joined\n"
+        "[Info   : BepInEx] Loading C:\\Users\\Sailor\\AppData\\Local\\Mods\\x.dll\n",
+        encoding="utf-8",
+    )
+    manager_log = tmp_path / "manager.log"
+    manager_log.write_text("Logging to c:/users/sailor/AppData/Local/SailwindModSynchronizer/manager.log\n", encoding="utf-8")
+    dest = tmp_path / "logs.zip"
+    export_logs(dest, bepinex_log=bepinex, player_log=tmp_path / "absent.log", manager_log=manager_log, home=home)
+    with zipfile.ZipFile(dest) as archive:
+        exported = archive.read("LogOutput.log").decode("utf-8") + archive.read("manager.log").decode("utf-8")
+    assert "7656119" not in exported
+    assert "Captain Jo" not in exported
+    assert "Sailor" not in exported and "sailor" not in exported
+    assert "User: [steam-user] ([steam-id])" in exported
+    assert "Steam user: [steam-user] ([steam-id])" in exported
+    assert "Lobby owner [steam-id] joined" in exported
+    assert "Loading ~\\AppData\\Local\\Mods\\x.dll" in exported
+    assert "Logging to ~/AppData/Local/SailwindModSynchronizer/manager.log" in exported
+    # The logs on disk are untouched.
+    assert "Captain Jo" in bepinex.read_text(encoding="utf-8")
+
+    # Linux paths, and how Wine shows them inside the game's logs.
+    linux = redact_log("/home/deck/.steam and Z:\\home\\deck\\Games and /home/deckhand", Path("/home/deck"))
+    assert linux == "~/.steam and ~\\Games and /home/deckhand"  # deckhand isn't deck's home
+
+    # Paths inside Python error messages are escaped, with doubled backslashes.
+    escaped = redact_log("PermissionError: 'C:\\\\Users\\\\Sailor\\\\AppData\\\\x'", Path("C:/Users/Sailor"))
+    assert escaped == "PermissionError: '~\\\\AppData\\\\x'"

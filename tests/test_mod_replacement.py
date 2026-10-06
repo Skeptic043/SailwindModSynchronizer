@@ -617,3 +617,43 @@ def test_recovery_ui_explains_blocked_action_and_preserves_evidence(recovery_cas
         window.close()
         window.deleteLater()
         app.processEvents()
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    """A directory symlink, or on Windows without symlink rights a junction (resolve() follows both)."""
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return
+    except (OSError, NotImplementedError) as exc:
+        error = exc
+    try:
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    except (ImportError, OSError):
+        pytest.skip(f"Creating directory links isn't allowed here: {error}")
+
+
+def test_install_works_when_the_data_folder_is_reached_through_a_symlink(tmp_path):
+    # Guards the "linked library files" check against symlinked homes (e.g. Bazzite's
+    # /home -> /var/home); AppPaths resolves the data root, so paths stay comparable.
+    from sailwind_mod_sync.paths import AppPaths
+
+    real = tmp_path / "var" / "home" / "data"
+    real.mkdir(parents=True)
+    _symlink_or_skip(tmp_path / "home", tmp_path / "var" / "home")
+    paths = AppPaths(tmp_path / "home" / "data")
+    paths.ensure()
+    manager = Manager(paths=paths, config=AppConfig(game_path="missing"), http=MagicMock(spec=HttpClient))
+    try:
+        pack = manager.packs.create("Linked home")
+        archive = zip_mod(tmp_path / "mod.zip", {"Mod/mod.dll": b"MZ"})
+        manager.library.ingest_mod_zip(
+            "com.example.linkedhome", "1.0.0", archive, version_raw="1.0.0",
+            repo="https://github.com/example/linkedhome",
+            source_url="https://github.com/example/linkedhome/releases/download/v1.0.0/mod.zip",
+        )
+        manager.add_library_mod_to_pack(pack.id, "com.example.linkedhome", "1.0.0")
+        assert (manager.packs.plugins_dir(pack.id) / "Mod" / "mod.dll").read_bytes() == b"MZ"
+    finally:
+        manager.close()

@@ -233,6 +233,7 @@ class PackView(QWidget):
             items = [self.table.item(row, column) for column in (1, 2)]
             matches = any(item is not None and query in item.text().casefold() for item in items)
             self.table.setRowHidden(row, not matches)
+        self._apply_action_state()
 
     def refresh_enabled(self, pack: ModPack) -> bool:
         """Update checkbox state without rebuilding rows or rescanning artifacts."""
@@ -345,11 +346,22 @@ class PackView(QWidget):
         self.update_all.setEnabled(idle)
         waiting = self._blocked_reason if not idle else ""
         self.update_all.setText(waiting or "Update all")
+        hidden = self._hidden_updatable_count()
         self.update_all.setToolTip(
             f"{waiting} Update all becomes available when it finishes."
             if waiting
             else f"Update {count} mod(s) to the latest version from their source"
+            + (f", including {hidden} hidden by the filter" if hidden else "")
         )
+
+    def _hidden_updatable_count(self) -> int:
+        updatable = set(self.updatable_guids())
+        hidden = 0
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 2)
+            if item is not None and self.table.isRowHidden(row) and item.text() in updatable:
+                hidden += 1
+        return hidden
 
     def clear_operation_status(self) -> None:
         self._progress_timer.stop()
