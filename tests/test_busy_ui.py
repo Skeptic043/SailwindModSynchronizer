@@ -1230,10 +1230,12 @@ def test_pack_header_sorts_by_mod_name() -> None:
     try:
         view.set_pack(pack, catalog)
         assert view.table.isSortingEnabled()
+        assert view.table.horizontalHeader().sortIndicatorSection() == 1
+        assert [view.table.item(row, 1).text() for row in range(2)] == ["Apple", "Zebra"]
+        view.table.sortItems(1, Qt.SortOrder.DescendingOrder)
         assert view.table.item(0, 1).text() == "Zebra"
-        view.table.sortItems(1, Qt.SortOrder.AscendingOrder)
-        assert view.table.item(0, 1).text() == "Apple"
-        assert view.table.item(1, 1).text() == "Zebra"
+        view.set_pack(pack, catalog)
+        assert view.table.item(0, 1).text() == "Zebra"
         view.table.sortItems(2, Qt.SortOrder.AscendingOrder)
         assert view.table.item(0, 2).text() == "com.example.apple"
     finally:

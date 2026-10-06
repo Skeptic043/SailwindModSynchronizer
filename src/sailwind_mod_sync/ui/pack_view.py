@@ -81,7 +81,7 @@ class PackView(QWidget):
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["On", "Mod", "GUID", "Version", "Latest", ""])
         enable_column_resize(self.table, [48, 180, 220, 140, 110, 220])
-        enable_column_sort(self.table, default_column=None)
+        enable_column_sort(self.table, default_column=1)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
