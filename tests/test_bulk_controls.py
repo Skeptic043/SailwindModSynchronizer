@@ -1110,3 +1110,21 @@ def test_download_fetches_the_pinned_version(window, manager, monkeypatch):
         app.processEvents()
         time.sleep(.005)
     assert calls == [(pack.id, "example.test", "1.0.0", "v1.0.0")]
+
+
+def test_play_refreshes_pack_view_when_every_mod_downloaded(window, manager, monkeypatch):
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="example.test", version="1.0.0", plugin_folders=["test"]))
+    window._reload_views()
+    assert "1 not downloaded" in window.pack_view.subtitle.text()
+
+    # What Play's background download leaves behind: the artifact is now in the library.
+    folder = manager.library.mod_extracted("example.test", "1.0.0") / "test"
+    folder.mkdir(parents=True)
+    (folder / "mod.dll").write_bytes(b"MZ")
+    assert manager.missing_mods(manager.packs.get(pack.id)) == []
+
+    monkeypatch.setattr(window, "_open_launch_splash", lambda splash, *, status: None)
+    window._sailwind_started(None, pack_id=pack.id)
+    assert "not downloaded" not in window.pack_view.subtitle.text()

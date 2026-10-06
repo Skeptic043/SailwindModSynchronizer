@@ -1713,6 +1713,8 @@ class MainWindow(QMainWindow):
         if missing:
             noun = "mod" if len(missing) == 1 else "mods"
             status = f"{status} {len(missing)} {noun} could not be downloaded and will not load."
+        if pack is not None:
+            # Play downloads anything missing, so refresh even when every download succeeded.
             self._reload_views()
         self._open_launch_splash(LaunchSplash(self, process, heading=heading), status=status)
 
