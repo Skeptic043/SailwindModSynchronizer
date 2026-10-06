@@ -36,6 +36,7 @@ def test_release_build_cleans_cache() -> None:
     assert freeze.count("--clean") == 1
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Authenticode signing is Windows-only")
 def test_release_implies_sign() -> None:
     build = _load_build()
     args = build.parse_args(["--release", "--skip-shortcut"])
@@ -164,3 +165,59 @@ def test_exe_in_use_is_false_for_missing_or_idle_exe(tmp_path: Path) -> None:
     assert not build.exe_in_use(exe)
     exe.write_bytes(b"MZ")
     assert not build.exe_in_use(exe)
+
+
+def test_linux_extras_and_archive(tmp_path: Path) -> None:
+    import tarfile
+
+    build = _load_build()
+    dist = tmp_path / "SailwindModSynchronizer"
+    dist.mkdir()
+    (dist / "SailwindModSynchronizer").write_bytes(b"\x7fELF")
+    written = build.write_linux_extras(dist)
+    names = {path.name for path in written}
+    assert names == {"sailwind-mod-sync", "install-desktop-entry.sh", "icon.png"}
+    launcher = (dist / "sailwind-mod-sync").read_bytes()
+    assert launcher.startswith(b"#!/bin/sh\n") and b"\r\n" not in launcher
+    assert b"unset LD_LIBRARY_PATH LD_PRELOAD" in launcher
+    assert b'exec "$here/SailwindModSynchronizer"' in launcher
+    desktop = (dist / "install-desktop-entry.sh").read_text(encoding="utf-8")
+    assert "Exec=\"$here/sailwind-mod-sync\"" in desktop and "Icon=$here/icon.png" in desktop
+
+    archive = build.tar_dist(dist, tmp_path / "out" / "SailwindModSynchronizer-9.9.9-linux-x86_64.tar.gz")
+    with tarfile.open(archive) as tar:
+        members = {member.name: member for member in tar.getmembers()}
+    assert "SailwindModSynchronizer/sailwind-mod-sync" in members
+    assert "SailwindModSynchronizer/SailwindModSynchronizer" in members
+    if os.name != "nt":
+        assert members["SailwindModSynchronizer/sailwind-mod-sync"].mode & 0o111
+        assert members["SailwindModSynchronizer/install-desktop-entry.sh"].mode & 0o111
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Signing is skipped only on Linux builds")
+def test_linux_release_does_not_sign() -> None:
+    build = _load_build()
+    args = build.parse_args(["--release"])
+    assert args.release and not args.sign
+
+
+def test_exe_running_processes_matches_the_exact_path(tmp_path: Path, monkeypatch) -> None:
+    import subprocess as subprocess_module
+
+    build = _load_build()
+    exe = tmp_path / "dist" / "App.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"MZ")
+    other = tmp_path / "elsewhere" / "App.exe"
+    listing = f"111\t{str(exe.resolve()).upper()}\n222\t{other}\nnot-a-pid\t{exe}\n"
+    monkeypatch.setattr(
+        build.subprocess, "run",
+        lambda *args, **kwargs: subprocess_module.CompletedProcess(args, 0, stdout=listing, stderr=""),
+    )
+    assert build.exe_running_processes(exe) == [111]
+
+    def broken(*args, **kwargs):
+        raise OSError("no powershell")
+
+    monkeypatch.setattr(build.subprocess, "run", broken)
+    assert build.exe_running_processes(exe) == []

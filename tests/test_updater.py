@@ -34,14 +34,14 @@ def test_pick_update_asset_prefers_windows_zip() -> None:
             "https://github.com/foxyv/SailwindModSynchronizer/releases/download/v0.2.0/SailwindModSynchronizer-0.2.0-windows.zip",
         ),
     ]
-    chosen = pick_update_asset(assets)
+    chosen = pick_update_asset(assets, windows=True)
     assert chosen is not None
     assert chosen.name.endswith("windows.zip")
 
 
 def test_pick_update_asset_ignores_source_only() -> None:
     assets = [ReleaseAsset("project-sources.zip", "https://github.com/example/src.zip")]
-    assert pick_update_asset(assets) is None
+    assert pick_update_asset(assets, windows=True) is None
 
 
 def test_update_check_due_empty_and_old() -> None:
@@ -68,6 +68,8 @@ def test_find_app_update_returns_newer(monkeypatch) -> None:
     )
     monkeypatch.setattr("sailwind_mod_sync.updater.fetch_release", lambda *args, **kwargs: release)
     monkeypatch.setattr("sailwind_mod_sync.updater.is_frozen", lambda: True)
+    monkeypatch.setattr("sailwind_mod_sync.updater.self_update_supported", lambda: True)
+    monkeypatch.setattr("sailwind_mod_sync.updater.on_windows", lambda: True)
     update = find_app_update(MagicMock(), current_version="0.1.0")
     assert update is not None
     assert update.version == "0.2.0"
@@ -239,3 +241,47 @@ def test_launch_apply_requires_frozen(tmp_path: Path, monkeypatch) -> None:
 def test_utc_now_iso_is_parseable() -> None:
     stamp = utc_now_iso()
     datetime.fromisoformat(stamp)
+
+
+RELEASE_ASSETS = [
+    ReleaseAsset(
+        "SailwindModSynchronizer-0.6.0-windows.zip",
+        "https://github.com/foxyv/SailwindModSynchronizer/releases/download/v0.6.0/SailwindModSynchronizer-0.6.0-windows.zip",
+    ),
+    ReleaseAsset(
+        "SailwindModSynchronizer-0.6.0-linux-x86_64.tar.gz",
+        "https://github.com/foxyv/SailwindModSynchronizer/releases/download/v0.6.0/SailwindModSynchronizer-0.6.0-linux-x86_64.tar.gz",
+    ),
+]
+
+
+def test_pick_update_asset_picks_each_platforms_download() -> None:
+    assert pick_update_asset(RELEASE_ASSETS, windows=True).name.endswith("-windows.zip")
+    assert pick_update_asset(RELEASE_ASSETS, windows=False).name.endswith("-linux-x86_64.tar.gz")
+
+
+def test_pick_update_asset_never_crosses_platforms() -> None:
+    windows_only = [RELEASE_ASSETS[0]]
+    linux_only = [RELEASE_ASSETS[1]]
+    assert pick_update_asset(windows_only, windows=False) is None
+    assert pick_update_asset(linux_only, windows=True) is None
+    # A zip that says linux is never a Windows update.
+    assert pick_update_asset([ReleaseAsset("SailwindModSynchronizer-linux.zip", RELEASE_ASSETS[0].download_url)], windows=True) is None
+
+
+def test_linux_update_is_offered_but_not_installed_automatically(monkeypatch) -> None:
+    release = RemoteRelease(
+        tag="v0.6.0",
+        name="Sailwind Mod Synchronizer 0.6.0",
+        html_url="https://github.com/foxyv/SailwindModSynchronizer/releases/tag/v0.6.0",
+        body="Linux build",
+        assets=RELEASE_ASSETS,
+    )
+    monkeypatch.setattr("sailwind_mod_sync.updater.fetch_release", lambda *args, **kwargs: release)
+    monkeypatch.setattr("sailwind_mod_sync.updater.is_frozen", lambda: True)
+    monkeypatch.setattr("sailwind_mod_sync.updater.self_update_supported", lambda: False)
+    monkeypatch.setattr("sailwind_mod_sync.updater.on_windows", lambda: False)
+    update = find_app_update(MagicMock(), current_version="0.5.0")
+    assert update is not None and update.version == "0.6.0"
+    assert update.asset_name.endswith("-linux-x86_64.tar.gz")
+    assert not update.installable

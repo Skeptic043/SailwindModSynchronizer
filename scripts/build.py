@@ -22,6 +22,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -34,6 +35,9 @@ EXE_NAME = "SailwindModSynchronizer"
 SHORTCUT_NAME = "Sailwind Mod Synchronizer.lnk"
 DIST_DIR = REPO_ROOT / "dist" / EXE_NAME
 BUILD_DIR = REPO_ROOT / "build"
+LINUX_ARCHIVE_SUFFIX = "linux-x86_64.tar.gz"
+LINUX_LAUNCHER = "sailwind-mod-sync"
+LINUX_DESKTOP_INSTALLER = "install-desktop-entry.sh"
 SIGN_EXTENSIONS = {".exe", ".dll", ".pyd"}
 SIGN_BATCH = 16
 MIN_SIGNTOOL_VERSION = (10, 0, 22621)
@@ -107,6 +111,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("use only one of --sign and --skip-sign")
     if args.release and not args.skip_sign:
         args.sign = True
+    if os.name != "nt":
+        # Authenticode signing is Windows-only.
+        args.sign = False
     return args
 
 
@@ -122,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
 
     _ensure_build_deps()
     write_ico(PNG_ICON, ICO_ICON)
+    if os.name != "nt":
+        return _main_linux(args)
     if exe_in_use(DIST_DIR / f"{EXE_NAME}.exe"):
         raise SystemExit(f"{EXE_NAME}.exe is running from {DIST_DIR}. Close it and build again.")
     clear_readonly(BUILD_DIR, DIST_DIR)
@@ -150,6 +159,81 @@ def main(argv: list[str] | None = None) -> int:
         shortcut = create_desktop_shortcut(exe, DIST_DIR / "icon.ico")
         print(f"Desktop shortcut: {shortcut}")
     return 0
+
+
+def _main_linux(args: argparse.Namespace) -> int:
+    _run_pyinstaller(windowed=not args.console, clean=args.release)
+    exe = DIST_DIR / EXE_NAME
+    if not exe.is_file():
+        raise SystemExit(f"PyInstaller did not produce {exe}")
+    write_linux_extras(DIST_DIR)
+    print(f"Built {exe}")
+    if args.release:
+        version = _app_version()
+        archive = tar_dist(DIST_DIR, REPO_ROOT / "dist" / f"{EXE_NAME}-{version}-{LINUX_ARCHIVE_SUFFIX}")
+        print(f"Release archive {archive}")
+        print("Upload that archive to the GitHub release next to the Windows zip.")
+    else:
+        print("Incremental freeze (cache reused, no release archive).")
+        print("Use --release for a clean build and a versioned archive.")
+    return 0
+
+
+LINUX_LAUNCHER_SCRIPT = """#!/bin/sh
+# Starts Sailwind Mod Synchronizer. Use this rather than the binary directly:
+# Steam sets LD_LIBRARY_PATH/LD_PRELOAD for its own runtime when it starts
+# non-Steam games, which makes Qt load the wrong libraries and crash.
+here=$(dirname "$(readlink -f "$0")")
+unset LD_LIBRARY_PATH LD_PRELOAD
+exec "$here/SailwindModSynchronizer" "$@"
+"""
+
+LINUX_DESKTOP_INSTALLER_SCRIPT = """#!/bin/sh
+# Adds Sailwind Mod Synchronizer to your desktop's application menu.
+# Run it again if you move this folder.
+set -e
+here=$(dirname "$(readlink -f "$0")")
+apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "$apps"
+cat > "$apps/sailwind-mod-sync.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Sailwind Mod Synchronizer
+Comment=Manage and launch Sailwind ModPacks
+Exec="$here/sailwind-mod-sync"
+Icon=$here/icon.png
+Terminal=false
+Categories=Game;Utility;
+EOF
+echo "Added Sailwind Mod Synchronizer to your applications menu."
+"""
+
+
+def write_linux_extras(dist_dir: Path) -> list[Path]:
+    """Launcher, desktop-entry installer and icon next to the Linux binary."""
+    written = []
+    for name, text in (
+        (LINUX_LAUNCHER, LINUX_LAUNCHER_SCRIPT),
+        (LINUX_DESKTOP_INSTALLER, LINUX_DESKTOP_INSTALLER_SCRIPT),
+    ):
+        path = dist_dir / name
+        path.write_text(text, encoding="utf-8", newline="\n")
+        path.chmod(0o755)
+        written.append(path)
+    icon = dist_dir / "icon.png"
+    shutil.copy2(PNG_ICON, icon)
+    written.append(icon)
+    return written
+
+
+def tar_dist(source: Path, dest: Path) -> Path:
+    """Gzipped tarball with a top-level folder, keeping executable bits."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest.unlink()
+    with tarfile.open(dest, "w:gz") as archive:
+        archive.add(source, arcname=source.name)
+    return dest
 
 
 def _ensure_build_deps() -> None:
@@ -426,9 +510,15 @@ def pyinstaller_args(*, windowed: bool, clean: bool) -> list[str]:
 
 
 def exe_in_use(exe: Path) -> bool:
-    """Windows refuses write access to a running executable."""
+    """True when the dist exe is running, so PyInstaller would delete files out from under it.
+
+    Asks Windows for processes started from that exact path, and also tries to open
+    the exe for writing (Windows refuses while it runs). Either one is enough.
+    """
     if not exe.is_file():
         return False
+    if os.name == "nt" and exe_running_processes(exe):
+        return True
     try:
         mode = exe.stat().st_mode
         if not mode & stat.S_IWRITE:
@@ -437,6 +527,30 @@ def exe_in_use(exe: Path) -> bool:
             return False
     except PermissionError:
         return True
+
+
+def exe_running_processes(exe: Path) -> list[int]:
+    """PIDs of processes whose image is exactly this exe (Windows only; [] when unknown)."""
+    target = str(exe.resolve()).lower()
+    script = (
+        "Get-Process -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.Path } | ForEach-Object { \"$($_.Id)`t$($_.Path)\" }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = []
+    for line in result.stdout.splitlines():
+        pid, _, path = line.partition("\t")
+        if path.strip().lower() == target and pid.strip().isdigit():
+            pids.append(int(pid))
+    return pids
 
 
 def clear_readonly(*roots: Path) -> int:

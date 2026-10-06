@@ -41,6 +41,15 @@ class AppUpdate:
     installable: bool = False
 
 
+def on_windows() -> bool:
+    return os.name == "nt"
+
+
+def self_update_supported() -> bool:
+    """The apply step is a Windows PowerShell script; Linux gets the release page until #22's self-update lands."""
+    return on_windows()
+
+
 def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
@@ -67,8 +76,25 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def pick_update_asset(assets: list[ReleaseAsset]) -> ReleaseAsset | None:
-    zips = [asset for asset in assets if asset.name.lower().endswith(".zip") and asset.download_url]
+LINUX_ASSET_SUFFIX = "linux-x86_64.tar.gz"
+
+
+def pick_update_asset(assets: list[ReleaseAsset], *, windows: bool | None = None) -> ReleaseAsset | None:
+    """The release download for this platform: the Windows zip, or the Linux tarball."""
+    if windows is None:
+        windows = on_windows()
+    if not windows:
+        return next(
+            (
+                asset for asset in assets
+                if asset.download_url and asset.name.lower().endswith(LINUX_ASSET_SUFFIX)
+            ),
+            None,
+        )
+    zips = [
+        asset for asset in assets
+        if asset.name.lower().endswith(".zip") and asset.download_url and "linux" not in asset.name.lower()
+    ]
     if not zips:
         return None
 
@@ -133,7 +159,7 @@ def find_app_update(
         notes=(release.body or "").strip(),
         asset_name=asset_name,
         download_url=download_url,
-        installable=bool(download_url) and is_frozen(),
+        installable=bool(download_url) and is_frozen() and self_update_supported(),
     )
 
 
