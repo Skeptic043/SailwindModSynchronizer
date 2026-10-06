@@ -38,6 +38,7 @@ from sailwind_mod_sync.catalog.github import GitHubDownloadError, repo_short_nam
 from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
+from sailwind_mod_sync.game.proton import needs_winhttp_override
 from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.manager import Manager
@@ -48,6 +49,7 @@ from sailwind_mod_sync.ui.catalog_view import CatalogView
 from sailwind_mod_sync.ui.downloads_window import DownloadsWindow
 from sailwind_mod_sync.ui.hidden_mods_dialog import HiddenModsDialog
 from sailwind_mod_sync.ui.background_indicator import BackgroundIndicator
+from sailwind_mod_sync.ui.launch_option_dialog import LaunchOptionDialog
 from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
 from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
@@ -1683,6 +1685,8 @@ class MainWindow(QMainWindow):
             return
         if not self._confirm_missing_mods(pack_id):
             return
+        if not self._confirm_proton_launch_option():
+            return
 
         def work(progress):
             return self.manager.play(pack_id, progress=progress)
@@ -1692,6 +1696,20 @@ class MainWindow(QMainWindow):
             lambda proc: self._sailwind_started(proc, pack_id=pack_id),
             "Preparing ModPack…",
         )
+
+    def _confirm_proton_launch_option(self) -> bool:
+        """On Linux, point out a missing Doorstop launch option once, then get out of the way."""
+        if not self.manager.config.warn_proton_launch_option:
+            return True
+        suggested = needs_winhttp_override()
+        if suggested is None:
+            return True
+        dialog = LaunchOptionDialog(suggested, self)
+        accepted = bool(dialog.exec())
+        if dialog.stop_reminding:
+            self.manager.config.warn_proton_launch_option = False
+            self.manager.save_config()
+        return accepted
 
     def _confirm_missing_mods(self, pack_id: str) -> bool:
         if not self.manager.config.warn_missing_mods:

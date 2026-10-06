@@ -1172,3 +1172,57 @@ def test_background_indicator_lists_every_running_task():
     assert "Refreshing catalog…" in indicator.toolTip()
     indicator.set_tasks([])
     assert indicator.isHidden() and not indicator.spinner.is_spinning()
+
+
+def test_launch_option_dialog_copies_and_remembers_choice():
+    from sailwind_mod_sync.ui.launch_option_dialog import LaunchOptionDialog
+
+    app = QApplication.instance() or QApplication([])
+    dialog = LaunchOptionDialog('WINEDLLOVERRIDES="winhttp=n,b" %command%')
+    dialog.copy_button.click()
+    assert app.clipboard().text() == 'WINEDLLOVERRIDES="winhttp=n,b" %command%'
+    assert dialog.copy_button.text() == "Copied"
+    assert not dialog.stop_reminding
+    dialog.stop_reminding_box.setChecked(True)
+    assert dialog.stop_reminding
+    dialog.deleteLater()
+
+
+def test_play_asks_about_proton_launch_option_only_when_needed(window, manager, monkeypatch):
+    from sailwind_mod_sync.ui import main_window as main_window_module
+
+    app, window = window
+    shown: list[str] = []
+
+    class _Dialog:
+        answer = 1
+        stop = False
+
+        def __init__(self, suggested, parent):
+            shown.append(suggested)
+            self.stop_reminding = _Dialog.stop
+
+        def exec(self):
+            return _Dialog.answer
+
+    monkeypatch.setattr(main_window_module, "LaunchOptionDialog", _Dialog)
+
+    # Nothing to fix (Windows, or the option is already set): no dialog.
+    monkeypatch.setattr(main_window_module, "needs_winhttp_override", lambda: None)
+    assert window._confirm_proton_launch_option()
+    assert shown == []
+
+    # Missing: the dialog shows the suggestion; Cancel stops Play, Play anyway continues.
+    monkeypatch.setattr(main_window_module, "needs_winhttp_override", lambda: "SUGGESTED")
+    _Dialog.answer = 0
+    assert not window._confirm_proton_launch_option()
+    _Dialog.answer = 1
+    assert window._confirm_proton_launch_option()
+    assert shown == ["SUGGESTED", "SUGGESTED"]
+
+    # "Don't remind me again" sticks, and the check is skipped afterwards.
+    _Dialog.stop = True
+    assert window._confirm_proton_launch_option()
+    assert manager.config.warn_proton_launch_option is False
+    assert window._confirm_proton_launch_option()
+    assert len(shown) == 3

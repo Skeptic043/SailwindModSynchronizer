@@ -14,6 +14,7 @@ class AppConfig:
     github_token: str = ""
     last_pack_id: str = ""
     warn_missing_mods: bool = True
+    warn_proton_launch_option: bool = True
     check_for_updates: bool = True
     auto_scan_mods: bool = True
     auto_refresh_catalog: bool = True
@@ -42,6 +43,7 @@ def load_config(paths: AppPaths) -> AppConfig:
         github_token=str(data.get("github_token") or ""),
         last_pack_id=str(data.get("last_pack_id") or ""),
         warn_missing_mods=_as_bool(data.get("warn_missing_mods"), True),
+        warn_proton_launch_option=_as_bool(data.get("warn_proton_launch_option"), True),
         check_for_updates=_as_bool(data.get("check_for_updates"), True),
         auto_scan_mods=_as_bool(data.get("auto_scan_mods"), True),
         auto_refresh_catalog=_as_bool(data.get("auto_refresh_catalog"), True),
