@@ -46,6 +46,7 @@ from sailwind_mod_sync.game.proton import (
 )
 from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
+from sailwind_mod_sync.log_export import export_logs
 from sailwind_mod_sync.manager import Manager
 from sailwind_mod_sync.models import PinnedMod, parse_mod_version
 from sailwind_mod_sync.packs.share import DISCORD_MESSAGE_LIMIT, parse_share_text
@@ -318,12 +319,27 @@ class MainWindow(QMainWindow):
         scan_action = downloads_menu.addAction("Scan updates")
         scan_action.setStatusTip("Check GitHub and GitLab for newer catalog versions")
         scan_action.triggered.connect(self._scan_updates)
+        downloads_menu.addSeparator()
         open_appdata = downloads_menu.addAction("Open AppData")
         open_appdata.setStatusTip("Open the Sailwind Mod Synchronizer data folder in File Explorer")
         open_appdata.triggered.connect(self._open_appdata)
         self.open_profile_plugins_action = downloads_menu.addAction("Open Plugins Folder")
         self.open_profile_plugins_action.triggered.connect(self._open_profile_plugins)
         self.open_profile_plugins_action.setStatusTip("Open the selected ModPack's BepInEx plugins folder")
+        self.open_profile_config_action = downloads_menu.addAction("Open Config Folder")
+        self.open_profile_config_action.triggered.connect(self._open_profile_config)
+        self.open_profile_config_action.setStatusTip("Open the selected ModPack's BepInEx config folder")
+        self.open_profile_log_action = downloads_menu.addAction("Open Latest Log")
+        self.open_profile_log_action.triggered.connect(self._open_profile_log)
+        self.open_profile_log_action.setStatusTip("Open the selected ModPack's BepInEx log in your default application")
+        downloads_menu.addSeparator()
+        self.export_logs_action = downloads_menu.addAction("Export Logs…")
+        self.export_logs_action.setStatusTip("Save available BepInEx, Unity Player and manager logs as a ZIP")
+        self.export_logs_action.triggered.connect(self._export_logs)
+        self._profile_open_actions = [
+            self.open_profile_plugins_action, self.open_profile_config_action, self.open_profile_log_action,
+        ]
+        downloads_menu.addSeparator()
         hidden_mods = downloads_menu.addAction("Hidden Mods")
         hidden_mods.setStatusTip("Show catalog mods you hid, and unhide them")
         hidden_mods.triggered.connect(self._manage_hidden_mods)
@@ -345,7 +361,7 @@ class MainWindow(QMainWindow):
         self._bulk_actions = [
             settings_action, self.backup_action, self.restore_action,
             self.backup_saves_action, self.restore_saves_action, import_game_action,
-            import_mod_action, scan_action, check_updates, hidden_mods, clear_cache,
+            import_mod_action, scan_action, check_updates, hidden_mods, clear_cache, self.export_logs_action,
         ]
         self._pack_buttons = [
             layout.itemAt(index).widget()
@@ -440,7 +456,6 @@ class MainWindow(QMainWindow):
         pinned_keys = {pinned.guid: self.manager.library.pinned_key(pinned) for pinned in (pack.mods if pack else [])}
         self.library_view.set_entries(library, pack, display_names, pinned_keys)
         game = self.manager.game_dir()
-        self.open_profile_plugins_action.setEnabled(pack is not None)
         if game:
             self.statusBar().showMessage(f"Game: {game}")
         else:
@@ -454,6 +469,9 @@ class MainWindow(QMainWindow):
         )
 
     def _update_bulk_actions_availability(self) -> None:
+        for action in self._profile_open_actions:
+            action.setEnabled(bool(self.current_pack_id()))
+        self.export_logs_action.setEnabled(bool(self.current_pack_id()) and not self._busy)
         self.pack_view.set_actions_blocked(
             self._busy or self._mod_scan_running,
             "Checking for updates…" if self._mod_scan_running else "",
@@ -2039,17 +2057,57 @@ class MainWindow(QMainWindow):
         self._downloads.activateWindow()
 
     def _open_profile_plugins(self) -> None:
+        self._open_profile_path("plugins", "Open Plugins Folder", "plugin folder")
+
+    def _open_profile_config(self) -> None:
+        self._open_profile_path("config", "Open Config Folder", "config folder")
+
+    def _open_profile_log(self) -> None:
+        self._open_profile_path("LogOutput.log", "Open Latest Log", "BepInEx log", file=True)
+
+    @_unless_bulk_running
+    def _export_logs(self) -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
             return
-        folder = self.manager.packs.plugins_dir(pack_id)
-        if not folder.is_dir():
-            QMessageBox.warning(self, "Open Plugins Folder", f"The plugin folder does not exist: {folder}")
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Logs ZIP", f"Sailwind-logs-{datetime.now():%Y%m%d-%H%M%S}.zip", "ZIP files (*.zip)"
+        )
+        if not filename:
             return
-        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))):
-            QMessageBox.warning(self, "Open Plugins Folder", f"Could not open {folder}")
+        dest = Path(filename)
+        if dest.suffix.lower() != ".zip":
+            dest = dest.with_name(dest.name + ".zip")
+
+        def work(progress):
+            progress("Exporting logs…")
+            return export_logs(
+                dest,
+                bepinex_log=self.manager.packs.instance_dir(pack_id) / "BepInEx" / "LogOutput.log",
+                manager_log=self.manager.paths.log_file,
+            )
+
+        def completed(result):
+            message = f"Exported {len(result.included)} log(s) to {result.dest}."
+            if result.missing:
+                message += f" Missing: {', '.join(result.missing)}."
+            self.statusBar().showMessage(message)
+
+        self._run(work, completed, "Exporting logs…")
+
+    def _open_profile_path(self, name: str, title: str, description: str, *, file: bool = False) -> None:
+        pack_id = self.current_pack_id()
+        if not pack_id:
             return
-        self.statusBar().showMessage(f"Opened {folder}")
+        plugins = self.manager.packs.plugins_dir(pack_id)
+        path = plugins if name == "plugins" else plugins.parent / name
+        if not (path.is_file() if file else path.is_dir()):
+            QMessageBox.warning(self, title, f"The {description} does not exist: {path}")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            QMessageBox.warning(self, title, f"Could not open {path}")
+            return
+        self.statusBar().showMessage(f"Opened {path}")
 
 
     @_unless_bulk_running
