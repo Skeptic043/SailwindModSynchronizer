@@ -369,6 +369,7 @@ def test_linux_apply_script_text(tmp_path: Path) -> None:
     assert "pid=4242" in text
     assert "'\\''s app" in text  # single quote in the path is escaped for sh
     assert 'cp -a "$src/." "$dst/"' in text
+    assert 'exec "$start"' in text and "nohup" not in text
     assert script.name == "apply_update.sh"
 
 
@@ -401,4 +402,33 @@ def test_linux_apply_script_waits_copies_and_restarts(tmp_path: Path) -> None:
     assert os.access(dest / "sailwind-mod-sync", os.X_OK)
     assert marker.exists()
     log = (tmp_path / "updates" / "apply.log").read_text(encoding="utf-8")
-    assert "Copying files" in log and "Done" in log
+    assert "Copying files" in log and "Done; starting app" in log
+
+
+def test_game_mode_detection_and_restart_choice(monkeypatch) -> None:
+    from sailwind_mod_sync import updater
+
+    assert updater.in_game_mode({"XDG_CURRENT_DESKTOP": "gamescope"})
+    assert updater.in_game_mode({"GAMESCOPE_WAYLAND_DISPLAY": "gamescope-0"})
+    assert not updater.in_game_mode({"XDG_CURRENT_DESKTOP": "KDE"})
+    assert not updater.in_game_mode({})
+    monkeypatch.setattr(updater, "on_windows", lambda: False)
+    monkeypatch.setattr(updater, "in_game_mode", lambda env=None: True)
+    assert not updater.restarts_after_update()
+    monkeypatch.setattr(updater, "in_game_mode", lambda env=None: False)
+    assert updater.restarts_after_update()
+    monkeypatch.setattr(updater, "on_windows", lambda: True)
+    monkeypatch.setattr(updater, "in_game_mode", lambda env=None: True)
+    assert updater.restarts_after_update()
+
+
+def test_linux_apply_script_without_restart(tmp_path: Path) -> None:
+    from sailwind_mod_sync.updater import write_linux_apply_script
+
+    src = tmp_path / "updates" / "payload" / "extracted" / "SailwindModSynchronizer"
+    src.mkdir(parents=True)
+    script = write_linux_apply_script(src, tmp_path / "app", tmp_path / "app" / "sailwind-mod-sync", 1, restart=False)
+    text = script.read_text(encoding="utf-8")
+    assert 'cp -a "$src/." "$dst/"' in text
+    assert "exec" not in text
+    assert "not restarting" in text

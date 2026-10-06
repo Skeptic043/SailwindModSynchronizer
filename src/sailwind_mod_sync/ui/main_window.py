@@ -76,6 +76,7 @@ from sailwind_mod_sync.updater import (
     download_and_stage_update,
     find_app_update,
     launch_apply_and_exit,
+    restarts_after_update,
     update_check_due,
     utc_now_iso,
 )
@@ -603,6 +604,13 @@ class MainWindow(QMainWindow):
         if not isinstance(payload, Path):
             QMessageBox.warning(self, "Update failed", "The update payload was not a folder.")
             return
+        if not restarts_after_update():
+            QMessageBox.information(
+                self,
+                "Update ready",
+                "Sailwind Mod Synchronizer will close now and finish updating. "
+                "Start it again from your Steam library to use the new version.",
+            )
         try:
             launch_apply_and_exit(payload)
         except Exception as exc:

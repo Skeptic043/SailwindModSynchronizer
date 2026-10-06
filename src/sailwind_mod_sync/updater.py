@@ -53,6 +53,24 @@ def self_update_supported() -> bool:
     return on_windows() or sys.platform.startswith("linux")
 
 
+def in_game_mode(env: dict[str, str] | None = None) -> bool:
+    """True inside Steam Deck Game Mode (gamescope), where only Steam-launched windows are shown."""
+    source = os.environ if env is None else env
+    return (
+        source.get("XDG_CURRENT_DESKTOP", "").lower() == "gamescope"
+        or bool(source.get("GAMESCOPE_WAYLAND_DISPLAY"))
+    )
+
+
+def restarts_after_update() -> bool:
+    """Whether the app reopens by itself after an update.
+
+    Not in Game Mode: gamescope only shows windows of games Steam launched, so a
+    restarted app would run invisibly. The user starts it again from the library.
+    """
+    return on_windows() or not in_game_mode()
+
+
 def app_binary_name(*, windows: bool | None = None) -> str:
     if windows is None:
         windows = on_windows()
@@ -237,9 +255,9 @@ def _launch_linux_apply(payload: Path, dest: Path, pid: int) -> Path:
     start = dest / LINUX_LAUNCHER_NAME
     if not (src / LINUX_LAUNCHER_NAME).is_file() and not start.is_file():
         start = dest / LINUX_BINARY_NAME
-    script = write_linux_apply_script(src, dest, start, pid)
+    script = write_linux_apply_script(src, dest, start, pid, restart=restarts_after_update())
     subprocess.Popen(
-        ["/bin/sh", str(script)],
+        linux_apply_command(script, pid),
         cwd=str(script.parent),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -251,8 +269,45 @@ def _launch_linux_apply(payload: Path, dest: Path, pid: int) -> Path:
     return script
 
 
-def write_linux_apply_script(src: Path, dest: Path, start: Path, pid: int) -> Path:
-    """A shell script that waits for the app to exit, copies the new build over it, and restarts it."""
+# Passed to the update service so the restarted app opens on the same display
+# (including Steam Deck Game Mode's) and keeps any data-folder override.
+_APPLY_ENV_KEYS = (
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "QT_QPA_PLATFORM",
+    "SAILWIND_MOD_SYNC_HOME",
+    "SteamDeck",
+    "SteamGameId",
+)
+
+
+def linux_apply_command(script: Path, pid: int, env: dict[str, str] | None = None) -> list[str]:
+    """How to start the apply script so it outlives the app.
+
+    The app's processes can be killed together when it exits: systemd does that to a
+    session's processes when KillUserProcesses is on (SteamOS), and Steam cleans up a
+    game's processes on "Exit game". Running the script as a transient systemd user
+    service takes it out of that group. Without systemd-run, fall back to a plain shell.
+    """
+    systemd_run = shutil.which("systemd-run")
+    if not systemd_run:
+        return ["/bin/sh", str(script)]
+    source = os.environ if env is None else env
+    command = [systemd_run, "--user", "--collect", "--quiet", f"--unit=sailwind-mod-sync-update-{int(pid)}"]
+    for key in _APPLY_ENV_KEYS:
+        value = source.get(key)
+        if value:
+            command.append(f"--setenv={key}={value}")
+    return command + ["/bin/sh", str(script)]
+
+
+def write_linux_apply_script(src: Path, dest: Path, start: Path, pid: int, *, restart: bool = True) -> Path:
+    """A shell script that waits for the app to exit, copies the new build over it, and (optionally) restarts it."""
     work = _updates_folder(src)
     log_path = work / "apply.log"
     script = work / "apply_update.sh"
@@ -288,11 +343,17 @@ def write_linux_apply_script(src: Path, dest: Path, start: Path, pid: int) -> Pa
         "  exit 1",
         "fi",
         'chmod +x "$dst/SailwindModSynchronizer" "$dst/sailwind-mod-sync" 2>/dev/null',
-        'say "Starting app"',
-        'cd "$dst" || exit 1',
-        'nohup "$start" >/dev/null 2>&1 &',
-        'say "Done"',
     ]
+    if restart:
+        lines += [
+            'cd "$dst" || exit 1',
+            'say "Done; starting app"',
+            # exec, not "&": under systemd-run the service ends when this script does and
+            # takes its children with it, so the app has to become the service's main process.
+            'exec "$start" >/dev/null 2>&1',
+        ]
+    else:
+        lines.append('say "Done; not restarting (Game Mode: start it again from the Steam library)"')
     script.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     script.chmod(0o755)
     return script
