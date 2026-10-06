@@ -57,16 +57,30 @@ def _steam_install_path() -> Path | None:
             path = Path(str(value))
             if path.exists():
                 return path
-    except OSError:
+    except (ImportError, OSError):
+        # ImportError: winreg only exists on Windows.
         pass
-    for candidate in (
-        Path(r"C:\Program Files (x86)\Steam"),
-        Path(r"C:\Program Files\Steam"),
-        Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Steam",
-    ):
+    for candidate in _steam_candidates():
         if candidate.exists():
             return candidate
     return None
+
+
+def _steam_candidates() -> list[Path]:
+    if os.name == "nt":
+        return [
+            Path(r"C:\Program Files (x86)\Steam"),
+            Path(r"C:\Program Files\Steam"),
+            Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Steam",
+        ]
+    home = Path.home()
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+    return [
+        data_home / "Steam",
+        home / ".steam" / "steam",
+        home / ".steam" / "root",
+        home / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam",
+    ]
 
 
 def steam_libraries_from_vdf(text: str) -> list[Path]:
