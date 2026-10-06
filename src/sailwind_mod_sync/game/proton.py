@@ -168,7 +168,13 @@ def needs_winhttp_override(steam_root: Path | None = None, *, windows: bool | No
     options = sailwind_launch_options(steam_root)
     if options is None or has_winhttp_override(options):
         return None
-    if prefix_has_winhttp_override():
+    # Check the prefix in the same Steam installation the launch options came from.
+    libraries = None
+    if steam_root is not None:
+        from sailwind_mod_sync.game.detect import _steam_libraries
+
+        libraries = _steam_libraries(steam_root)
+    if prefix_has_winhttp_override(libraries):
         return None
     return suggested_launch_options(options)
 

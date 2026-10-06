@@ -217,3 +217,13 @@ def test_launch_option_reminder_is_quiet_once_the_prefix_has_the_override(tmp_pa
     assert proton.needs_winhttp_override(tmp_path, windows=False) is not None
     monkeypatch.setattr(proton, "prefix_has_winhttp_override", lambda libraries=None: True)
     assert proton.needs_winhttp_override(tmp_path, windows=False) is None
+
+
+def test_prefix_check_uses_the_given_steam_installation(tmp_path: Path) -> None:
+    # Independent of the machine running the tests: only tmp_path's Steam folder counts.
+    missing = LOCALCONFIG.replace('WINEDLLOVERRIDES=\\"winhttp=n,b\\" %command%', "")
+    _write_localconfig(tmp_path, "111", missing, time.time())
+    registry = _prefix(tmp_path, "WINE REGISTRY Version 2\n")
+    assert proton.needs_winhttp_override(tmp_path, windows=False) == 'WINEDLLOVERRIDES="winhttp=n,b" %command%'
+    registry.write_text(proton.add_winhttp_to_registry(registry.read_text(encoding="utf-8")), encoding="utf-8")
+    assert proton.needs_winhttp_override(tmp_path, windows=False) is None
