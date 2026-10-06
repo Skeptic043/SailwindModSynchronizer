@@ -216,7 +216,7 @@ Comment=Manage and launch Sailwind ModPacks
 Exec="$here/sailwind-mod-sync"
 Icon=$here/icon.png
 Terminal=false
-Categories=Game;Utility;
+Categories=Game;
 EOF
 echo "Added Sailwind Mod Synchronizer to your applications menu."
 """
