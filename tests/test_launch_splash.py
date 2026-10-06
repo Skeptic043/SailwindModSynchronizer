@@ -277,3 +277,60 @@ def test_launch_splash_timeout_message() -> None:
         dialog.close()
         dialog.deleteLater()
     app.processEvents()
+
+
+def _fake_proc(root: Path, uptime: float, processes: list[tuple[int, str, bytes, float]]) -> Path:
+    """Build a minimal /proc: (pid, comm, cmdline, start seconds after boot)."""
+    from sailwind_mod_sync.game.wait_window import _clock_ticks
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "uptime").write_text(f"{uptime:.2f} 0.00\n", encoding="utf-8")
+    (root / "self").mkdir(exist_ok=True)
+    for pid, comm, cmdline, started in processes:
+        entry = root / str(pid)
+        entry.mkdir()
+        (entry / "comm").write_text(comm + "\n", encoding="utf-8")
+        (entry / "cmdline").write_bytes(cmdline)
+        ticks = int(started * _clock_ticks())
+        fields = ["S"] + ["0"] * 18 + [str(ticks)] + ["0"] * 10
+        (entry / "stat").write_text(f"{pid} ({comm}) " + " ".join(fields), encoding="utf-8")
+    return root
+
+
+def test_linux_game_process_running_finds_proton_sailwind(tmp_path: Path) -> None:
+    from sailwind_mod_sync.game.wait_window import linux_game_process_running
+
+    proc = _fake_proc(tmp_path / "proc", 1000.0, [
+        (100, "bash", b"/bin/bash\x00", 10.0),
+        (200, "Sailwind.exe", b"Z:\\games\\Sailwind\\Sailwind.exe\x00", 990.0),
+    ])
+    assert linux_game_process_running(proc=proc, min_age=5.0)
+
+
+def test_linux_game_process_running_matches_cmdline_when_comm_differs(tmp_path: Path) -> None:
+    from sailwind_mod_sync.game.wait_window import linux_game_process_running
+
+    proc = _fake_proc(tmp_path / "proc", 1000.0, [
+        (300, "wine64-preload", b"C:\\Program Files\\Sailwind\\Sailwind.exe\x00--arg\x00", 900.0),
+    ])
+    assert linux_game_process_running(proc=proc, min_age=5.0)
+
+
+def test_linux_game_process_running_waits_for_the_window_grace(tmp_path: Path) -> None:
+    from sailwind_mod_sync.game.wait_window import linux_game_process_running
+
+    proc = _fake_proc(tmp_path / "proc", 1000.0, [
+        (200, "Sailwind.exe", b"Z:\\Sailwind.exe\x00", 998.0),
+    ])
+    assert not linux_game_process_running(proc=proc, min_age=5.0)
+
+
+def test_linux_game_process_running_ignores_other_processes(tmp_path: Path) -> None:
+    from sailwind_mod_sync.game.wait_window import linux_game_process_running
+
+    proc = _fake_proc(tmp_path / "proc", 1000.0, [
+        (100, "steam", b"/home/deck/.steam/steam\x00", 10.0),
+        (101, "SailwindModSyn", b"/home/deck/sms-dev/.venv/bin/python\x00-m\x00sailwind_mod_sync\x00", 10.0),
+    ])
+    assert not linux_game_process_running(proc=proc, min_age=5.0)
+    assert not linux_game_process_running(proc=tmp_path / "missing")

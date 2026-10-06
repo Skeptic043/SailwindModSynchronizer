@@ -4,6 +4,7 @@ import ctypes
 import logging
 import os
 from collections.abc import Callable
+from pathlib import Path
 from ctypes import wintypes
 
 from sailwind_mod_sync.constants import GAME_EXE_NAME
@@ -50,6 +51,8 @@ def sailwind_window_visible(
     Used when the game was handed off to Steam, so we have no pid to track and
     must recognize the game by its window instead.
     """
+    if os.name != "nt":
+        return linux_game_process_running()
     return sailwind_window_hwnd(min_width=min_width, min_height=min_height) is not None
 
 
@@ -60,6 +63,85 @@ def sailwind_window_hwnd(
 ) -> int | None:
     """HWND of a visible Sailwind.exe window, or None when none is on screen."""
     return window_hwnd_for_image(GAME_EXE_NAME, min_width=min_width, min_height=min_height)
+
+
+LINUX_PROC = Path("/proc")
+LINUX_WINDOW_GRACE_SECONDS = 5.0
+
+
+def linux_game_process_running(
+    *,
+    proc: Path | None = None,
+    min_age: float = LINUX_WINDOW_GRACE_SECONDS,
+) -> bool:
+    """True when a Sailwind.exe process (run by Proton/Wine) has been alive for min_age seconds.
+
+    Linux has no portable way to see another app's windows (Game Mode runs under
+    gamescope), so the game counts as open once its process has had a few
+    seconds to show a window.
+    """
+    root = proc or LINUX_PROC
+    uptime = _linux_uptime(root)
+    if uptime is None:
+        return False
+    tick = _clock_ticks()
+    target = GAME_EXE_NAME.lower()
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        if not _linux_is_game_process(entry, target):
+            continue
+        started = _linux_start_seconds(entry, tick)
+        if started is not None and uptime - started >= min_age:
+            return True
+    return False
+
+
+def _linux_is_game_process(entry: Path, target: str) -> bool:
+    try:
+        comm = (entry / "comm").read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return False
+    if comm.lower() == target:
+        return True
+    try:
+        raw = (entry / "cmdline").read_bytes()
+    except OSError:
+        return False
+    first = raw.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+    name = first.replace("\\", "/").rsplit("/", 1)[-1]
+    return name.lower() == target
+
+
+def _linux_uptime(root: Path) -> float | None:
+    try:
+        return float((root / "uptime").read_text(encoding="utf-8").split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _linux_start_seconds(entry: Path, tick: float) -> float | None:
+    try:
+        stat = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    # Field 22 (starttime, in clock ticks since boot) comes after the ")" that ends the name.
+    fields = stat.rsplit(")", 1)[-1].split()
+    try:
+        return int(fields[19]) / tick
+    except (IndexError, ValueError):
+        return None
+
+
+def _clock_ticks() -> float:
+    try:
+        return float(os.sysconf("SC_CLK_TCK"))
+    except (AttributeError, ValueError, OSError):
+        return 100.0
 
 
 def window_exists_for_image(
