@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 
-from sailwind_mod_sync.constants import CONFIG_FILENAME
+from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.paths import AppPaths
 
 
@@ -18,9 +16,12 @@ class AppConfig:
     warn_missing_mods: bool = True
     check_for_updates: bool = True
     auto_scan_mods: bool = True
+    auto_refresh_catalog: bool = True
     last_update_check: str = ""
+    last_catalog_refresh: str = ""
     skipped_update_version: str = ""
     hidden_catalog_mods: list[str] = field(default_factory=list)
+    catalog_sources_restored: bool = False
 
     def token(self) -> str:
         return self.github_token.strip() or os.environ.get("GITHUB_TOKEN", "").strip()
@@ -43,32 +44,19 @@ def load_config(paths: AppPaths) -> AppConfig:
         warn_missing_mods=_as_bool(data.get("warn_missing_mods"), True),
         check_for_updates=_as_bool(data.get("check_for_updates"), True),
         auto_scan_mods=_as_bool(data.get("auto_scan_mods"), True),
+        auto_refresh_catalog=_as_bool(data.get("auto_refresh_catalog"), True),
         last_update_check=str(data.get("last_update_check") or ""),
+        last_catalog_refresh=str(data.get("last_catalog_refresh") or ""),
         skipped_update_version=str(data.get("skipped_update_version") or ""),
         hidden_catalog_mods=_as_str_list(data.get("hidden_catalog_mods")),
+        catalog_sources_restored=_as_bool(data.get("catalog_sources_restored"), False),
     )
 
 
 def save_config(paths: AppPaths, config: AppConfig) -> None:
     paths.ensure()
     payload = asdict(config)
-    _atomic_write_json(paths.config_file, payload)
-
-
-def _atomic_write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=CONFIG_FILENAME, dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-            handle.write("\n")
-        Path(tmp_name).replace(path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    atomic_write_json(paths.config_file, payload)
 
 
 def _as_str_list(value: object) -> list[str]:

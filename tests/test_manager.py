@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 from unittest.mock import MagicMock, patch
@@ -946,3 +947,489 @@ def test_scan_updates_without_token_ignores_401(paths: AppPaths, monkeypatch) ->
     finally:
         manager.close()
     assert latest["com.example.mymod"] == "v1.0.0"
+
+
+def _custom_fork_entry() -> CatalogEntry:
+    return CatalogEntry(
+        repo="https://github.com/me/mymod-fork",
+        guids=["com.example.mymod"],
+        primary_guid="com.example.mymod",
+        name="MyMod fork",
+        latest_raw="v2.0.0",
+        latest_version="2.0.0",
+        available=True,
+        custom=True,
+    )
+
+
+def test_scan_updates_keeps_custom_entries_the_shared_catalog_covers(paths: AppPaths, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, save_custom_catalog
+
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(tag="v1.1.0", name="v1.1.0", assets=[]),
+    )
+    other = CatalogEntry(
+        repo="https://github.com/me/other",
+        guids=["com.me.other"],
+        primary_guid="com.me.other",
+        name="Other",
+        latest_raw="v1.0.0",
+        latest_version="1.0.0",
+        available=True,
+        custom=True,
+    )
+    covered = replace(_custom_fork_entry(), repo="https://github.com/example/mymod", latest_raw="v0.9.0")
+    save_custom_catalog(paths, [covered, other])
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = merge_with_custom(_catalog_with_repo(), load_custom_catalog(paths))
+    assert [entry.custom for entry in manager.catalog if entry.primary_guid == "com.example.mymod"] == [False]
+    try:
+        manager.scan_updates(live=True)
+    finally:
+        manager.close()
+
+    stored = load_custom_catalog(paths)
+    kept = next(entry for entry in stored if entry.primary_guid == "com.example.mymod")
+    assert kept.repo == "https://github.com/example/mymod"
+    assert len(stored) == 2
+
+
+def test_scan_results_survive_a_restart(paths: AppPaths, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, save_custom_catalog
+
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(tag="v2.1.0", name="v2.1.0", assets=[]),
+    )
+    save_custom_catalog(paths, [_custom_fork_entry()])
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    try:
+        manager.scan_updates(live=True)
+    finally:
+        manager.close()
+
+    restarted = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    restarted.close()
+    entry = find_entry(restarted.catalog, "com.example.mymod", "https://github.com/me/mymod-fork")
+    assert (entry.latest_raw, entry.latest_version, entry.available) == ("v2.1.0", "2.1.0", True)
+    assert load_custom_catalog(paths)[0].latest_raw == "v2.0.0"
+
+
+def test_update_mod_uses_the_latest_version_of_the_pinned_source(paths: AppPaths, monkeypatch) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    fork_repo = "https://github.com/me/mymod-fork"
+    manager.catalog = _catalog_with_repo() + [
+        CatalogEntry(
+            repo=fork_repo,
+            guids=["com.example.mymod"],
+            primary_guid="com.example.mymod",
+            name="MyMod",
+            latest_raw="v2.1.0",
+            latest_version="2.1.0",
+            available=True,
+            custom=True,
+        )
+    ]
+    pack = manager.packs.create("Fork pack")
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mymod", version="2.0.0", repo=fork_repo))
+    calls: list[dict] = []
+    monkeypatch.setattr(manager, "install_mod", lambda *args, **kwargs: calls.append(kwargs))
+    try:
+        manager.update_mod(pack.id, "com.example.mymod")
+    finally:
+        manager.close()
+    assert calls[0]["repo"] == fork_repo
+    assert calls[0]["version"] == "2.1.0"
+
+
+def test_add_catalog_repo_accepts_fork_of_catalog_mod(paths: AppPaths, tmp_path: Path, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog
+    from sailwind_mod_sync.models import ReleaseAsset
+
+    archive = tmp_path / "StickyFix.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("StickyFix/StickyFix.dll", b"MZ" + b"\0" * 16 + b"com.nandbrew.stickyfix\0")
+
+    class _Http(_NoHttp):
+        def download(self, url, dest, progress=None):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(archive.read_bytes())
+
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(
+            tag="v1.1.0",
+            name="v1.1.0",
+            assets=[ReleaseAsset("StickyFix.zip", "https://example/StickyFix.zip")],
+        ),
+    )
+    manager = Manager(paths=paths, config=AppConfig(), http=_Http())
+    manager.catalog = [
+        CatalogEntry(
+            repo="https://github.com/NANDbrew/StickyFix",
+            guids=["com.nandbrew.stickyfix"],
+            primary_guid="com.nandbrew.stickyfix",
+            name="StickyFix",
+            latest_raw="v1.0.0",
+            latest_version="1.0.0",
+            available=True,
+        )
+    ]
+    try:
+        added = manager.add_catalog_repo("https://github.com/me/StickyFix")
+    finally:
+        manager.close()
+    assert [(entry.primary_guid, entry.repo) for entry in added] == [
+        ("com.nandbrew.stickyfix", "https://github.com/me/StickyFix")
+    ]
+    assert [entry.repo for entry in load_custom_catalog(paths)] == ["https://github.com/me/StickyFix"]
+
+
+class _TwoSourceHttp(_NoHttp):
+    """Serves release v1.2.0 of com.example.mod from any GitHub repository, tagging the DLL with its owner."""
+
+    def get_json(self, url, extra_headers=None, etag=None):
+        owner_repo = url.removeprefix("https://api.github.com/repos/").split("/releases/")[0]
+        return {
+            "tag_name": "v1.2.0",
+            "html_url": f"https://github.com/{owner_repo}/releases/tag/v1.2.0",
+            "assets": [
+                {
+                    "name": "Mod.zip",
+                    "browser_download_url": f"https://github.com/{owner_repo}/releases/download/v1.2.0/Mod.zip",
+                }
+            ],
+        }, None, False
+
+    def download(self, url, dest, progress=None):
+        owner_repo = url.removeprefix("https://github.com/").split("/releases/")[0]
+        with zipfile.ZipFile(dest, "w") as zf:
+            zf.writestr("Mod/Mod.dll", b"MZ" + owner_repo.encode())
+
+
+def test_packs_use_their_own_source_of_the_same_version(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_TwoSourceHttp())
+    original = manager.packs.create("Original")
+    fork = manager.packs.create("Fork")
+    manager.packs.upsert_mod(
+        original.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")
+    )
+    manager.packs.upsert_mod(
+        fork.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/me/mod-fork")
+    )
+    try:
+        manager.resolve_pack_artifacts(original.id)
+        manager.resolve_pack_artifacts(fork.id)
+        assert manager.missing_mods(manager.packs.get(fork.id)) == []
+        assert manager.prune_library() == 0
+    finally:
+        manager.close()
+
+    def dll(pack_id: str) -> bytes:
+        return (manager.packs.plugins_dir(pack_id) / "Mod" / "Mod.dll").read_bytes()
+
+    assert dll(original.id) == b"MZexample/mod"
+    assert dll(fork.id) == b"MZme/mod-fork"
+    assert manager.library_versions("com.example.mod", "https://github.com/me/mod-fork") == [("1.2.0", "v1.2.0")]
+
+
+def test_set_pack_mod_version_switches_source_of_same_version(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_TwoSourceHttp())
+    pack = manager.packs.create("Crew")
+    manager.packs.upsert_mod(
+        pack.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")
+    )
+    try:
+        manager.resolve_pack_artifacts(pack.id)
+        pinned = manager.set_pack_mod_version(
+            pack.id, "com.example.mod", "1.2.0", "v1.2.0", repo="https://github.com/me/mod-fork"
+        )
+    finally:
+        manager.close()
+    assert pinned.repo == "https://github.com/me/mod-fork"
+    assert (manager.packs.plugins_dir(pack.id) / "Mod" / "Mod.dll").read_bytes() == b"MZme/mod-fork"
+
+
+def test_bundle_keeps_the_source_of_a_variant_artifact(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_TwoSourceHttp())
+    original = manager.packs.create("Original")
+    fork = manager.packs.create("Fork")
+    manager.packs.upsert_mod(
+        original.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")
+    )
+    manager.packs.upsert_mod(
+        fork.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/me/mod-fork")
+    )
+    bundle = tmp_path / "fork.zip"
+    try:
+        manager.resolve_pack_artifacts(original.id)
+        manager.resolve_pack_artifacts(fork.id)
+        manager.export_pack(fork.id, bundle, bundle=True)
+    finally:
+        manager.close()
+
+    other = Manager(paths=AppPaths(tmp_path / "other"), config=AppConfig(), http=_NoHttp())
+    try:
+        imported = other.import_pack(bundle)
+    finally:
+        other.close()
+    assert other.missing_mods(imported) == []
+    assert (other.packs.plugins_dir(imported.id) / "Mod" / "Mod.dll").read_bytes() == b"MZme/mod-fork"
+
+
+def test_set_mod_repo_for_one_pack_keeps_the_sources_of_other_packs(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    manager.library.ingest_mod_zip(
+        "com.example.mod",
+        "1.2.0",
+        archive,
+        version_raw="v1.2.0",
+        repo="https://github.com/example/mod",
+        source_url="https://github.com/example/mod/releases/download/v1.2.0/Mod.zip",
+    )
+    target = manager.packs.create("Target")
+    other = manager.packs.create("Other")
+    blank = manager.packs.create("Blank")
+    for pack, repo in ((target, "https://github.com/example/mod"), (other, "https://github.com/example/mod"), (blank, "")):
+        manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo=repo))
+    try:
+        manager.set_mod_repo("com.example.mod", "https://github.com/me/mod-fork", target.id)
+    finally:
+        manager.close()
+
+    def repo_of(pack_id: str) -> str:
+        return manager.packs.get(pack_id).find_mod("com.example.mod").repo
+
+    assert repo_of(target.id) == "https://github.com/me/mod-fork"
+    assert repo_of(other.id) == "https://github.com/example/mod"
+    assert repo_of(blank.id) == "https://github.com/me/mod-fork"
+    assert manager.library.read_mod_meta("com.example.mod", "1.2.0").repo == "https://github.com/example/mod"
+
+
+def test_first_start_restores_catalog_sources_used_by_packs_and_downloads(paths: AppPaths, tmp_path: Path) -> None:
+    import json
+
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, remove_custom_entry, save_custom_catalog
+    from sailwind_mod_sync.library.store import LibraryStore
+    from sailwind_mod_sync.packs.modpack import PackStore
+
+    paths.modlist_file.write_text(
+        json.dumps([{"guid": "com.example.mod", "repo": "https://github.com/example/mod"}]), encoding="utf-8"
+    )
+    paths.versions_file.write_text(json.dumps([{"guid": "com.example.mod", "version": "v1.3.0"}]), encoding="utf-8")
+    LibraryStore(paths).ingest_mod_zip(
+        "com.example.mod",
+        "1.1.0",
+        _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"}),
+        version_raw="v1.1.0",
+        repo="https://github.com/you/mod",
+        source_url="https://github.com/you/mod/releases/download/v1.1.0/Mod.zip",
+    )
+    packs = PackStore(paths)
+    pack = packs.create("Fork pack")
+    packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/me/mod-fork"))
+    packs.upsert_mod(pack.id, PinnedMod(guid="com.unlisted.mod", version="1.0.0", repo="https://github.com/me/x"))
+
+    manager = Manager(paths=paths, config=AppConfig(game_path=str(tmp_path)), http=_NoHttp())
+    manager.close()
+
+    restored = {(entry.primary_guid, entry.repo, entry.latest_raw) for entry in load_custom_catalog(paths)}
+    assert restored == {
+        ("com.example.mod", "https://github.com/me/mod-fork", "1.2.0"),
+        ("com.example.mod", "https://github.com/you/mod", "v1.1.0"),
+    }
+    assert find_entry(manager.catalog, "com.example.mod").repo == "https://github.com/example/mod"
+    assert find_entry(manager.catalog, "com.example.mod", "https://github.com/me/mod-fork").custom
+    assert load_config(paths).catalog_sources_restored
+
+    remaining = remove_custom_entry(load_custom_catalog(paths), "com.example.mod", "https://github.com/me/mod-fork")
+    save_custom_catalog(paths, remaining)
+    Manager(paths=paths, config=load_config(paths), http=_NoHttp()).close()
+    assert len(load_custom_catalog(paths)) == 1
+
+
+class _StickyFixCatalogHttp(_NoHttp):
+    """Serves a ModVersionChecker catalog that lists StickyFix with the given version."""
+
+    def __init__(self, version: str) -> None:
+        super().__init__()
+        self.version = version
+
+    def get_json(self, url, extra_headers=None, etag=None):
+        from sailwind_mod_sync import constants
+
+        if url == constants.JSDELIVR_MODLIST:
+            return [{"guid": "com.nandbrew.stickyfix", "repo": "https://github.com/NANDbrew/StickyFix"}], None, False
+        if url == constants.JSDELIVR_VERSIONS:
+            return [{"guid": "com.nandbrew.stickyfix", "version": self.version}], None, False
+        raise HttpError("HTTP 404", status_code=404)
+
+
+def test_scanned_version_keeps_mod_available_that_the_catalog_lists_as_none(paths: AppPaths, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(tag="v1.0.4", name="v1.0.4", assets=[]),
+    )
+    manager = Manager(paths=paths, config=AppConfig(), http=_StickyFixCatalogHttp("none"))
+    try:
+        assert not find_entry(manager.refresh_catalog(), "com.nandbrew.stickyfix").available
+        manager.scan_updates(live=True)
+        assert find_entry(manager.refresh_catalog(), "com.nandbrew.stickyfix").latest_raw == "v1.0.4"
+    finally:
+        manager.close()
+
+    restarted = Manager(paths=paths, config=AppConfig(), http=_StickyFixCatalogHttp("v1.1.0"))
+    try:
+        sticky = find_entry(restarted.catalog, "com.nandbrew.stickyfix")
+        assert (sticky.latest_raw, sticky.available) == ("v1.0.4", True)
+        assert find_entry(restarted.refresh_catalog(), "com.nandbrew.stickyfix").latest_raw == "v1.1.0"
+    finally:
+        restarted.close()
+
+
+def test_update_mods_continues_past_failures(paths: AppPaths, monkeypatch) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    pack = manager.packs.create("Crew")
+
+    def fake_update(pack_id, guid, progress=None):
+        if guid == "com.example.broken":
+            raise RuntimeError("No GitHub release")
+        return PinnedMod(guid=guid, version="2.0.0")
+
+    monkeypatch.setattr(manager, "update_mod", fake_update)
+    messages: list[str] = []
+    try:
+        updated, failures = manager.update_mods(
+            pack.id, ["com.example.broken", "com.example.mod"], progress=messages.append
+        )
+    finally:
+        manager.close()
+    assert [pin.guid for pin in updated] == ["com.example.mod"]
+    assert failures == ["com.example.broken: No GitHub release"]
+    assert messages == ["Updating com.example.broken (1/2)…", "Updating com.example.mod (2/2)…"]
+
+
+def test_clear_cache_deletes_downloadable_data_and_keeps_user_data(paths: AppPaths, tmp_path: Path) -> None:
+    import json
+
+    from sailwind_mod_sync.catalog.custom import load_custom_catalog, save_custom_catalog
+    from sailwind_mod_sync.library.store import LibraryStore
+
+    listed = json.dumps([{"guid": "com.example.mod", "repo": "https://github.com/example/mod"}])
+    for cached in (paths.modlist_file, paths.versions_file, paths.extra_modlist_file, paths.scanned_versions_file):
+        cached.write_text(listed, encoding="utf-8")
+    (paths.etag_dir / "example_mod.etag").write_text("W/1", encoding="utf-8")
+    (paths.library_bepinex / "5.4.2305").mkdir(parents=True)
+    (paths.library_bepinex / "5.4.2305" / "BepInExPack.zip").write_bytes(b"zip")
+    (paths.updates_dir / "payload").mkdir(parents=True)
+    store = LibraryStore(paths)
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    store.ingest_mod_zip(
+        "com.example.mod",
+        "1.0.0",
+        archive,
+        version_raw="v1.0.0",
+        repo="https://github.com/example/mod",
+        source_url="https://github.com/example/mod/releases/download/v1.0.0/Mod.zip",
+    )
+    store.ingest_mod_zip("local.discord.mod", "1.0.0", archive, version_raw="1.0.0", repo="", source_url=str(archive))
+    save_custom_catalog(paths, [_custom_fork_entry()])
+    (paths.backups_dir / "BepInEx.zip").write_bytes(b"backup")
+    config = AppConfig(last_catalog_refresh="2026-10-05T08:00:00+00:00")
+    manager = Manager(paths=paths, config=config, http=_NoHttp())
+    pack = manager.packs.create("Crew")
+    try:
+        expected = manager.cache_size()
+        result = manager.clear_cache()
+    finally:
+        manager.close()
+
+    assert result.failures == []
+    assert result.freed_bytes == expected > 0
+    assert manager.cache_size() == 0
+    assert not paths.modlist_file.exists() and not paths.scanned_versions_file.exists()
+    assert paths.etag_dir.is_dir() and not any(paths.etag_dir.iterdir())
+    assert not any(paths.library_bepinex.iterdir()) and not any(paths.updates_dir.iterdir())
+    assert [entry.guid for entry in store.list_mods()] == ["local.discord.mod"]
+    assert not (paths.library_mods / "com.example.mod").exists()
+    assert len(load_custom_catalog(paths)) == 1
+    assert [entry.primary_guid for entry in manager.catalog] == ["com.example.mymod"]
+    assert manager.packs.exists(pack.id)
+    assert (paths.backups_dir / "BepInEx.zip").exists()
+    assert load_config(paths).last_catalog_refresh == ""
+
+
+def test_clear_cache_deletes_imported_mods_only_when_asked(paths: AppPaths, tmp_path: Path) -> None:
+    from sailwind_mod_sync.library.store import LibraryStore
+
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    LibraryStore(paths).ingest_mod_zip(
+        "local.discord.mod", "1.0.0", archive, version_raw="1.0.0", repo="", source_url=str(archive)
+    )
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    try:
+        imported = manager.imported_mods_size()
+        assert imported > 0
+        manager.clear_cache()
+        assert manager.library.has_mod("local.discord.mod", "1.0.0")
+        result = manager.clear_cache(include_imported=True)
+    finally:
+        manager.close()
+    assert result.freed_bytes >= imported
+    assert manager.library.list_mods() == []
+    assert not any(paths.library_mods.iterdir())
+
+
+def test_undownloadable_mods_leaves_out_mods_with_a_known_repository(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = _catalog_with_repo()
+    pack = manager.packs.create("Crew")
+    for pinned in (
+        PinnedMod(guid="com.example.pinned", version="1.0.0", repo="https://github.com/example/pinned"),
+        PinnedMod(guid="com.example.mymod", version="1.0.0"),
+        PinnedMod(guid=COOP_GUID, version="0.3.2"),
+        PinnedMod(guid="local.discord.mystery", version="1.0.0"),
+    ):
+        manager.packs.upsert_mod(pack.id, pinned)
+    try:
+        pack = manager.packs.get(pack.id)
+        assert len(manager.missing_mods(pack)) == 4
+        assert [mod.guid for mod in manager.undownloadable_mods(pack)] == ["local.discord.mystery"]
+    finally:
+        manager.close()
+
+
+def test_hide_catalog_mod_keys_the_source(paths: AppPaths) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    try:
+        manager.hide_catalog_mod("com.example.mod", "https://github.com/Foxyv/Mod.git")
+        manager.hide_catalog_mod("com.example.mod", "https://github.com/foxyv/mod")
+        assert manager.config.hidden_catalog_mods == ["com.example.mod|https://github.com/foxyv/mod"]
+        manager.unhide_catalog_mod("com.example.mod|https://github.com/foxyv/mod")
+        assert load_config(paths).hidden_catalog_mods == []
+    finally:
+        manager.close()
+
+
+def test_strict_library_versions_leave_out_imported_files(paths: AppPaths, tmp_path: Path) -> None:
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.library.ingest_mod_zip(
+        "com.example.mod", "1.0.0", archive, version_raw="1.0.0", repo="", source_url=str(archive)
+    )
+    manager.library.ingest_mod_zip(
+        "com.example.mod",
+        "1.1.0",
+        archive,
+        version_raw="v1.1.0",
+        repo="https://github.com/me/mod-fork",
+        source_url="https://github.com/me/mod-fork/releases/download/v1.1.0/Mod.zip",
+    )
+    try:
+        fork = "https://github.com/me/mod-fork"
+        assert manager.library_versions("com.example.mod", fork) == [("1.1.0", "v1.1.0"), ("1.0.0", "1.0.0")]
+        assert manager.library_versions("com.example.mod", fork, strict=True) == [("1.1.0", "v1.1.0")]
+    finally:
+        manager.close()

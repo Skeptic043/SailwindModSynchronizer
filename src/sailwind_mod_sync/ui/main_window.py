@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QComboBox,
     QFileDialog,
@@ -32,14 +33,15 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QEvent, Signal
 from shiboken6 import isValid
 
-from sailwind_mod_sync.catalog.custom import same_repo
-from sailwind_mod_sync.catalog.github import GitHubDownloadError
+from sailwind_mod_sync.catalog.custom import same_repo, source_key
+from sailwind_mod_sync.catalog.github import GitHubDownloadError, repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
-from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION
+from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
 from sailwind_mod_sync.game.saves import inspect_saves_zip
+from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.manager import Manager
-from sailwind_mod_sync.models import PinnedMod, parse_mod_version, version_key
+from sailwind_mod_sync.models import PinnedMod, parse_mod_version
 from sailwind_mod_sync.packs.share import DISCORD_MESSAGE_LIMIT, parse_share_text
 from sailwind_mod_sync.ui.associate_dialog import AssociateCatalogDialog, AssociateTarget
 from sailwind_mod_sync.ui.catalog_view import CatalogView
@@ -49,6 +51,7 @@ from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
 from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
 from sailwind_mod_sync.ui.launch_splash import LaunchSplash
+from sailwind_mod_sync.ui.library_view import format_size
 from sailwind_mod_sync.ui.links import help_text_to_html
 from sailwind_mod_sync.ui.mod_details_dialog import ModDetailsDialog
 from sailwind_mod_sync.ui.missing_mods_dialog import MissingModsWarningDialog
@@ -82,6 +85,11 @@ AUTO_SCAN_RETRY_DELAY_MS = 10000
 # A manual "scan updates" click within this window after a scan (automatic or
 # manual) just finished asks the user whether they really want to rerun it.
 MOD_SCAN_RECENT_SECONDS = 300.0
+# Delay after startup before a due catalog refresh starts in the background.
+CATALOG_REFRESH_START_DELAY_MS = 1000
+# How often an open window checks whether the daily catalog refresh or the app
+# update check is due.
+PERIODIC_CHECK_INTERVAL_MS = 60 * 60 * 1000
 
 PLAY_BUTTON_STYLE = """
 QPushButton {
@@ -153,6 +161,8 @@ class MainWindow(QMainWindow):
         self._mod_scan_running = False
         self._mod_scan_done_at = float("-inf")
         self._mod_scan_bridge: TaskBridge | None = None
+        self._catalog_bridge: TaskBridge | None = None
+        self._pending_catalog: list | None = None
 
         self._updates_hint = QLabel(self.statusBar())
         self._updates_hint.setStyleSheet(UPDATES_HINT_STYLE)
@@ -227,6 +237,8 @@ class MainWindow(QMainWindow):
         self.pack_view.bulk_enabled.connect(self._set_all_mods_enabled)
         self.pack_view.toggle_enabled.connect(self._toggle_mod)
         self.pack_view.update_requested.connect(self._update_mod)
+        self.pack_view.update_all_requested.connect(self._update_all_mods)
+        self.pack_view.download_requested.connect(self._download_mod)
         self.pack_view.import_requested.connect(self._import_missing_mod)
         self.pack_view.import_file_clicked.connect(self._import_local_mod)
         self.pack_view.find_repo_requested.connect(self._find_pack_repo)
@@ -305,6 +317,10 @@ class MainWindow(QMainWindow):
         hidden_mods = downloads_menu.addAction("Hidden Mods")
         hidden_mods.setStatusTip("Show catalog mods you hid, and unhide them")
         hidden_mods.triggered.connect(self._manage_hidden_mods)
+        downloads_menu.addSeparator()
+        clear_cache = downloads_menu.addAction("Clear cache…")
+        clear_cache.setStatusTip("Delete downloaded catalogs, mods, BepInEx packs and app updates")
+        clear_cache.triggered.connect(self._clear_cache)
         help_menu = self.menuBar().addMenu("Help")
         check_updates = help_menu.addAction("Check for updates…")
         check_updates.triggered.connect(self._check_for_updates)
@@ -319,7 +335,7 @@ class MainWindow(QMainWindow):
         self._bulk_actions = [
             settings_action, self.backup_action, self.restore_action,
             self.backup_saves_action, self.restore_saves_action, import_game_action,
-            import_mod_action, scan_action, check_updates, hidden_mods,
+            import_mod_action, scan_action, check_updates, hidden_mods, clear_cache,
         ]
         self._pack_buttons = [
             layout.itemAt(index).widget()
@@ -333,8 +349,14 @@ class MainWindow(QMainWindow):
         restore_window_state(self, self.splitter, paths=self.manager.paths)
         if not self.manager.catalog:
             self._refresh_catalog()
+        else:
+            QTimer.singleShot(CATALOG_REFRESH_START_DELAY_MS, self._maybe_refresh_catalog)
         QTimer.singleShot(4000, self._maybe_check_updates)
         QTimer.singleShot(AUTO_SCAN_START_DELAY_MS, self._maybe_auto_scan_mods)
+        self._periodic_checks = QTimer(self)
+        self._periodic_checks.setInterval(PERIODIC_CHECK_INTERVAL_MS)
+        self._periodic_checks.timeout.connect(self._run_periodic_checks)
+        self._periodic_checks.start()
 
     def current_pack_id(self) -> str | None:
         item = self.pack_list.currentItem()
@@ -377,13 +399,10 @@ class MainWindow(QMainWindow):
         pack = self.manager.packs.get(pack_id) if pack_id else None
         missing = {mod.guid for mod in self.manager.missing_mods(pack)}
         library = self.manager.library.list_mods()
-        library_version_rows: dict[str, list[tuple[str, str]]] = {}
-        for item in library:
-            library_version_rows.setdefault(item.guid, []).append(
-                (item.version, item.meta.version_raw or item.version)
-            )
-        for rows in library_version_rows.values():
-            rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
+        library_version_rows = {
+            pinned.guid: self.manager.library_versions(pinned.guid, pinned.repo, library)
+            for pinned in (pack.mods if pack else [])
+        }
         all_packs = self.manager.packs.list_packs()
         display_names = {
             item.guid: self.manager.mod_display_name(
@@ -408,7 +427,8 @@ class MainWindow(QMainWindow):
                 )
         self.pack_view.set_pack(pack, self.manager.catalog, missing, library_version_rows, display_names)
         self.catalog_view.set_data(self.manager.catalog, pack, self.manager.config.hidden_catalog_mods)
-        self.library_view.set_entries(library, pack, display_names)
+        pinned_keys = {pinned.guid: self.manager.library.pinned_key(pinned) for pinned in (pack.mods if pack else [])}
+        self.library_view.set_entries(library, pack, display_names, pinned_keys)
         game = self.manager.game_dir()
         self.open_profile_plugins_action.setEnabled(pack is not None)
         if game:
@@ -424,7 +444,10 @@ class MainWindow(QMainWindow):
         )
 
     def _update_bulk_actions_availability(self) -> None:
-        self.pack_view.set_actions_blocked(self._busy or self._mod_scan_running)
+        self.pack_view.set_actions_blocked(
+            self._busy or self._mod_scan_running,
+            "Checking for updates…" if self._mod_scan_running else "",
+        )
 
     def _update_pack_updates_hint(self) -> None:
         count = self.pack_view.available_updates()
@@ -788,7 +811,7 @@ class MainWindow(QMainWindow):
     def _game_plugins_imported(self, pack) -> None:
         self._imported(pack)
         pack = self.manager.packs.get(pack.id)
-        self._offer_catalog_association(list(pack.mods))
+        self._offer_catalog_association(list(pack.mods), pack_id=pack.id)
 
     @_unless_bulk_running
     def _backup_bepinex(self) -> None:
@@ -967,8 +990,74 @@ class MainWindow(QMainWindow):
         self._run(lambda progress: self.manager.refresh_catalog(progress=progress), self._catalog_loaded, "Refreshing catalog…")
 
     def _catalog_loaded(self, _result) -> None:
+        self._mark_catalog_refreshed()
         self._reload_views()
         self.statusBar().showMessage(f"Catalog: {len(self.manager.catalog)} mods")
+
+    def _mark_catalog_refreshed(self) -> None:
+        self.manager.config.last_catalog_refresh = utc_now_iso()
+        self.manager.save_config()
+
+    def _run_periodic_checks(self) -> None:
+        self._maybe_refresh_catalog()
+        self._maybe_check_updates()
+
+    def _catalog_refresh_running(self) -> bool:
+        return self._catalog_bridge is not None or self._pending_catalog is not None
+
+    def _catalog_refresh_blocked(self) -> bool:
+        return self._busy or self._mod_scan_running or self._bulk_pack_id is not None
+
+    def _maybe_refresh_catalog(self) -> None:
+        """Start a quiet background catalog refresh when the daily one is due."""
+        config = self.manager.config
+        if not config.auto_refresh_catalog or self._catalog_refresh_running():
+            return
+        if not update_check_due(config.last_catalog_refresh, CATALOG_REFRESH_HOURS):
+            return
+        if self._catalog_refresh_blocked():
+            QTimer.singleShot(AUTO_SCAN_RETRY_DELAY_MS, self._maybe_refresh_catalog)
+            return
+        log.info("Refreshing the catalog in the background")
+        bridge = TaskBridge(self)
+        self._catalog_bridge = bridge
+        queued = Qt.ConnectionType.QueuedConnection
+        bridge.finished.connect(self._background_catalog_fetched, queued)
+        bridge.failed.connect(self._background_catalog_failed, queued)
+        run_background(lambda progress: self.manager.fetch_catalog(progress=progress), bridge)
+
+    def _clear_catalog_bridge(self) -> None:
+        if self._catalog_bridge is not None:
+            self._catalog_bridge.deleteLater()
+            self._catalog_bridge = None
+
+    @Slot(object)
+    def _background_catalog_fetched(self, entries: object) -> None:
+        self._clear_catalog_bridge()
+        self._pending_catalog = entries if isinstance(entries, list) else None
+        self._apply_pending_catalog()
+
+    @Slot(str)
+    def _background_catalog_failed(self, message: str) -> None:
+        self._clear_catalog_bridge()
+        log.warning("Background catalog refresh failed: %s", message)
+
+    def _apply_pending_catalog(self) -> None:
+        """Apply a background refresh once no task that reads or changes the catalog is running."""
+        entries = self._pending_catalog
+        if entries is None:
+            return
+        if self._catalog_refresh_blocked():
+            QTimer.singleShot(AUTO_SCAN_RETRY_DELAY_MS, self._apply_pending_catalog)
+            return
+        self._pending_catalog = None
+        previous = self.manager.catalog
+        self.manager.catalog = entries
+        self._mark_catalog_refreshed()
+        log.info("Background catalog refresh applied: %s mods", len(self.manager.catalog))
+        if self.manager.catalog != previous:
+            self._reload_views()
+            self.statusBar().showMessage(f"Catalog refreshed: {len(self.manager.catalog)} mods")
 
     @_unless_bulk_running
     def _add_catalog_repo(self) -> None:
@@ -1016,29 +1105,33 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Catalog: added {len(names)} mods ({', '.join(names)})")
 
     @_unless_bulk_running
-    def _remove_custom_catalog(self, guid: str) -> None:
-        self.manager.remove_catalog_repo(guid)
+    def _remove_custom_catalog(self, guid: str, repo: str = "") -> None:
+        self.manager.remove_catalog_repo(guid, repo)
         self._reload_views()
         self.statusBar().showMessage(f"Removed {guid} from the catalog")
 
     @_unless_bulk_running
-    def _hide_catalog_mod(self, guid: str) -> None:
-        self.manager.hide_catalog_mod(guid)
+    def _hide_catalog_mod(self, guid: str, repo: str = "") -> None:
+        self.manager.hide_catalog_mod(guid, repo)
         self._reload_views()
-        self.statusBar().showMessage(f"Hidden {guid} from the catalog")
+        source = f" from {repo_short_name(repo)}" if repo else ""
+        self.statusBar().showMessage(f"Hidden {guid}{source} from the catalog")
 
     @_unless_bulk_running
-    def _unhide_catalog_mod(self, guid: str) -> None:
-        self.manager.unhide_catalog_mod(guid)
+    def _unhide_catalog_mod(self, key: str) -> None:
+        self.manager.unhide_catalog_mod(key)
         self._reload_views()
+        guid = key.partition("|")[0]
         self.statusBar().showMessage(f"Showing {guid} in the catalog")
 
     @_unless_bulk_running
     def _manage_hidden_mods(self) -> None:
         rows: list[tuple[str, str]] = []
-        for guid in self.manager.config.hidden_catalog_mods:
-            entry = find_entry(self.manager.catalog, guid)
-            rows.append((guid, entry.name if entry else guid))
+        for key in self.manager.config.hidden_catalog_mods:
+            guid, _, repo = key.partition("|")
+            entry = find_entry(self.manager.catalog, guid, repo) or find_entry(self.manager.catalog, guid)
+            source = repo_short_name(repo) if repo else "all sources"
+            rows.append((key, f"{entry.name if entry else guid}  ({guid}, {source})"))
         dialog = HiddenModsDialog(rows, self)
         dialog.unhide_requested.connect(self._unhide_catalog_mod)
         dialog.exec()
@@ -1069,7 +1162,7 @@ class MainWindow(QMainWindow):
         if not self.manager.config.token():
             log.info("Skipping automatic mod update scan: no GitHub token configured")
             return
-        if self._busy or self._mod_scan_running:
+        if self._busy or self._mod_scan_running or self._catalog_refresh_running():
             log.info("Deferring automatic mod update scan: another task is running")
             QTimer.singleShot(AUTO_SCAN_RETRY_DELAY_MS, self._maybe_auto_scan_mods)
             return
@@ -1121,13 +1214,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Update scan complete")
 
     @_unless_bulk_running
-    def _install_from_catalog(self, guid: str) -> None:
+    def _install_from_catalog(self, guid: str, repo: str = "") -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
             QMessageBox.warning(self, "No pack", "Create or select a ModPack first.")
             return
         pack = self.manager.packs.get(pack_id)
-        entry = find_entry(self.manager.catalog, guid)
+        entry = find_entry(self.manager.catalog, guid, repo)
         pinned = None
         if pack is not None:
             search = list(entry.guids) if entry else [guid]
@@ -1137,20 +1230,22 @@ class MainWindow(QMainWindow):
                 pinned = pack.find_mod(candidate)
                 if pinned is not None:
                     break
-        repo = (pinned.repo if pinned else "") or (entry.repo if entry else "")
+        source = (entry.repo if entry else "") or repo or (pinned.repo if pinned else "")
         name = (entry.name if entry else "") or guid
+        switching = pinned is not None and bool(pinned.repo) and not same_repo(pinned.repo, source)
         current = pinned.version if pinned else ((entry.latest_version if entry else "") or "")
         target_guid = pinned.guid if pinned is not None else (entry.primary_guid if entry else guid)
         chosen = self._choose_mod_version(
             target_guid,
             name=name,
-            current_version=current,
-            repo=repo,
+            current_version="" if switching else current,
+            repo=source,
             adding=pinned is None,
+            switching=switching,
         )
         if chosen is None:
             return
-        self._set_pack_mod_version(target_guid, chosen[0], chosen[1])
+        self._set_pack_mod_version(target_guid, chosen[0], chosen[1], repo=source)
 
     @_unless_bulk_running
     def _update_mod(self, guid: str) -> None:
@@ -1162,6 +1257,48 @@ class MainWindow(QMainWindow):
             lambda _r: QTimer.singleShot(0, self._reload_views),
             f"Updating {guid}…",
         )
+
+    @_unless_bulk_running
+    def _download_mod(self, guid: str) -> None:
+        pack_id = self.current_pack_id()
+        pack = self.manager.packs.get(pack_id) if pack_id else None
+        pinned = pack.find_mod(guid) if pack else None
+        if pinned is None:
+            return
+        version_raw = pinned.version_raw or pinned.version
+        self._run(
+            lambda progress: self.manager.set_pack_mod_version(pack_id, guid, pinned.version, version_raw, progress=progress),
+            lambda _r: self._reload_views(),
+            f"Downloading {guid} {version_raw}…",
+        )
+
+    @_unless_bulk_running
+    def _update_all_mods(self, guids: list[str]) -> None:
+        pack_id = self.current_pack_id()
+        if not pack_id or not guids:
+            return
+        self._run(
+            lambda progress: self.manager.update_mods(pack_id, guids, progress=progress),
+            self._mods_updated,
+            f"Updating {len(guids)} mods…",
+        )
+
+    def _mods_updated(self, result) -> None:
+        updated, failures = result
+        self._reload_views()
+        summary = f"Updated {len(updated)} mod(s)"
+        if failures:
+            summary = f"{summary}, {len(failures)} could not be updated"
+            box = QMessageBox(
+                QMessageBox.Icon.Warning,
+                "Some mods could not be updated",
+                f"{summary}.",
+                QMessageBox.StandardButton.Ok,
+                self,
+            )
+            box.setDetailedText("\n\n".join(failures))
+            box.exec()
+        self.statusBar().showMessage(summary)
 
     @_unless_bulk_running
     def _remove_mod(self, guid: str) -> None:
@@ -1179,11 +1316,17 @@ class MainWindow(QMainWindow):
         self._start_mod_changes(pack_id, enabled, guid=guid)
 
     @_unless_bulk_running
-    def _add_library_mod(self, guid: str, version: str) -> None:
-        self._set_pack_mod_version(guid, version, version)
+    def _add_library_mod(self, guid: str, key: str) -> None:
+        meta = self.manager.library.read_mod_meta(guid, key)
+        if meta is None:
+            self._set_pack_mod_version(guid, key, key)
+            return
+        self._set_pack_mod_version(
+            guid, meta.version, meta.version_raw or meta.version, repo=artifact_source(meta)
+        )
 
     @_unless_bulk_running
-    def _set_pack_mod_version(self, guid: str, version: str, version_raw: str = "") -> None:
+    def _set_pack_mod_version(self, guid: str, version: str, version_raw: str = "", *, repo: str = "") -> None:
         pack_id = self.current_pack_id()
         if not pack_id:
             QMessageBox.warning(self, "No pack", "Create or select a ModPack first.")
@@ -1192,12 +1335,14 @@ class MainWindow(QMainWindow):
         pinned = pack.find_mod(guid) if pack else None
         current = parse_mod_version(pinned.version) if pinned else None
         chosen = parse_mod_version(version) or version
-        if pinned and current == chosen and self.manager.library.has_mod(guid, pinned.version):
+        library = self.manager.library
+        same_source = pinned is not None and (not repo or not pinned.repo or same_repo(repo, pinned.repo))
+        if same_source and current == chosen and library.has_mod(guid, library.pinned_key(pinned)):
             return
-        if self.manager.library.has_mod(guid, version):
+        if library.has_mod(guid, library.artifact_key(guid, version, repo or (pinned.repo if pinned else ""))):
             try:
                 pinned = self.manager.set_pack_mod_version(
-                    pack_id, guid, version, version_raw or version
+                    pack_id, guid, version, version_raw or version, repo=repo
                 )
             except Exception as exc:
                 QMessageBox.warning(self, "Could not change version", str(exc))
@@ -1212,20 +1357,12 @@ class MainWindow(QMainWindow):
                 guid,
                 version,
                 version_raw or version,
+                repo=repo,
                 progress=progress,
             ),
             lambda _r: QTimer.singleShot(0, self._reload_views),
             f"Downloading {guid} {version_raw or version}…",
         )
-
-    def _library_versions_for(self, guid: str) -> list[tuple[str, str]]:
-        rows = [
-            (item.version, item.meta.version_raw or item.version)
-            for item in self.manager.library.list_mods()
-            if item.guid == guid
-        ]
-        rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
-        return rows
 
     def _choose_mod_version(
         self,
@@ -1235,15 +1372,17 @@ class MainWindow(QMainWindow):
         current_version: str,
         repo: str,
         adding: bool = False,
+        switching: bool = False,
     ) -> tuple[str, str] | None:
         dialog = SelectVersionDialog(
             guid=guid,
             name=name,
             current_version=current_version,
-            library_versions=self._library_versions_for(guid),
+            library_versions=self.manager.library_versions(guid, repo, strict=switching),
             repo=repo,
             parent=self,
             adding=adding,
+            switching=switching,
         )
         if repo:
             dialog.start_remote(
@@ -1260,7 +1399,7 @@ class MainWindow(QMainWindow):
         pinned = pack.find_mod(guid) if pack else None
         if pack is None or pinned is None:
             return
-        entry = find_entry(self.manager.catalog, guid)
+        entry = find_entry(self.manager.catalog, guid, pinned.repo)
         repo = pinned.repo or (entry.repo if entry else "")
         name = self.manager.mod_display_name(
             guid,
@@ -1293,6 +1432,7 @@ class MainWindow(QMainWindow):
             [pinned],
             names={guid: name},
             force=True,
+            pack_id=pack_id,
         )
 
     @_unless_bulk_running
@@ -1319,6 +1459,7 @@ class MainWindow(QMainWindow):
         *,
         names: dict[str, str] | None = None,
         force: bool = False,
+        pack_id: str | None = None,
     ) -> None:
         targets: list[AssociateTarget] = []
         labels = names or {}
@@ -1327,7 +1468,7 @@ class MainWindow(QMainWindow):
             if not force:
                 if catalog_hit:
                     if not pin.repo:
-                        self.manager.set_mod_repo(pin.guid, catalog_hit.repo)
+                        self.manager.set_mod_repo(pin.guid, catalog_hit.repo, pack_id)
                     continue
             name = labels.get(pin.guid) or self.manager.mod_display_name(
                 pin.guid,
@@ -1337,7 +1478,7 @@ class MainWindow(QMainWindow):
             targets.append(
                 AssociateTarget(
                     guid=pin.guid,
-                    version=pin.version,
+                    version=self.manager.library.pinned_key(pin),
                     name=name,
                     repo=pin.repo,
                 )
@@ -1357,6 +1498,7 @@ class MainWindow(QMainWindow):
                     choice.version,
                     catalog_entry=choice.entry,
                     repo=choice.repo,
+                    pack_id=pack_id,
                 )
                 associated += 1
             except Exception as exc:
@@ -1396,7 +1538,7 @@ class MainWindow(QMainWindow):
                 if entry.guid == guid:
                     repo = entry.meta.repo
                     break
-        catalog_entry = find_entry(self.manager.catalog, guid)
+        catalog_entry = find_entry(self.manager.catalog, guid, repo) or find_entry(self.manager.catalog, guid)
         if catalog_entry is None and repo:
             catalog_entry = next(
                 (item for item in self.manager.catalog if same_repo(item.repo, repo)),
@@ -1410,6 +1552,7 @@ class MainWindow(QMainWindow):
             )
             return
         self.manager.unhide_catalog_mod(catalog_entry.primary_guid)
+        self.manager.unhide_catalog_mod(source_key(catalog_entry))
         self._reload_views()
         self.tabs.setCurrentWidget(self.catalog_view)
         self.raise_()
@@ -1423,9 +1566,9 @@ class MainWindow(QMainWindow):
             f"{guid} is not in the catalog. Use Add Repository to link it to a GitHub repository.",
         )
 
-    def _show_catalog_details(self, guid: str) -> None:
+    def _show_catalog_details(self, guid: str, repo: str = "") -> None:
         try:
-            details = self.manager.catalog_mod_details(guid)
+            details = self.manager.catalog_mod_details(guid, repo)
         except Exception as exc:
             QMessageBox.warning(self, "Mod details", str(exc))
             return
@@ -1512,7 +1655,7 @@ class MainWindow(QMainWindow):
             return
         names = ", ".join(f"{item.guid} {item.version}" for item in imported)
         self.statusBar().showMessage(f"Imported {names}")
-        self._offer_catalog_association(list(imported))
+        self._offer_catalog_association(list(imported), pack_id=self.current_pack_id())
 
     @_unless_bulk_running
     def _play(self) -> None:
@@ -1539,7 +1682,7 @@ class MainWindow(QMainWindow):
         if not self.manager.config.warn_missing_mods:
             return True
         pack = self.manager.packs.get(pack_id)
-        missing = self.manager.missing_mods(pack)
+        missing = self.manager.undownloadable_mods(pack)
         if not missing:
             return True
         dialog = MissingModsWarningDialog(missing, pack.name, self)
@@ -1565,10 +1708,13 @@ class MainWindow(QMainWindow):
         pack = self.manager.packs.get(pack_id) if pack_id else None
         if pack is not None:
             heading = f"Starting Sailwind — {pack.name}"
-        self._open_launch_splash(
-            LaunchSplash(self, process, heading=heading),
-            status="Waiting for Steam to open Sailwind…",
-        )
+        missing = self.manager.missing_mods(pack) if pack is not None else []
+        status = "Waiting for Steam to open Sailwind…"
+        if missing:
+            noun = "mod" if len(missing) == 1 else "mods"
+            status = f"{status} {len(missing)} {noun} could not be downloaded and will not load."
+            self._reload_views()
+        self._open_launch_splash(LaunchSplash(self, process, heading=heading), status=status)
 
     def _test_splash(self) -> None:
         heading = "Starting Sailwind"
@@ -1725,7 +1871,12 @@ class MainWindow(QMainWindow):
                     in_table = self.pack_view.table.isAncestorOf(watched)
                     if kind == QEvent.Type.Wheel and in_table:
                         return super().eventFilter(watched, event)
-                    roots = (self.pack_view.check_all, self.pack_view.uncheck_all, self.pack_view.import_file)
+                    roots = (
+                        self.pack_view.update_all,
+                        self.pack_view.check_all,
+                        self.pack_view.uncheck_all,
+                        self.pack_view.import_file,
+                    )
                     blocked = any(watched is root or root.isAncestorOf(watched) for root in roots)
                     cell = watched
                     while not blocked and cell is not None:
@@ -1837,6 +1988,76 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"Opened {folder}")
 
+
+    @_unless_bulk_running
+    def _clear_cache(self) -> None:
+        if self._busy or self._mod_scan_running or self._catalog_refresh_running():
+            QMessageBox.information(
+                self,
+                "Clear cache",
+                "Wait for the current task, update check or catalog refresh to finish, then try again.",
+            )
+            return
+        choice = self._confirm_clear_cache(self.manager.cache_size(), self.manager.imported_mods_size())
+        if choice is None:
+            return
+        include_imported = choice
+        self._run(
+            lambda progress: self.manager.clear_cache(progress=progress, include_imported=include_imported),
+            self._cache_cleared,
+            "Clearing cache…",
+        )
+
+    def _confirm_clear_cache(self, size: int, imported_size: int) -> bool | None:
+        """Ask whether to clear the cache; return None to cancel, otherwise whether to delete imported mods too."""
+        box = QMessageBox(
+            QMessageBox.Icon.Question,
+            "Clear cache",
+            (
+                f"Delete {format_size(size)} of downloaded data?\n\n"
+                "This removes the cached catalogs, update check results, downloaded mods, "
+                "BepInEx packs and app updates. Packs and their mod settings, your own catalog "
+                "entries and backups are kept.\n\n"
+                "The catalog downloads again right away. Packs show their downloaded mods as not "
+                "downloaded until you play them, which downloads the mods again."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            self,
+        )
+        if imported_size:
+            imported = QCheckBox(f"Also delete mods imported from files ({format_size(imported_size)})")
+            imported.setToolTip(
+                "Imported mods may have no release to download them from again, such as your own builds. "
+                "Packs that use them then need the files imported again."
+            )
+            box.setCheckBox(imported)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return None
+        return bool(box.checkBox() and box.checkBox().isChecked())
+
+    def _cache_cleared(self, result) -> None:
+        self._reload_views()
+        summary = f"Cleared {format_size(result.freed_bytes)} of cached data"
+        if result.failures:
+            box = QMessageBox(
+                QMessageBox.Icon.Warning,
+                "Some files could not be deleted",
+                f"{summary}. {len(result.failures)} item(s) are in use or protected and were kept.",
+                QMessageBox.StandardButton.Ok,
+                self,
+            )
+            box.setDetailedText("\n".join(result.failures))
+            box.exec()
+        self.statusBar().showMessage(summary)
+        self._run(
+            lambda progress: self.manager.refresh_catalog(progress=progress),
+            lambda loaded: self._catalog_reloaded_after_clear(loaded, summary),
+            "Downloading the catalog…",
+        )
+
+    def _catalog_reloaded_after_clear(self, loaded, summary: str) -> None:
+        self._catalog_loaded(loaded)
+        self.statusBar().showMessage(f"{summary}. Catalog: {len(self.manager.catalog)} mods")
 
     def _open_appdata(self) -> None:
         self.manager.paths.ensure()

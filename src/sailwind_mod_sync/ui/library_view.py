@@ -75,8 +75,11 @@ class LibraryView(QWidget):
         entries: list[LibraryEntry],
         pack: ModPack | None = None,
         names: dict[str, str] | None = None,
+        pinned_keys: dict[str, str] | None = None,
     ) -> None:
+        """Show ``entries``; ``pinned_keys`` maps each GUID pinned on ``pack`` to the library key it uses."""
         labels = names or {}
+        keys = pinned_keys or {}
         self._entries = list(entries)
         pack_name = pack.name if pack else ""
         with sorting_paused(self.table):
@@ -114,7 +117,7 @@ class LibraryView(QWidget):
                 if pack is None:
                     add_btn.setEnabled(False)
                     add_btn.setToolTip("Select a ModPack first")
-                elif pinned and pinned.version == version:
+                elif pinned and keys.get(guid, pinned.version) == version:
                     add_btn.setEnabled(False)
                     add_btn.setText("In pack")
                     add_btn.setToolTip(f"Already in {pack_name}")

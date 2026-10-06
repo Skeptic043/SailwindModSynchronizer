@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import logging
 
-from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, overlay_entries
+from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, overlay_entries, same_repo
+from sailwind_mod_sync.catalog.scanned import apply_scanned_versions, load_scanned_versions
 from sailwind_mod_sync.constants import (
     GITHUB_RAW_APP_MODLIST,
     GITHUB_RAW_APP_VERSIONS,
@@ -14,6 +15,7 @@ from sailwind_mod_sync.constants import (
     JSDELIVR_MODLIST,
     JSDELIVR_VERSIONS,
 )
+from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, parse_mod_version
 from sailwind_mod_sync.paths import AppPaths
@@ -28,28 +30,27 @@ def refresh_catalog(
 ) -> list[CatalogEntry]:
     if progress:
         progress("Fetching ModVersionChecker catalog…")
-    mod_list = _fetch_json_list(http, JSDELIVR_MODLIST, GITHUB_RAW_MODLIST)
-    versions = _fetch_json_list(http, JSDELIVR_VERSIONS, GITHUB_RAW_VERSIONS)
-    paths.catalog_dir.mkdir(parents=True, exist_ok=True)
-    paths.modlist_file.write_text(json.dumps(mod_list, indent=2), encoding="utf-8")
-    paths.versions_file.write_text(json.dumps(versions, indent=2), encoding="utf-8")
+    mod_list = _cache_list(paths.modlist_file, _fetch_json_list(http, JSDELIVR_MODLIST, GITHUB_RAW_MODLIST))
+    versions = _cache_list(paths.versions_file, _fetch_json_list(http, JSDELIVR_VERSIONS, GITHUB_RAW_VERSIONS))
     mvc = merge_catalog(mod_list, versions)
 
     if progress:
         progress("Fetching Sailwind Mod Synchronizer catalog…")
-    extra_list = _fetch_json_list(http, JSDELIVR_APP_MODLIST, GITHUB_RAW_APP_MODLIST, optional=True)
-    extra_versions = _fetch_json_list(http, JSDELIVR_APP_VERSIONS, GITHUB_RAW_APP_VERSIONS, optional=True)
-    if extra_list is None:
-        extra_list = _read_json_list(paths.extra_modlist_file)
-    else:
-        paths.extra_modlist_file.write_text(json.dumps(extra_list, indent=2), encoding="utf-8")
-    if extra_versions is None:
-        extra_versions = _read_json_list(paths.extra_versions_file)
-    else:
-        paths.extra_versions_file.write_text(json.dumps(extra_versions, indent=2), encoding="utf-8")
+    extra_list = _cache_list(
+        paths.extra_modlist_file,
+        _fetch_json_list(http, JSDELIVR_APP_MODLIST, GITHUB_RAW_APP_MODLIST, optional=True),
+    )
+    extra_versions = _cache_list(
+        paths.extra_versions_file,
+        _fetch_json_list(http, JSDELIVR_APP_VERSIONS, GITHUB_RAW_APP_VERSIONS, optional=True),
+    )
     extra = merge_catalog(extra_list, extra_versions)
-    shared = overlay_entries(mvc, extra)
-    return merge_with_custom(shared, load_custom_catalog(paths))
+    return build_catalog(paths, overlay_entries(mvc, extra), load_custom_catalog(paths))
+
+
+def build_catalog(paths: AppPaths, shared: list[CatalogEntry], custom: list[CatalogEntry]) -> list[CatalogEntry]:
+    """Merge the shared and custom entries and apply the release versions update scans found."""
+    return apply_scanned_versions(merge_with_custom(shared, custom), load_scanned_versions(paths))
 
 
 def load_mvc_entries(paths: AppPaths) -> list[CatalogEntry]:
@@ -72,7 +73,7 @@ def load_cached_catalog(paths: AppPaths) -> list[CatalogEntry] | None:
     custom = load_custom_catalog(paths)
     if not shared and not custom:
         return None
-    return merge_with_custom(shared, custom)
+    return build_catalog(paths, shared, custom)
 
 
 def merge_catalog(mod_list: list, versions: list) -> list[CatalogEntry]:
@@ -152,11 +153,16 @@ def merge_catalog(mod_list: list, versions: list) -> list[CatalogEntry]:
     return entries
 
 
-def find_entry(entries: list[CatalogEntry], guid: str) -> CatalogEntry | None:
-    for entry in entries:
-        if guid in entry.guids or entry.primary_guid == guid:
-            return entry
-    return None
+def find_entry(entries: list[CatalogEntry], guid: str, repo: str = "") -> CatalogEntry | None:
+    """Return the entry of ``guid`` published from ``repo``.
+
+    Without ``repo``, return the default entry of ``guid``: the one from the highest-priority catalog that
+    lists it. Return None when no entry matches.
+    """
+    matches = [entry for entry in entries if guid in entry.guids or entry.primary_guid == guid]
+    if repo:
+        return next((entry for entry in matches if same_repo(entry.repo, repo)), None)
+    return next((entry for entry in matches if not entry.alternate), matches[0] if matches else None)
 
 
 def _read_json_list(path) -> list:
@@ -167,6 +173,21 @@ def _read_json_list(path) -> list:
     except (OSError, json.JSONDecodeError):
         return []
     return data if isinstance(data, list) else []
+
+
+def _cache_list(path, fetched: list | None) -> list:
+    """Return ``fetched`` after caching it at ``path``, or the cached list when nothing usable was fetched.
+
+    An empty download never replaces a non-empty cache.
+    """
+    cached = _read_json_list(path)
+    if fetched is None:
+        return cached
+    if not fetched and cached:
+        log.warning("Keeping cached %s: the downloaded list is empty", path.name)
+        return cached
+    atomic_write_json(path, fetched)
+    return fetched
 
 
 def _fetch_json_list(http: HttpClient, primary: str, fallback: str, *, optional: bool = False) -> list | None:

@@ -57,11 +57,11 @@ class HiddenModsDialog(QDialog):
         self.set_hidden(hidden)
 
     def set_hidden(self, hidden: list[tuple[str, str]]) -> None:
+        """Show ``(key, label)`` rows; Unhide emits the key of each chosen row."""
         self.mods.clear()
-        for guid, name in hidden:
-            label = guid if not name or name == guid else f"{name}  ({guid})"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, guid)
+        for key, label in hidden:
+            item = QListWidgetItem(label or key)
+            item.setData(Qt.ItemDataRole.UserRole, key)
             self.mods.addItem(item)
         self._sync_unhide()
 

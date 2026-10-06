@@ -5,13 +5,15 @@ import logging
 import shutil
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from sailwind_mod_sync.catalog.custom import (
     load_custom_catalog,
-    merge_with_custom,
+    hidden_key,
     remove_custom_entry,
+    repo_key,
     save_custom_catalog,
     same_repo,
     upsert_custom_entry,
@@ -25,7 +27,8 @@ from sailwind_mod_sync.catalog.github import (
     parse_repo_url,
     release_version,
 )
-from sailwind_mod_sync.catalog.mvc import find_entry, load_cached_catalog, load_shared_catalog, refresh_catalog
+from sailwind_mod_sync.catalog.mvc import build_catalog, find_entry, load_cached_catalog, load_shared_catalog, refresh_catalog
+from sailwind_mod_sync.catalog.scanned import store_scanned_versions
 from sailwind_mod_sync.config import AppConfig, load_config, save_config
 from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION
 from sailwind_mod_sync.game.backup import BackupResult, RestoreResult, backup_bepinex_folder, inspect_bepinex_zip, restore_bepinex_folder
@@ -43,8 +46,9 @@ from sailwind_mod_sync.game.scan_plugins import discover_local_file, scan_plugin
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
 from sailwind_mod_sync.library.download import ensure_bepinex, ensure_mod_artifact
+from sailwind_mod_sync.library.hashing import dir_size
 from sailwind_mod_sync.library.special_mods import artifact_ready, coop_dll_search_path, known_repo_for
-from sailwind_mod_sync.library.store import LibraryStore
+from sailwind_mod_sync.library.store import LibraryStore, artifact_source, source_matches
 from sailwind_mod_sync.logutil import log_duration, setup_logging
 from sailwind_mod_sync.models import (
     CatalogEntry,
@@ -79,6 +83,12 @@ class BulkRollbackError(RuntimeError):
     """An incomplete rollback retained recovery files for the user."""
 
 
+@dataclass
+class CacheClearResult:
+    freed_bytes: int
+    failures: list[str] = field(default_factory=list)
+
+
 class Manager:
     def __init__(
         self,
@@ -104,6 +114,10 @@ class Manager:
         default_pack = self.packs.ensure_default()
         if not self.config.last_pack_id or not self.packs.exists(self.config.last_pack_id):
             self.config.last_pack_id = default_pack.id
+            self.save_config()
+        if not self.config.catalog_sources_restored:
+            self.restore_catalog_sources()
+            self.config.catalog_sources_restored = True
             self.save_config()
 
     def close(self) -> None:
@@ -199,8 +213,15 @@ class Manager:
         return restore_saves_folder(archive, dest, safety_dest=safety_dest, progress=progress)
 
     def refresh_catalog(self, progress: ProgressFn | None = None) -> list[CatalogEntry]:
-        self.catalog = refresh_catalog(self.paths, self.http, progress=progress)
+        self.catalog = self.fetch_catalog(progress=progress)
         return self.catalog
+
+    def fetch_catalog(self, progress: ProgressFn | None = None) -> list[CatalogEntry]:
+        """Download the shared catalogs into the cache and return the merged catalog without applying it."""
+        return refresh_catalog(self.paths, self.http, progress=progress)
+
+    def _rebuild_catalog(self, custom: list[CatalogEntry]) -> None:
+        self.catalog = build_catalog(self.paths, load_shared_catalog(self.paths), custom)
 
     def scan_updates(self, live: bool = False, progress: ProgressFn | None = None) -> dict[str, str]:
         if not self.catalog:
@@ -215,46 +236,51 @@ class Manager:
             return latest
 
         seen_repos: set[str] = set()
-        for entry in self.catalog:
-            if entry.repo in seen_repos:
-                continue
-            seen_repos.add(entry.repo)
-            try:
-                parse_repo_url(entry.repo)
-            except ValueError:
-                continue
-            try:
-                release = fetch_release(
-                    self.http,
-                    entry.repo,
-                    tag=None,
-                    paths=self.paths,
-                    progress=progress,
-                )
-            except HttpError as exc:
-                if exc.status_code == 401 and self.config.token():
-                    raise TokenAuthError(
-                        "Your GitHub token is invalid or expired (GitHub returned HTTP 401). "
-                        "Fix it in Settings."
-                    ) from exc
-                log.warning("Live update check failed for %s: %s", entry.repo, exc)
-                continue
-            except Exception as exc:
-                log.warning("Live update check failed for %s: %s", entry.repo, exc)
-                continue
-            raw = release.tag if parse_mod_version(release.tag) else release_version(release) or release.tag
-            if not raw:
-                continue
-            latest[entry.primary_guid] = raw
-            for guid in entry.guids:
-                latest[guid] = raw
-            entry.latest_raw = raw
-            entry.latest_version = parse_mod_version(raw)
-            entry.available = bool(entry.latest_version)
-        custom = [entry for entry in self.catalog if entry.custom]
-        if custom:
-            save_custom_catalog(self.paths, custom)
+        updated: list[CatalogEntry] = []
+        try:
+            for entry in self.catalog:
+                if entry.repo in seen_repos:
+                    continue
+                seen_repos.add(entry.repo)
+                raw = self._scan_latest_release(entry, progress)
+                if not raw:
+                    continue
+                latest[entry.primary_guid] = raw
+                for guid in entry.guids:
+                    latest[guid] = raw
+                entry.latest_raw = raw
+                entry.latest_version = parse_mod_version(raw)
+                entry.available = bool(entry.latest_version)
+                updated.append(entry)
+        finally:
+            if updated:
+                store_scanned_versions(self.paths, updated)
         return latest
+
+    def _scan_latest_release(self, entry: CatalogEntry, progress: ProgressFn | None) -> str:
+        """Return the latest release version of the entry's repository, or "" when it cannot be checked.
+
+        Raises:
+            TokenAuthError: GitHub rejected the configured token.
+        """
+        try:
+            parse_repo_url(entry.repo)
+        except ValueError:
+            return ""
+        try:
+            release = fetch_release(self.http, entry.repo, tag=None, paths=self.paths, progress=progress)
+        except HttpError as exc:
+            if exc.status_code == 401 and self.config.token():
+                raise TokenAuthError(
+                    "Your GitHub token is invalid or expired (GitHub returned HTTP 401). "
+                    "Fix it in Settings."
+                ) from exc
+            log.warning("Live update check failed for %s: %s", entry.repo, exc)
+            return ""
+        except Exception as exc:
+            log.warning("Live update check failed for %s: %s", entry.repo, exc)
+            return ""
+        return release.tag if parse_mod_version(release.tag) else release_version(release) or release.tag
 
     def add_catalog_repo(self, repo_url: str, progress: ProgressFn | None = None) -> list[CatalogEntry]:
         repo = canonicalize_repo_url(repo_url)
@@ -302,7 +328,7 @@ class Manager:
             guid = (getattr(unit, "guid", None) or "").strip()
             if not guid or guid in seen:
                 continue
-            existing = find_entry(self.catalog, guid)
+            existing = find_entry(self.catalog, guid, repo)
             if existing is not None and not existing.custom:
                 skipped.append(existing.name or existing.primary_guid)
                 continue
@@ -341,35 +367,83 @@ class Manager:
             extra = f" as {known}" if known else ""
             raise ValueError(f"All plugins from {repo} are already in the catalog{extra}")
         save_custom_catalog(self.paths, custom)
-        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        self._rebuild_catalog(custom)
         resolved: list[CatalogEntry] = []
         for entry in added:
-            found = find_entry(self.catalog, entry.primary_guid)
+            found = find_entry(self.catalog, entry.primary_guid, entry.repo)
             resolved.append(found or entry)
         log.info("Added %s catalog plugin(s) from %s", len(resolved), repo)
         return resolved
 
-    def remove_catalog_repo(self, guid: str) -> None:
-        custom = remove_custom_entry(load_custom_catalog(self.paths), guid)
+    def remove_catalog_repo(self, guid: str, repo: str = "") -> None:
+        custom = remove_custom_entry(load_custom_catalog(self.paths), guid, repo)
         save_custom_catalog(self.paths, custom)
-        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        self._rebuild_catalog(custom)
         log.info("Removed custom catalog entry %s", guid)
 
-    def hide_catalog_mod(self, guid: str) -> None:
+    def hide_catalog_mod(self, guid: str, repo: str = "") -> None:
+        """Hide the catalog row of ``guid`` from ``repo``; without ``repo``, hide every shared row of the mod."""
         text = guid.strip()
-        if not text or text in self.config.hidden_catalog_mods:
+        if not text:
             return
-        self.config.hidden_catalog_mods.append(text)
+        key = hidden_key(text, repo)
+        if key in self.config.hidden_catalog_mods:
+            return
+        self.config.hidden_catalog_mods.append(key)
         self.save_config()
-        log.info("Hidden catalog mod %s", text)
+        log.info("Hidden catalog mod %s", key)
 
-    def unhide_catalog_mod(self, guid: str) -> None:
-        hidden = [item for item in self.config.hidden_catalog_mods if item != guid]
+    def unhide_catalog_mod(self, key: str) -> None:
+        """Remove ``key``, a GUID or a GUID with its repository, from the hidden catalog mods."""
+        hidden = [item for item in self.config.hidden_catalog_mods if item != key]
         if hidden == self.config.hidden_catalog_mods:
             return
         self.config.hidden_catalog_mods = hidden
         self.save_config()
-        log.info("Unhid catalog mod %s", guid)
+        log.info("Unhid catalog mod %s", key)
+
+    def restore_catalog_sources(self) -> list[CatalogEntry]:
+        """Add custom catalog entries for the sources of catalog mods that packs or downloads use but the catalog lacks.
+
+        Return the added entries, at most one per mod and repository, each at the newest version in use.
+        """
+        newest: dict[tuple[str, str], PinnedMod] = {}
+        for pinned in self._pins_and_downloads():
+            if not pinned.repo or find_entry(self.catalog, pinned.guid) is None:
+                continue
+            if find_entry(self.catalog, pinned.guid, pinned.repo) is not None:
+                continue
+            key = (pinned.guid, repo_key(pinned.repo))
+            current = newest.get(key)
+            if current is None or version_key(pinned.version) > version_key(current.version):
+                newest[key] = pinned
+        if not newest:
+            return []
+        custom = load_custom_catalog(self.paths)
+        added = [self._catalog_entry_from_pin(pinned) for pinned in newest.values()]
+        for entry in added:
+            custom = upsert_custom_entry(custom, entry)
+        save_custom_catalog(self.paths, custom)
+        self._rebuild_catalog(custom)
+        sources = ", ".join(f"{entry.primary_guid} from {entry.repo}" for entry in added)
+        log.info("Restored %s catalog source(s): %s", len(added), sources)
+        return added
+
+    def _pins_and_downloads(self) -> list[PinnedMod]:
+        pins = [pinned for pack in self.packs.list_packs() for pinned in pack.mods]
+        for item in self.library.list_mods():
+            source = artifact_source(item.meta)
+            if source:
+                pins.append(
+                    PinnedMod(
+                        guid=item.guid,
+                        version=item.meta.version,
+                        repo=source,
+                        plugin_folders=list(item.meta.plugin_folders),
+                        version_raw=item.meta.version_raw,
+                    )
+                )
+        return pins
 
     def ensure_catalog_mods(self, mods: list[PinnedMod]) -> list[CatalogEntry]:
         if not self.catalog:
@@ -379,7 +453,7 @@ class Manager:
         added: list[CatalogEntry] = []
         for pinned in mods:
             guid = (pinned.guid or "").strip()
-            if not guid or find_entry(working, guid) is not None:
+            if not guid or find_entry(working, guid, pinned.repo) is not None:
                 continue
             entry = self._catalog_entry_from_pin(pinned)
             custom = upsert_custom_entry(custom, entry)
@@ -388,15 +462,15 @@ class Manager:
         if not added:
             return []
         save_custom_catalog(self.paths, custom)
-        self.catalog = merge_with_custom(load_shared_catalog(self.paths), custom)
+        self._rebuild_catalog(custom)
         resolved: list[CatalogEntry] = []
         for entry in added:
-            resolved.append(find_entry(self.catalog, entry.primary_guid) or entry)
+            resolved.append(find_entry(self.catalog, entry.primary_guid, entry.repo) or entry)
         log.info("Added %s imported mod(s) to the catalog", len(resolved))
         return resolved
 
     def _catalog_entry_from_pin(self, pinned: PinnedMod) -> CatalogEntry:
-        meta = self.library.read_mod_meta(pinned.guid, pinned.version)
+        meta = self.library.read_mod_meta(pinned.guid, self.library.pinned_key(pinned))
         repo = (pinned.repo or (meta.repo if meta else "") or "").strip()
         if repo:
             try:
@@ -486,7 +560,7 @@ class Manager:
             key=version_key,
             reverse=True,
         )
-        catalog = find_entry(self.catalog, guid)
+        catalog = find_entry(self.catalog, guid, meta.repo)
         name = self.mod_display_name(
             guid,
             plugin_folders=list(meta.plugin_folders),
@@ -518,12 +592,16 @@ class Manager:
             pack_pins=pack_pins,
         )
 
-    def catalog_mod_details(self, guid: str) -> ModDetails:
-        catalog = find_entry(self.catalog, guid)
+    def catalog_mod_details(self, guid: str, repo: str = "") -> ModDetails:
+        catalog = find_entry(self.catalog, guid, repo)
         if catalog is None:
             raise FileNotFoundError(f"{guid} is not in the catalog")
         guids = set(catalog.guids) | {catalog.primary_guid, guid}
-        matches = [item for item in self.library.list_mods() if item.guid in guids]
+        matches = [
+            item
+            for item in self.library.list_mods()
+            if item.guid in guids and source_matches(item.meta, catalog.repo)
+        ]
         if matches:
             newest = max(matches, key=lambda item: version_key(item.version))
             return self.local_mod_details(newest.guid, newest.version)
@@ -582,7 +660,7 @@ class Manager:
         version_raw: str | None = None,
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
-        entry = find_entry(self.catalog, guid)
+        entry = find_entry(self.catalog, guid, repo or "")
         repo = repo or (entry.repo if entry else "") or (known_repo_for(guid) or "")
         if not repo:
             raise ValueError(f"No repository known for {guid}")
@@ -607,7 +685,7 @@ class Manager:
         return self.add_library_mod_to_pack(
             pack_id,
             guid,
-            meta.version,
+            self.library.artifact_key(guid, meta.version, repo),
             repo=repo,
             progress=progress,
         )
@@ -635,16 +713,19 @@ class Manager:
         guid: str,
         version: str,
         version_raw: str | None = None,
+        *,
+        repo: str = "",
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
-        repo = (pinned.repo if pinned else "") or None
-        if self.library.has_mod(guid, version):
+        repo = repo or (pinned.repo if pinned else "") or None
+        key = self.library.artifact_key(guid, version, repo or "")
+        if self.library.has_mod(guid, key):
             return self.add_library_mod_to_pack(
                 pack_id,
                 guid,
-                version,
+                key,
                 repo=repo,
                 progress=progress,
             )
@@ -661,14 +742,18 @@ class Manager:
         self,
         pack_id: str,
         guid: str,
-        version: str,
+        key: str,
         *,
         repo: str | None = None,
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
-        meta = self.library.read_mod_meta(guid, version)
+        """Pin the library artifact ``key`` of ``guid`` on the pack and copy it into the pack's plugins.
+
+        The pin's repository is ``repo``, or else the repository the artifact was downloaded from.
+        """
+        meta = self.library.read_mod_meta(guid, key)
         if meta is None:
-            raise FileNotFoundError(f"{guid} {version} is not in the library")
+            raise FileNotFoundError(f"{guid} {key} is not in the library")
         if progress:
             progress(f"Adding {guid} {meta.version} to the pack…")
         pack = self.packs.get(pack_id)
@@ -678,14 +763,14 @@ class Manager:
         pinned = PinnedMod(
             guid=guid,
             version=meta.version,
-            repo=repo or meta.repo,
+            repo=repo or artifact_source(meta) or meta.repo,
             enabled=previous.enabled if previous else True,
             plugin_folders=list(meta.plugin_folders),
             version_raw=meta.version_raw,
         )
         folders = install_pinned_into_plugins(
             pinned,
-            self.library.mod_extracted(guid, meta.version),
+            self.library.mod_extracted(guid, key),
             self.packs.plugins_dir(pack_id),
         )
         pinned.plugin_folders = folders
@@ -694,22 +779,27 @@ class Manager:
         self.packs.upsert_mod(pack_id, pinned)
         return pinned
 
-    def set_mod_repo(self, guid: str, repo: str) -> str:
+    def set_mod_repo(self, guid: str, repo: str, pack_id: str | None = None) -> str:
+        """Set the repository of ``guid`` and return its canonical URL.
+
+        With ``pack_id``, the pin of that pack changes and the pins of other packs change only when they have
+        no repository; without it, every pin changes. Library artifacts downloaded from a repository keep it.
+        """
         page = canonicalize_repo_url(repo)
         for pack in self.packs.list_packs():
             pinned = pack.find_mod(guid)
-            if pinned is None:
+            if pinned is None or not _takes_repo(pack, pinned, pack_id):
                 continue
             pinned.repo = page
             self.packs.save(pack)
         for entry in self.library.list_mods():
-            if entry.guid != guid:
+            if entry.guid != guid or artifact_source(entry.meta):
                 continue
             meta = self.library.read_mod_meta(entry.guid, entry.version)
             if meta is None:
                 continue
             meta.repo = page
-            self.library.write_mod_meta(meta)
+            self.library.write_mod_meta(meta, entry.version)
         return page
 
     def associate_mod(
@@ -719,14 +809,20 @@ class Manager:
         *,
         catalog_entry: CatalogEntry | None = None,
         repo: str = "",
+        pack_id: str | None = None,
     ) -> str:
+        """Link the library artifact ``guid`` ``version`` and its pins to a catalog entry or repository.
+
+        Pins in other packs than ``pack_id`` keep a repository they already have. Return the mod's GUID,
+        which becomes the catalog entry's when the artifact had a different one.
+        """
         entry = catalog_entry
         page = ""
         if entry is None and repo:
             page = canonicalize_repo_url(repo)
             entry = next((item for item in self.catalog if same_repo(item.repo, page)), None)
             if entry is None:
-                return self.set_mod_repo(guid, page)
+                return self.set_mod_repo(guid, page, pack_id)
         if entry is None:
             raise ValueError("No catalog entry or repository to associate")
         page = canonicalize_repo_url(entry.repo)
@@ -737,9 +833,9 @@ class Manager:
             meta = self.library.read_mod_meta(new_guid, version)
             if meta is not None:
                 meta.repo = page
-                self.library.write_mod_meta(meta)
+                self.library.write_mod_meta(meta, version)
         else:
-            self.set_mod_repo(guid, page)
+            self.set_mod_repo(guid, page, pack_id)
         if new_guid != guid and guid in self.aliases:
             self.aliases[new_guid] = self.aliases.pop(guid)
             save_aliases(self.paths, self.aliases)
@@ -747,21 +843,24 @@ class Manager:
             pinned = pack.find_mod(guid)
             if pinned is None:
                 continue
+            takes_repo = _takes_repo(pack, pinned, pack_id)
             if new_guid == guid:
-                pinned.repo = page
-                self.packs.save(pack)
+                if takes_repo:
+                    pinned.repo = page
+                    self.packs.save(pack)
                 continue
             existing = pack.find_mod(new_guid)
             remaining = [mod for mod in pack.mods if mod.guid != guid]
             pinned.guid = new_guid
-            pinned.repo = page
+            if takes_repo:
+                pinned.repo = page
             if existing is None:
                 remaining.append(pinned)
             else:
                 remaining = [mod for mod in remaining if mod.guid != new_guid]
                 existing.version = pinned.version
                 existing.version_raw = pinned.version_raw or existing.version_raw
-                existing.repo = page
+                existing.repo = page if takes_repo else existing.repo or pinned.repo
                 existing.enabled = pinned.enabled
                 existing.plugin_folders = list(pinned.plugin_folders or existing.plugin_folders)
                 remaining.append(existing)
@@ -773,7 +872,38 @@ class Manager:
     def missing_mods(self, pack: ModPack | None) -> list[PinnedMod]:
         if pack is None:
             return []
-        return [mod for mod in pack.mods if not artifact_ready(self.library, mod.guid, mod.version)]
+        return [mod for mod in pack.mods if not artifact_ready(self.library, mod.guid, self.library.pinned_key(mod))]
+
+    def undownloadable_mods(self, pack: ModPack | None) -> list[PinnedMod]:
+        """Return the pack's missing mods that preparing the pack cannot download, as no repository is known."""
+        return [mod for mod in self.missing_mods(pack) if not self._download_repo(mod)]
+
+    def _download_repo(self, pinned: PinnedMod) -> str:
+        entry = find_entry(self.catalog, pinned.guid)
+        return pinned.repo or (entry.repo if entry else "") or (known_repo_for(pinned.guid) or "")
+
+    def library_versions(
+        self,
+        guid: str,
+        repo: str = "",
+        entries: list[LibraryEntry] | None = None,
+        *,
+        strict: bool = False,
+    ) -> list[tuple[str, str]]:
+        """Return ``(version, raw version)`` of the library artifacts of ``guid`` usable for ``repo``, newest first.
+
+        ``entries`` is the library listing to search, read from the library when omitted. With ``strict``, only
+        artifacts downloaded from ``repo`` count, leaving out files imported from elsewhere.
+        """
+        rows = [
+            (item.meta.version, item.meta.version_raw or item.meta.version)
+            for item in (self.library.list_mods() if entries is None else entries)
+            if item.guid == guid
+            and item.version == self.library.artifact_key(guid, item.meta.version, repo)
+            and (not strict or same_repo(artifact_source(item.meta), repo))
+        ]
+        rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
+        return rows
 
     def import_local_mod(
         self,
@@ -846,7 +976,7 @@ class Manager:
     def update_mod(self, pack_id: str, guid: str, progress: ProgressFn | None = None) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
-        entry = find_entry(self.catalog, guid)
+        entry = find_entry(self.catalog, guid, pinned.repo if pinned else "")
         repo = (pinned.repo if pinned else "") or (entry.repo if entry else "")
         version_raw = entry.latest_raw if entry else None
         version = entry.latest_version if entry else None
@@ -858,6 +988,28 @@ class Manager:
             version_raw=version_raw,
             progress=progress,
         )
+
+    def update_mods(
+        self,
+        pack_id: str,
+        guids: list[str],
+        progress: ProgressFn | None = None,
+    ) -> tuple[list[PinnedMod], list[str]]:
+        """Update each mod of ``guids`` in the pack, carrying on past mods that fail.
+
+        Return the updated pins and a ``"guid: reason"`` line for each mod that could not be updated.
+        """
+        updated: list[PinnedMod] = []
+        failures: list[str] = []
+        for index, guid in enumerate(guids, start=1):
+            if progress:
+                progress(f"Updating {guid} ({index}/{len(guids)})…")
+            try:
+                updated.append(self.update_mod(pack_id, guid, progress=progress))
+            except Exception as exc:
+                log.warning("Could not update %s in pack %s: %s", guid, pack_id, exc)
+                failures.append(f"{guid}: {str(exc).strip() or type(exc).__name__}")
+        return updated, failures
 
     def set_mod_enabled(self, pack_id: str, guid: str, enabled: bool) -> ModPack:
         self._check_bulk_recovery(pack_id)
@@ -907,7 +1059,7 @@ class Manager:
             raise FileNotFoundError(guid)
         if pinned.enabled == enabled:
             return
-        extracted = self.library.mod_extracted(guid, pinned.version)
+        extracted = self.library.mod_extracted(guid, self.library.pinned_key(pinned))
         # A selection can precede installation. Only usable extracted files
         # can be staged here; retain missing selections and their folder names.
         install = enabled and extracted.is_dir() and any(extracted.rglob("*.dll"))
@@ -1060,18 +1212,13 @@ class Manager:
             if progress:
                 progress(f"Resolving {pinned.guid} ({index}/{total})…")
             if not pinned.repo:
-                entry = find_entry(self.catalog, pinned.guid)
-                if entry:
-                    pinned.repo = entry.repo
-                    log.info("Filled repo for %s from catalog: %s", pinned.guid, pinned.repo)
-                else:
-                    known = known_repo_for(pinned.guid)
-                    if known:
-                        pinned.repo = known
-                        log.info("Filled repo for %s from known mods: %s", pinned.guid, pinned.repo)
-            if artifact_ready(self.library, pinned.guid, pinned.version):
-                log.info("Library hit %s %s", pinned.guid, pinned.version)
-                meta = self.library.read_mod_meta(pinned.guid, pinned.version)
+                pinned.repo = self._download_repo(pinned)
+                if pinned.repo:
+                    log.info("Filled repo for %s: %s", pinned.guid, pinned.repo)
+            key = self.library.pinned_key(pinned)
+            if artifact_ready(self.library, pinned.guid, key):
+                log.info("Library hit %s %s", pinned.guid, key)
+                meta = self.library.read_mod_meta(pinned.guid, key)
                 if meta and not pinned.plugin_folders:
                     pinned.plugin_folders = list(meta.plugin_folders)
                 continue
@@ -1112,7 +1259,7 @@ class Manager:
                 if progress:
                     progress(f"Missing {pinned.guid} — import a file later")
                 continue
-            meta = self.library.read_mod_meta(pinned.guid, pinned.version)
+            meta = self.library.read_mod_meta(pinned.guid, self.library.pinned_key(pinned))
             if meta and not pinned.plugin_folders:
                 pinned.plugin_folders = list(meta.plugin_folders)
         self.packs.save(pack)
@@ -1286,11 +1433,80 @@ class Manager:
         pinned: set[tuple[str, str]] = set()
         for pack in self.packs.list_packs():
             for mod in pack.mods:
-                pinned.add((mod.guid, mod.version))
+                pinned.add((mod.guid, self.library.pinned_key(mod)))
         return self.library.prune_unused(pinned)
+
+    def cache_targets(self, *, include_imported: bool = False) -> list[Path]:
+        """Return the existing files and folders of data the app can download again.
+
+        Packs, settings, custom catalog entries, backups and display names are never included. Mods imported
+        from files are included only with ``include_imported``, as they may not be downloadable.
+        """
+        paths = self.paths
+        targets = [
+            paths.modlist_file,
+            paths.versions_file,
+            paths.extra_modlist_file,
+            paths.extra_versions_file,
+            paths.scanned_versions_file,
+            paths.etag_dir,
+            paths.library_bepinex,
+            paths.updates_dir,
+        ]
+        targets.extend(
+            entry.path for entry in self.library.list_mods() if include_imported or artifact_source(entry.meta)
+        )
+        return [target for target in targets if target.exists()]
+
+    def cache_size(self, *, include_imported: bool = False) -> int:
+        return sum(dir_size(target) for target in self.cache_targets(include_imported=include_imported))
+
+    def imported_mods_size(self) -> int:
+        """Return the size of the library's mods that were imported from files rather than downloaded."""
+        return sum(entry.size_bytes for entry in self.library.list_mods() if not artifact_source(entry.meta))
+
+    def clear_cache(self, progress: ProgressFn | None = None, *, include_imported: bool = False) -> CacheClearResult:
+        """Delete the data the app can download again and rebuild the catalog from what is left.
+
+        With ``include_imported``, mods imported from files are deleted too. Files that cannot be deleted are
+        skipped and reported in the result.
+        """
+        result = CacheClearResult(freed_bytes=0)
+        for target in self.cache_targets(include_imported=include_imported):
+            if progress:
+                progress(f"Deleting {target.relative_to(self.paths.root)}…")
+            size = dir_size(target)
+            try:
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            except OSError as exc:
+                log.warning("Could not delete cached %s: %s", target, exc)
+                result.failures.append(f"{target}: {exc}")
+                continue
+            result.freed_bytes += size
+        self._remove_empty_mod_folders()
+        self.paths.ensure()
+        self.catalog = load_cached_catalog(self.paths) or []
+        self.config.last_catalog_refresh = ""
+        self.save_config()
+        log.info("Cleared %s bytes of cached data, %s failure(s)", result.freed_bytes, len(result.failures))
+        return result
+
+    def _remove_empty_mod_folders(self) -> None:
+        if not self.paths.library_mods.is_dir():
+            return
+        for guid_dir in self.paths.library_mods.iterdir():
+            if guid_dir.is_dir() and not any(guid_dir.iterdir()):
+                guid_dir.rmdir()
 
     def _setup_logging(self) -> None:
         setup_logging(self.paths.log_file)
+
+
+def _takes_repo(pack: ModPack, pinned: PinnedMod, pack_id: str | None) -> bool:
+    return pack_id is None or pack.id == pack_id or not pinned.repo
 
 
 def _copy_matching_configs(source: Path, dest: Path, guids: set[str]) -> None:

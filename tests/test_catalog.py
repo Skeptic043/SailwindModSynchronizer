@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from sailwind_mod_sync.catalog.github import (
@@ -16,7 +17,7 @@ from sailwind_mod_sync.catalog.github import (
 )
 from sailwind_mod_sync.catalog.mvc import merge_catalog
 from sailwind_mod_sync.http_util import HttpError
-from sailwind_mod_sync.models import ReleaseAsset
+from sailwind_mod_sync.models import CatalogEntry, ReleaseAsset
 from sailwind_mod_sync.paths import AppPaths
 
 
@@ -651,7 +652,7 @@ def test_refresh_catalog_merges_project_list(paths: AppPaths) -> None:
     assert find_entry(cached, "com.dizzy.sailwind.calendar") is not None
 
 
-def test_refresh_catalog_skips_project_mods_already_in_mvc(paths: AppPaths) -> None:
+def test_refresh_catalog_lists_project_fork_beside_mvc_mod(paths: AppPaths) -> None:
     from sailwind_mod_sync.catalog.mvc import find_entry, refresh_catalog
     from sailwind_mod_sync.constants import (
         JSDELIVR_APP_MODLIST,
@@ -686,10 +687,12 @@ def test_refresh_catalog_skips_project_mods_already_in_mvc(paths: AppPaths) -> N
     )
     entries = refresh_catalog(paths, http)
     matches = [entry for entry in entries if "stickyfix" in entry.primary_guid.lower()]
-    assert len(matches) == 1
-    assert matches[0].repo.endswith("StickyFix")
-    assert matches[0].latest_version == "1.0.0"
-    assert find_entry(entries, "com.nandbrew.stickyfix") is not None
+    assert sorted(entry.repo for entry in matches) == [
+        "https://github.com/NANDbrew/StickyFix",
+        "https://github.com/example/fork",
+    ]
+    assert find_entry(entries, "com.nandbrew.stickyfix").repo.endswith("StickyFix")
+    assert find_entry(entries, "com.nandbrew.stickyfix", "https://github.com/example/fork").latest_version == "9.9.9"
 
 
 def test_refresh_catalog_keeps_mvc_when_project_list_missing(paths: AppPaths) -> None:
@@ -726,3 +729,114 @@ def test_refresh_catalog_keeps_mvc_when_project_list_missing(paths: AppPaths) ->
     entries = refresh_catalog(paths, http)
     assert find_entry(entries, "com.nandbrew.stickyfix") is not None
     assert find_entry(entries, "com.dizzy.sailwind.calendar") is None
+
+
+def test_merge_with_custom_leaves_custom_entries_unchanged() -> None:
+    from sailwind_mod_sync.catalog.custom import merge_with_custom
+    from sailwind_mod_sync.models import CatalogEntry
+
+    mvc = merge_catalog(
+        [{"guid": "com.nandbrew.stickyfix", "repo": "https://github.com/NANDbrew/StickyFix"}],
+        [{"guid": "com.nandbrew.stickyfix", "version": "v1.0.0"}],
+    )
+    custom = CatalogEntry(
+        repo="https://github.com/NANDbrew/StickyFix",
+        guids=["com.nandbrew.stickyfix", "com.nandbrew.stickyfix.extra"],
+        primary_guid="com.nandbrew.stickyfix",
+        name="StickyFix fork",
+        latest_raw="v9.9.9",
+        latest_version="9.9.9",
+        available=True,
+    )
+    merged = merge_with_custom(mvc, [custom])
+    extra = next(entry for entry in merged if entry.custom)
+    assert extra.guids == ["com.nandbrew.stickyfix.extra"]
+    assert custom.guids == ["com.nandbrew.stickyfix", "com.nandbrew.stickyfix.extra"]
+    assert custom.primary_guid == "com.nandbrew.stickyfix"
+    assert not custom.custom
+
+
+def test_refresh_catalog_keeps_cache_when_download_is_empty(paths: AppPaths) -> None:
+    from sailwind_mod_sync.catalog.mvc import find_entry, load_cached_catalog, refresh_catalog
+    from sailwind_mod_sync.constants import JSDELIVR_MODLIST, JSDELIVR_VERSIONS
+
+    full = _CatalogHttp(
+        {
+            JSDELIVR_MODLIST: [
+                {"guid": "com.nandbrew.stickyfix", "repo": "https://github.com/NANDbrew/StickyFix"},
+            ],
+            JSDELIVR_VERSIONS: [{"guid": "com.nandbrew.stickyfix", "version": "v1.0.0"}],
+        }
+    )
+    refresh_catalog(paths, full)
+    empty = _CatalogHttp({JSDELIVR_MODLIST: [], JSDELIVR_VERSIONS: []})
+
+    entries = refresh_catalog(paths, empty)
+
+    assert find_entry(entries, "com.nandbrew.stickyfix") is not None
+    cached = load_cached_catalog(paths)
+    assert cached is not None and find_entry(cached, "com.nandbrew.stickyfix") is not None
+    assert not list(paths.catalog_dir.glob("*.tmp"))
+
+
+def _source_entry(repo: str, latest: str, *, custom: bool = False, alternate: bool = False) -> CatalogEntry:
+    return CatalogEntry(
+        repo=repo,
+        guids=["com.example.mymod"],
+        primary_guid="com.example.mymod",
+        name="MyMod",
+        latest_raw=f"v{latest}",
+        latest_version=latest,
+        available=True,
+        custom=custom,
+        alternate=alternate,
+    )
+
+
+def test_find_entry_picks_the_requested_source() -> None:
+    from sailwind_mod_sync.catalog.mvc import find_entry
+
+    fork = _source_entry("https://github.com/me/mymod", "2.0.0", custom=True, alternate=True)
+    original = _source_entry("https://github.com/example/mymod", "1.0.0")
+    entries = [fork, original]
+
+    assert find_entry(entries, "com.example.mymod") is original
+    assert find_entry(entries, "com.example.mymod", "https://github.com/Me/MyMod.git") is fork
+    assert find_entry(entries, "com.example.mymod", "https://github.com/other/mymod") is None
+
+
+def test_custom_entries_are_replaced_and_removed_per_source() -> None:
+    from sailwind_mod_sync.catalog.custom import remove_custom_entry, upsert_custom_entry
+
+    fork = _source_entry("https://github.com/me/mymod", "2.0.0", custom=True)
+    other_fork = _source_entry("https://github.com/you/mymod", "2.5.0", custom=True)
+    newer_fork = _source_entry("https://github.com/me/mymod", "2.1.0", custom=True)
+
+    entries = upsert_custom_entry([fork, other_fork], newer_fork)
+    assert entries == [newer_fork, other_fork]
+
+    remaining = remove_custom_entry(entries, "com.example.mymod", "https://github.com/you/mymod")
+    assert remaining == [newer_fork]
+    assert remove_custom_entry(entries, "com.example.mymod") == []
+
+
+def test_merge_with_custom_lists_fork_as_alternate_source() -> None:
+    from sailwind_mod_sync.catalog.custom import merge_with_custom
+    from sailwind_mod_sync.catalog.mvc import find_entry
+
+    mvc = merge_catalog(
+        [{"guid": "com.example.mymod", "repo": "https://github.com/example/mymod"}],
+        [{"guid": "com.example.mymod", "version": "v1.0.0"}],
+    )
+    fork = _source_entry("https://github.com/me/mymod", "2.0.0")
+    own = replace(_source_entry("https://github.com/me/own", "1.0.0"), guids=["com.me.own"], primary_guid="com.me.own")
+
+    merged = merge_with_custom(mvc, [fork, own])
+
+    rows = [(entry.repo, entry.custom, entry.alternate) for entry in merged if entry.primary_guid == "com.example.mymod"]
+    assert sorted(rows) == [
+        ("https://github.com/example/mymod", False, False),
+        ("https://github.com/me/mymod", True, True),
+    ]
+    assert find_entry(merged, "com.example.mymod").repo == "https://github.com/example/mymod"
+    assert not find_entry(merged, "com.me.own").alternate

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sailwind_mod_sync.catalog.github import repo_short_name
 from sailwind_mod_sync.http_util import ProgressFn
 from sailwind_mod_sync.models import PinnedMod, parse_mod_version, version_key
 from sailwind_mod_sync.ui.workers import TaskBridge, run_background
@@ -68,7 +69,7 @@ def pack_version_items(
     add(
         pinned.version,
         pinned.version_raw or pinned.version,
-        "(missing)" if missing else "",
+        "(not downloaded)" if missing else "",
     )
     latest_version = catalog_latest_version or parse_mod_version(catalog_latest_raw)
     if latest_version:
@@ -118,6 +119,7 @@ class SelectVersionDialog(QDialog):
         repo: str = "",
         parent: QWidget | None = None,
         adding: bool = False,
+        switching: bool = False,
     ) -> None:
         super().__init__(parent)
         self._closed = False
@@ -130,7 +132,12 @@ class SelectVersionDialog(QDialog):
         self.setWindowTitle(f"Select version — {title}")
         self.resize(460, 420)
 
-        if adding:
+        if switching:
+            hint = QLabel(
+                f"Choose the version of {title} from {repo_short_name(repo)} to use instead of the "
+                "pack's current source. Only releases of this source are listed."
+            )
+        elif adding:
             hint = QLabel(
                 f"Choose the version of {title} to add to the pack. "
                 "It downloads automatically if it is not already cached."

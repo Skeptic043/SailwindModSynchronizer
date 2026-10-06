@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 from sailwind_mod_sync.catalog.custom import same_repo
-from sailwind_mod_sync.catalog.github import repo_page_url
+from sailwind_mod_sync.catalog.github import repo_page_url, repo_short_name
+from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, is_newer
 from sailwind_mod_sync.ui.tables import (
     enable_column_resize,
@@ -39,6 +40,8 @@ class PackView(QWidget):
     bulk_enabled = Signal(bool)
     toggle_enabled = Signal(str, bool)
     update_requested = Signal(str)
+    update_all_requested = Signal(list)
+    download_requested = Signal(str)
     import_requested = Signal(str)
     import_file_clicked = Signal()
     find_repo_requested = Signal(str)
@@ -55,6 +58,7 @@ class PackView(QWidget):
         self._progress_prefix = ""
         self._bulk_busy = False
         self._actions_blocked = False
+        self._blocked_reason = ""
         self._freeze_bulk_actions = False
         self._bulk_available = (False, False)
         self.title = QLabel("No pack selected")
@@ -63,6 +67,9 @@ class PackView(QWidget):
         self.import_file.setToolTip("Import a .dll or .zip into the library and add it to this pack")
         self.import_file.setEnabled(False)
         self.import_file.clicked.connect(self.import_file_clicked.emit)
+        self.update_all = QPushButton("Update all")
+        self.update_all.hide()
+        self.update_all.clicked.connect(lambda: self.update_all_requested.emit(self.updatable_guids()))
         self.check_all = QPushButton("Check All")
         self.uncheck_all = QPushButton("Uncheck All")
         self.check_all.clicked.connect(lambda: self.bulk_enabled.emit(True))
@@ -74,7 +81,7 @@ class PackView(QWidget):
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["On", "Mod", "GUID", "Version", "Latest", ""])
         enable_column_resize(self.table, [48, 180, 220, 140, 110, 220])
-        enable_column_sort(self.table, default_column=None)
+        enable_column_sort(self.table, default_column=1)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -86,6 +93,7 @@ class PackView(QWidget):
         titles.addWidget(self.title)
         titles.addWidget(self.subtitle)
         header.addLayout(titles, 1)
+        header.addWidget(self.update_all)
         header.addWidget(self.check_all)
         header.addWidget(self.uncheck_all)
         header.addWidget(self.import_file)
@@ -112,37 +120,34 @@ class PackView(QWidget):
             bool(pack and any(not mod.enabled for mod in pack.mods)),
             bool(pack and any(mod.enabled for mod in pack.mods)),
         )
-        self.set_actions_blocked(self._actions_blocked)
+        self._apply_action_state()
         if pack is None:
             self.title.setText("No pack selected")
             self.subtitle.setText("")
             self.import_file.setEnabled(False)
             self._row_state = {}
+            self._apply_action_state()
             with sorting_paused(self.table):
                 self.table.setRowCount(0)
             return
         self.import_file.setEnabled(not self._bulk_busy)
         missing = missing_guids or set()
         versions = library_versions or {}
-        latest_by_guid = {}
-        latest_version_by_guid = {}
         names = {}
-        repo_by_guid = {}
         catalog_guids: set[str] = set()
+        source_counts: dict[str, int] = {}
         for entry in catalog:
             names[entry.primary_guid] = entry.name
             catalog_guids.add(entry.primary_guid)
             catalog_guids.update(entry.guids)
             for guid in entry.guids:
-                latest_by_guid[guid] = entry.latest_raw or ""
-                latest_version_by_guid[guid] = entry.latest_version
                 names.setdefault(guid, entry.name)
-                repo_by_guid.setdefault(guid, entry.repo)
+                source_counts[guid] = source_counts.get(guid, 0) + 1
         self.title.setText(pack.name)
         missing_count = sum(1 for pinned in pack.mods if pinned.guid in missing)
         self._subtitle_tail = f"BepInEx {pack.bepinex or '—'}"
         if missing_count:
-            self._subtitle_tail += f" · {missing_count} missing"
+            self._subtitle_tail += f" · {missing_count} not downloaded"
         self._update_subtitle()
         self._row_state = {}
         with sorting_paused(self.table):
@@ -163,56 +168,52 @@ class PackView(QWidget):
                 self.table.setItem(index, 0, sortable_item("", 1 if pinned.enabled else 0))
                 self.table.setCellWidget(index, 0, wrap)
 
+                source = find_entry(catalog, guid, pinned.repo)
+                latest = (source.latest_raw if source else "") or ""
+                repo = pinned.repo or (source.repo if source else "")
                 name = (display_names or {}).get(pinned.guid) or names.get(pinned.guid, pinned.guid.split(".")[-1])
-                self.table.setItem(index, 1, sortable_item(name))
+                name_item = sortable_item(name)
+                if repo and source_counts.get(guid, 0) > 1:
+                    name_item.setText(f"{name} · {repo_short_name(repo)}")
+                name_item.setToolTip(repo)
+                self.table.setItem(index, 1, name_item)
                 self.table.setItem(index, 2, sortable_item(pinned.guid))
                 self.table.setItem(index, 3, sortable_item(pinned.version_raw or pinned.version, version_sort_key(pinned.version)))
                 version_combo = self._version_combo(
                     pinned,
                     versions.get(guid, []),
-                    catalog_latest_raw=latest_by_guid.get(guid, ""),
-                    catalog_latest_version=latest_version_by_guid.get(guid),
-                    has_repo=bool(pinned.repo or repo_by_guid.get(guid, "")),
+                    catalog_latest_raw=latest,
+                    catalog_latest_version=source.latest_version if source else None,
+                    has_repo=bool(repo),
                     missing=guid in missing,
                 )
                 self._enable_row_context_menu(version_combo, guid)
                 self.table.setCellWidget(index, 3, version_combo)
-                latest = latest_by_guid.get(pinned.guid, "")
                 is_missing = guid in missing
                 can_update = bool(latest and is_newer(latest, pinned.version))
-                repo = pinned.repo or repo_by_guid.get(guid, "")
                 in_catalog = guid in catalog_guids or any(
                     same_repo(entry.repo, repo) for entry in catalog if repo
                 )
                 self._row_state[guid] = (repo, is_missing, can_update, in_catalog)
-                latest_label = "Missing" if is_missing else latest
-                latest_key = (1, version_sort_key(None)) if is_missing else (0, version_sort_key(latest))
-                latest_item = sortable_item(latest_label, latest_key)
-                if is_missing:
-                    latest_item.setToolTip("This version is not in the library. Import a .dll or .zip to add it.")
-                elif can_update:
-                    latest_item.setText(f"{latest} (update)")
+                latest_item = sortable_item(f"{latest} (update)" if can_update else latest, version_sort_key(latest))
                 self.table.setItem(index, 4, latest_item)
                 self.table.setItem(index, 5, sortable_item(""))
 
                 actions = QWidget()
                 actions_layout = QHBoxLayout(actions)
                 actions_layout.setContentsMargins(4, 0, 4, 0)
-                if is_missing:
-                    import_btn = QPushButton("Import")
-                    import_btn.setToolTip("Import a .dll or .zip for this missing mod")
-                    import_btn.clicked.connect(lambda _=False, value=guid: self.import_requested.emit(value))
-                    actions_layout.addWidget(import_btn)
-                else:
-                    update_btn = QPushButton("Update")
-                    update_btn.setEnabled(can_update)
-                    update_btn.clicked.connect(lambda _=False, value=guid: self.update_requested.emit(value))
-                    actions_layout.addWidget(update_btn)
+                label, tip = _main_action(repo, is_missing, can_update)
+                main_button = QPushButton(label)
+                main_button.setToolTip(tip)
+                main_button.setEnabled(label != "Update" or can_update)
+                main_button.clicked.connect(lambda _=False, value=guid, action=label: self._run_main_action(action, value))
+                actions_layout.addWidget(main_button)
                 remove_btn = QPushButton("Remove")
                 remove_btn.clicked.connect(lambda _=False, value=guid: self.remove_requested.emit(value))
                 actions_layout.addWidget(remove_btn)
                 self._enable_row_context_menu(actions, guid)
                 self.table.setCellWidget(index, 5, actions)
+        self._apply_action_state()
 
     def refresh_enabled(self, pack: ModPack) -> bool:
         """Update checkbox state without rebuilding rows or rescanning artifacts."""
@@ -268,7 +269,7 @@ class PackView(QWidget):
     def _refresh_enabled_header(self) -> None:
         values = self._enabled_by_guid.values()
         self._bulk_available = (any(not value for value in values), any(self._enabled_by_guid.values()))
-        self.set_actions_blocked(self._actions_blocked)
+        self._apply_action_state()
         self._update_subtitle()
 
     def _update_subtitle(self) -> None:
@@ -305,12 +306,31 @@ class PackView(QWidget):
         self.subtitle.setToolTip("")
         self._update_subtitle()
 
-    def set_actions_blocked(self, blocked: bool) -> None:
+    def set_actions_blocked(self, blocked: bool, reason: str = "") -> None:
+        """Disable or re-enable the pack-wide buttons.
+
+        While blocked, ``reason`` replaces the Update all label, so the wait it shows has a visible cause.
+        """
         self._actions_blocked = blocked
+        self._blocked_reason = reason if blocked else ""
+        self._apply_action_state()
+
+    def _apply_action_state(self) -> None:
+        count = len(self.updatable_guids())
+        self.update_all.setVisible(count > 0)
         if self._freeze_bulk_actions:
             return
-        self.check_all.setEnabled(self._bulk_available[0] and not self._bulk_busy and not blocked)
-        self.uncheck_all.setEnabled(self._bulk_available[1] and not self._bulk_busy and not blocked)
+        idle = not self._bulk_busy and not self._actions_blocked
+        self.check_all.setEnabled(self._bulk_available[0] and idle)
+        self.uncheck_all.setEnabled(self._bulk_available[1] and idle)
+        self.update_all.setEnabled(idle)
+        waiting = self._blocked_reason if not idle else ""
+        self.update_all.setText(waiting or "Update all")
+        self.update_all.setToolTip(
+            f"{waiting} Update all becomes available when it finishes."
+            if waiting
+            else f"Update {count} mod(s) to the latest version from their source"
+        )
 
     def clear_operation_status(self) -> None:
         self._progress_timer.stop()
@@ -320,7 +340,7 @@ class PackView(QWidget):
     def set_bulk_busy(self, busy: bool, *, visual: bool = True) -> None:
         self._bulk_busy = busy
         self._freeze_bulk_actions = busy and not visual
-        self.set_actions_blocked(self._actions_blocked)
+        self._apply_action_state()
         if visual:
             self.import_file.setEnabled(bool(self._row_state) and not busy)
             for row in range(self.table.rowCount()):
@@ -330,8 +350,20 @@ class PackView(QWidget):
                         widget.setEnabled(not busy)
 
     def available_updates(self) -> int:
-        """Number of mods in the current pack with a newer version in the catalog."""
-        return sum(1 for _, _, can_update, _ in self._row_state.values() if can_update)
+        """Number of mods in the current pack that its Update buttons can update."""
+        return len(self.updatable_guids())
+
+    def updatable_guids(self) -> list[str]:
+        """Return the GUIDs of the pack's mods whose source has a newer version."""
+        return [guid for guid, (_, _, can_update, _) in self._row_state.items() if can_update]
+
+    def _run_main_action(self, action: str, guid: str) -> None:
+        signals = {
+            "Update": self.update_requested,
+            "Download": self.download_requested,
+            "Import": self.import_requested,
+        }
+        signals[action].emit(guid)
 
     def _version_combo(
         self,
@@ -440,15 +472,23 @@ class PackView(QWidget):
                 lambda _=False, value=guid: self.show_in_catalog_requested.emit(value)
             )
         menu.addSeparator()
-        if missing:
-            import_action = menu.addAction("Import")
-            import_action.setEnabled(editable)
-            import_action.triggered.connect(lambda _=False, value=guid: self.import_requested.emit(value))
-        else:
-            update_action = menu.addAction("Update")
-            update_action.setEnabled(can_update and editable)
-            update_action.triggered.connect(lambda _=False, value=guid: self.update_requested.emit(value))
+        label, tip = _main_action(repo, missing, can_update)
+        main_action = menu.addAction(label)
+        main_action.setToolTip(tip)
+        main_action.setEnabled(editable and (label != "Update" or can_update))
+        main_action.triggered.connect(lambda _=False, value=guid, action=label: self._run_main_action(action, value))
         remove = menu.addAction("Remove")
         remove.setEnabled(editable)
         remove.triggered.connect(lambda _=False, value=guid: self.remove_requested.emit(value))
         return menu
+
+
+def _main_action(repo: str, missing: bool, can_update: bool) -> tuple[str, str]:
+    """Return the label and tooltip of a pack row's main action: Update, Download or Import."""
+    if can_update:
+        return "Update", "Download the newest version from the mod's source and use it in this pack"
+    if missing and repo:
+        return "Download", "This version is not downloaded yet. Download it now, or it downloads when you play the pack."
+    if missing:
+        return "Import", "No repository is known for this mod. Import its .dll or .zip, or add a repository."
+    return "Update", "This mod is on the newest version its source has"

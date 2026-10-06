@@ -3,7 +3,7 @@ GAME_EXE_NAME = "Sailwind.exe"
 DEFAULT_GAME_PATH = r"D:\SteamLibrary\steamapps\common\Sailwind"
 
 APP_NAME = "Sailwind Mod Synchronizer"
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.5.0"
 APP_REPO = "https://github.com/foxyv/SailwindModSynchronizer"
 APP_OWNER = "foxyv"
 APP_REPO_NAME = "SailwindModSynchronizer"
@@ -15,6 +15,7 @@ GITHUB_NEW_TOKEN_URL = (
 )
 USER_AGENT = f"SailwindModSynchronizer/{APP_VERSION}"
 UPDATE_CHECK_HOURS = 24
+CATALOG_REFRESH_HOURS = 24
 
 DEFAULT_BEPINEX_VERSION = "5.4.2305"
 BEPINEX_NAMESPACE = "BepInEx"

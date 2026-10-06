@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
+from functools import lru_cache
 
 from sailwind_mod_sync.catalog.github import canonicalize_repo_url
+from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, parse_mod_version
 from sailwind_mod_sync.paths import AppPaths
 
@@ -29,18 +32,18 @@ def load_custom_catalog(paths: AppPaths) -> list[CatalogEntry]:
 
 
 def save_custom_catalog(paths: AppPaths, entries: list[CatalogEntry]) -> None:
-    paths.catalog_dir.mkdir(parents=True, exist_ok=True)
-    payload = [_entry_to_dict(entry) for entry in entries]
-    paths.custom_catalog_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(paths.custom_catalog_file, [_entry_to_dict(entry) for entry in entries])
 
 
 def upsert_custom_entry(entries: list[CatalogEntry], incoming: CatalogEntry) -> list[CatalogEntry]:
+    """Return ``entries`` with the entries of the same mod and repository as ``incoming`` replaced by it."""
     out: list[CatalogEntry] = []
     replaced = False
     incoming_guids = set(incoming.guids) | {incoming.primary_guid}
+    incoming_repo = repo_key(incoming.repo)
     for entry in entries:
         overlap = incoming_guids & (set(entry.guids) | {entry.primary_guid})
-        if overlap:
+        if overlap and repo_key(entry.repo) == incoming_repo:
             out.append(incoming)
             replaced = True
         else:
@@ -50,12 +53,14 @@ def upsert_custom_entry(entries: list[CatalogEntry], incoming: CatalogEntry) -> 
     return out
 
 
-def remove_custom_entry(entries: list[CatalogEntry], guid: str) -> list[CatalogEntry]:
+def remove_custom_entry(entries: list[CatalogEntry], guid: str, repo: str = "") -> list[CatalogEntry]:
+    """Return ``entries`` without those of ``guid``; with ``repo``, only those published from it are removed."""
     wanted = (guid or "").strip()
     return [
         entry
         for entry in entries
-        if wanted not in entry.guids and entry.primary_guid != wanted
+        if (wanted not in entry.guids and entry.primary_guid != wanted)
+        or (repo and not same_repo(entry.repo, repo))
     ]
 
 
@@ -65,20 +70,31 @@ def overlay_entries(
     *,
     mark_custom: bool = False,
 ) -> list[CatalogEntry]:
-    guids = {guid for entry in base for guid in entry.guids}
+    """Return ``base`` plus the parts of ``extra`` it does not cover, sorted by name.
+
+    A mod is covered when ``base`` lists it from the same repository; an ``extra`` entry without a repository
+    is covered by any entry of its mod. Added entries of mods that ``base`` lists from another repository are
+    marked ``alternate``. Entries of ``extra`` are copied, so the caller's lists stay unchanged.
+    """
+    sources = {(guid, repo_key(entry.repo)) for entry in base for guid in entry.guids}
+    guids = {guid for guid, _ in sources}
     added: list[CatalogEntry] = []
     for entry in extra:
-        if mark_custom:
-            entry.custom = True
-        leftover = [guid for guid in entry.guids if guid not in guids]
+        repo = repo_key(entry.repo)
+        leftover = [guid for guid in entry.guids if (guid, repo) not in sources and (repo or guid not in guids)]
         if not leftover:
             continue
-        if leftover != list(entry.guids):
-            entry.guids = leftover
-            if entry.primary_guid not in leftover:
-                entry.primary_guid = leftover[0]
-        added.append(entry)
-        guids.update(entry.guids)
+        added.append(
+            replace(
+                entry,
+                guids=leftover,
+                primary_guid=entry.primary_guid if entry.primary_guid in leftover else leftover[0],
+                custom=entry.custom or mark_custom,
+                alternate=entry.alternate or any(guid in guids for guid in leftover),
+            )
+        )
+        sources.update((guid, repo) for guid in leftover)
+        guids.update(leftover)
     combined = list(base) + added
     combined.sort(key=lambda item: item.name.lower())
     return combined
@@ -89,10 +105,32 @@ def merge_with_custom(mvc: list[CatalogEntry], custom: list[CatalogEntry]) -> li
 
 
 def same_repo(left: str, right: str) -> bool:
-    return _repo_key(left) == _repo_key(right) and bool(_repo_key(left))
+    return repo_key(left) == repo_key(right) and bool(repo_key(left))
 
 
-def _repo_key(repo: str) -> str:
+def source_key(entry: CatalogEntry) -> str:
+    """Return a key that identifies ``entry`` by its mod and repository."""
+    return f"{entry.primary_guid}|{repo_key(entry.repo)}"
+
+
+def hidden_key(guid: str, repo: str = "") -> str:
+    """Return the hidden-mods key of ``guid`` from ``repo``, or the bare GUID that covers all its sources."""
+    return f"{guid}|{repo_key(repo)}" if repo_key(repo) else guid
+
+
+def is_hidden(entry: CatalogEntry, hidden: set[str]) -> bool:
+    """Return whether ``hidden`` hides ``entry``: by its own source key, or by a bare GUID of the mod."""
+    if not hidden or entry.custom:
+        return False
+    if source_key(entry) in hidden:
+        return True
+    guids = {key.casefold() for key in hidden if "|" not in key}
+    return any(guid.casefold() in guids for guid in entry.guids)
+
+
+@lru_cache(maxsize=4096)
+def repo_key(repo: str) -> str:
+    """Return the canonical lower-case form of ``repo`` used to compare repositories, or "" when it is blank."""
     text = (repo or "").strip().rstrip("/")
     if not text:
         return ""

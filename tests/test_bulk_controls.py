@@ -128,6 +128,7 @@ def window(manager, monkeypatch):
     app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(MainWindow, "_maybe_check_updates", lambda self: None)
     monkeypatch.setattr(MainWindow, "_maybe_auto_scan_mods", lambda self: None)
+    monkeypatch.setattr(MainWindow, "_maybe_refresh_catalog", lambda self: None)
     window = MainWindow(manager)
     yield app, window
     assert window._bulk_pack_id is None
@@ -277,7 +278,7 @@ def test_bulk_partial_failure_restores_controls_and_actual_checkboxes(window, ma
     }
     assert states == {"example.good": True, "example.missing": False}
     assert "1/2 mods enabled" in window.pack_view.subtitle.text()
-    assert "1 missing" in window.pack_view.subtitle.text()
+    assert "1 not downloaded" in window.pack_view.subtitle.text()
     assert "All mods enabled" not in window.pack_view.subtitle.text()
     assert not window.pack_view._progress_timer.isActive()
     assert window.play_button.isEnabled()
@@ -417,14 +418,14 @@ def test_filter_rebuild_restores_available_and_unavailable_buttons(window, manag
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         app.processEvents()
         for row in range(window.catalog_view.table.rowCount()):
-            assert all(not button.isEnabled() for button in window.catalog_view.table.cellWidget(row, 4).findChildren(QPushButton))
+            assert all(not button.isEnabled() for button in window.catalog_view.table.cellWidget(row, 5).findChildren(QPushButton))
     finally:
         release.set()
         wait_for_changes(app, window)
     for row in range(window.catalog_view.table.rowCount()):
-        buttons = window.catalog_view.table.cellWidget(row, 4).findChildren(QPushButton)
+        buttons = window.catalog_view.table.cellWidget(row, 5).findChildren(QPushButton)
         assert buttons[0].isEnabled()
-        assert buttons[1].isEnabled() == (window.catalog_view.table.item(row, 1).text() == "example.test")
+        assert buttons[1].isEnabled() == (window.catalog_view.table.item(row, 2).text() == "example.test")
 
 
 def test_success_subtitle_expires_and_next_progress_cancels_old_timeout(window):
@@ -972,3 +973,140 @@ def test_slow_task_shows_progress_dialog_after_delay(window):
         release.set()
     assert _pump_until(app, lambda: results == ["done"])
     assert window._progress_dialog is None
+
+
+def test_update_all_updates_pack_mods_and_reports_failures(window, manager, monkeypatch):
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    calls: list[tuple[str, list[str]]] = []
+
+    def fake_update_mods(pack_id, guids, progress=None):
+        calls.append((pack_id, list(guids)))
+        return [PinnedMod(guid="example.test", version="1.0.0")], ["example.broken: No GitHub release"]
+
+    warnings: list[str] = []
+    monkeypatch.setattr(manager, "update_mods", fake_update_mods)
+    monkeypatch.setattr(QMessageBox, "exec", lambda box: warnings.append(box.detailedText()) or 0)
+
+    window._update_all_mods(["example.test", "example.broken"])
+    deadline = time.monotonic() + 5
+    while window._busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(.005)
+
+    app.processEvents()
+    assert calls == [(pack.id, ["example.test", "example.broken"])]
+    assert warnings == ["example.broken: No GitHub release"]
+    assert window.statusBar().currentMessage() == "Updated 1 mod(s), 1 could not be updated"
+
+
+def test_update_all_names_the_running_update_scan(window, manager):
+    app, window = window
+    window._mod_scan_running = True
+    window._update_bulk_actions_availability()
+    assert not window.pack_view.update_all.isEnabled()
+    assert window.pack_view.update_all.text() == "Checking for updates…"
+    window._mod_scan_running = False
+    window._update_bulk_actions_availability()
+    assert window.pack_view.update_all.isEnabled()
+    assert window.pack_view.update_all.text() == "Update all"
+
+
+def test_clear_cache_asks_first_then_clears_and_downloads_the_catalog(window, manager, monkeypatch):
+    from sailwind_mod_sync.manager import CacheClearResult
+
+    app, window = window
+    calls: list[object] = []
+    answers = [None, True]
+    monkeypatch.setattr(window, "_confirm_clear_cache", lambda size, imported: answers.pop(0))
+    monkeypatch.setattr(manager, "cache_size", lambda **kwargs: 3 * 1024 * 1024)
+    monkeypatch.setattr(manager, "imported_mods_size", lambda: 1024)
+    monkeypatch.setattr(
+        manager,
+        "clear_cache",
+        lambda progress=None, include_imported=False: calls.append(("clear", include_imported)) or CacheClearResult(1024),
+    )
+    monkeypatch.setattr(manager, "refresh_catalog", lambda progress=None: calls.append("refresh") or manager.catalog)
+
+    window._clear_cache()
+    assert calls == []
+
+    window._clear_cache()
+    deadline = time.monotonic() + 5
+    while (window._busy or len(calls) < 2) and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(.005)
+    app.processEvents()
+    assert calls == [("clear", True), "refresh"]
+    assert window.statusBar().currentMessage().startswith("Cleared 1.0 KB of cached data. Catalog:")
+
+
+def test_clear_cache_dialog_offers_imported_mods_only_when_there_are_some(window, monkeypatch):
+    app, window = window
+    seen: list[str | None] = []
+
+    def fake_exec(box):
+        check = box.checkBox()
+        seen.append(check.text() if check else None)
+        if check:
+            check.setChecked(True)
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    assert window._confirm_clear_cache(2048, 0) is False
+    assert window._confirm_clear_cache(2048, 3 * 1024 * 1024) is True
+    assert seen == [None, "Also delete mods imported from files (3.0 MB)"]
+
+
+def test_clear_cache_waits_for_a_running_update_check(window, manager, monkeypatch):
+    app, window = window
+    shown: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", lambda parent, title, text: shown.append(text))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: pytest.fail("asked while busy"))
+    window._mod_scan_running = True
+    window._clear_cache()
+    window._mod_scan_running = False
+    assert shown and "update check" in shown[0]
+
+
+def test_play_warns_only_about_mods_that_cannot_be_downloaded(window, manager, monkeypatch):
+    from sailwind_mod_sync.ui import main_window as main_window_module
+
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="example.test", version="1.0.0"))
+    warned: list[list[str]] = []
+
+    class _Dialog:
+        def __init__(self, missing, pack_name, parent):
+            warned.append([mod.guid for mod in missing])
+            self.stop_reminding = False
+
+        def exec(self):
+            return 1
+
+    monkeypatch.setattr(main_window_module, "MissingModsWarningDialog", _Dialog)
+    assert window._confirm_missing_mods(pack.id)
+    assert warned == []
+
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="local.mystery", version="1.0.0"))
+    assert window._confirm_missing_mods(pack.id)
+    assert warned == [["local.mystery"]]
+
+
+def test_download_fetches_the_pinned_version(window, manager, monkeypatch):
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="example.test", version="1.0.0", version_raw="v1.0.0"))
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        manager,
+        "set_pack_mod_version",
+        lambda *args, **kwargs: calls.append(args) or PinnedMod(guid="example.test", version="1.0.0"),
+    )
+    window._download_mod("example.test")
+    deadline = time.monotonic() + 5
+    while window._busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(.005)
+    assert calls == [(pack.id, "example.test", "1.0.0", "v1.0.0")]

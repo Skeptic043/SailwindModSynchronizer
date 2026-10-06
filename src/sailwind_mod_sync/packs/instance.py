@@ -43,9 +43,10 @@ def sync_pack_plugins(pack: ModPack, plugins_dir: Path, store: LibraryStore) -> 
         if not pinned.enabled:
             remove_plugin_folders(plugins_dir, pinned.plugin_folders)
             continue
-        if not store.has_mod(pinned.guid, pinned.version):
+        key = store.pinned_key(pinned)
+        if not store.has_mod(pinned.guid, key):
             continue
-        extracted = store.mod_extracted(pinned.guid, pinned.version)
+        extracted = store.mod_extracted(pinned.guid, key)
         folders = pinned.plugin_folders or [p.name for p in extracted.iterdir() if p.is_dir()]
         for folder in folders:
             src = extracted / folder

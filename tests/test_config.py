@@ -61,3 +61,14 @@ def test_save_and_load_hidden_catalog_mods(paths: AppPaths) -> None:
     save_config(paths, AppConfig(hidden_catalog_mods=["com.example.mod", "com.example.mod", ""]))
     loaded = load_config(paths)
     assert loaded.hidden_catalog_mods == ["com.example.mod"]
+
+
+def test_save_and_load_catalog_refresh_settings(paths: AppPaths) -> None:
+    assert load_config(paths).auto_refresh_catalog is True
+    save_config(
+        paths,
+        AppConfig(auto_refresh_catalog=False, last_catalog_refresh="2026-10-05T08:00:00+00:00"),
+    )
+    loaded = load_config(paths)
+    assert loaded.auto_refresh_catalog is False
+    assert loaded.last_catalog_refresh == "2026-10-05T08:00:00+00:00"
