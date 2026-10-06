@@ -1411,3 +1411,25 @@ def test_hide_catalog_mod_keys_the_source(paths: AppPaths) -> None:
         assert load_config(paths).hidden_catalog_mods == []
     finally:
         manager.close()
+
+
+def test_strict_library_versions_leave_out_imported_files(paths: AppPaths, tmp_path: Path) -> None:
+    archive = _zip_with(tmp_path / "mod.zip", {"Mod/Mod.dll": b"MZ"})
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.library.ingest_mod_zip(
+        "com.example.mod", "1.0.0", archive, version_raw="1.0.0", repo="", source_url=str(archive)
+    )
+    manager.library.ingest_mod_zip(
+        "com.example.mod",
+        "1.1.0",
+        archive,
+        version_raw="v1.1.0",
+        repo="https://github.com/me/mod-fork",
+        source_url="https://github.com/me/mod-fork/releases/download/v1.1.0/Mod.zip",
+    )
+    try:
+        fork = "https://github.com/me/mod-fork"
+        assert manager.library_versions("com.example.mod", fork) == [("1.1.0", "v1.1.0"), ("1.0.0", "1.0.0")]
+        assert manager.library_versions("com.example.mod", fork, strict=True) == [("1.1.0", "v1.1.0")]
+    finally:
+        manager.close()

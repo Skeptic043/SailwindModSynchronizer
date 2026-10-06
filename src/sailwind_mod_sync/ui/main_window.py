@@ -1232,14 +1232,16 @@ class MainWindow(QMainWindow):
                     break
         source = (entry.repo if entry else "") or repo or (pinned.repo if pinned else "")
         name = (entry.name if entry else "") or guid
+        switching = pinned is not None and bool(pinned.repo) and not same_repo(pinned.repo, source)
         current = pinned.version if pinned else ((entry.latest_version if entry else "") or "")
         target_guid = pinned.guid if pinned is not None else (entry.primary_guid if entry else guid)
         chosen = self._choose_mod_version(
             target_guid,
             name=name,
-            current_version=current,
+            current_version="" if switching else current,
             repo=source,
             adding=pinned is None,
+            switching=switching,
         )
         if chosen is None:
             return
@@ -1370,15 +1372,17 @@ class MainWindow(QMainWindow):
         current_version: str,
         repo: str,
         adding: bool = False,
+        switching: bool = False,
     ) -> tuple[str, str] | None:
         dialog = SelectVersionDialog(
             guid=guid,
             name=name,
             current_version=current_version,
-            library_versions=self.manager.library_versions(guid, repo),
+            library_versions=self.manager.library_versions(guid, repo, strict=switching),
             repo=repo,
             parent=self,
             adding=adding,
+            switching=switching,
         )
         if repo:
             dialog.start_remote(

@@ -887,15 +887,20 @@ class Manager:
         guid: str,
         repo: str = "",
         entries: list[LibraryEntry] | None = None,
+        *,
+        strict: bool = False,
     ) -> list[tuple[str, str]]:
         """Return ``(version, raw version)`` of the library artifacts of ``guid`` usable for ``repo``, newest first.
 
-        ``entries`` is the library listing to search, read from the library when omitted.
+        ``entries`` is the library listing to search, read from the library when omitted. With ``strict``, only
+        artifacts downloaded from ``repo`` count, leaving out files imported from elsewhere.
         """
         rows = [
             (item.meta.version, item.meta.version_raw or item.meta.version)
             for item in (self.library.list_mods() if entries is None else entries)
-            if item.guid == guid and item.version == self.library.artifact_key(guid, item.meta.version, repo)
+            if item.guid == guid
+            and item.version == self.library.artifact_key(guid, item.meta.version, repo)
+            and (not strict or same_repo(artifact_source(item.meta), repo))
         ]
         rows.sort(key=lambda pair: version_key(pair[0]), reverse=True)
         return rows

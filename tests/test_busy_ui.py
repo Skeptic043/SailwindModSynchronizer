@@ -1529,3 +1529,43 @@ def test_catalog_hides_one_source_and_bare_guids_hide_every_shared_source() -> N
     finally:
         view.deleteLater()
     app.processEvents()
+
+
+def test_switch_source_lists_only_versions_of_the_new_source(paths: AppPaths, monkeypatch) -> None:
+    from sailwind_mod_sync.ui import main_window as main_window_module
+
+    app = QApplication.instance() or QApplication([])
+    manager, window = _refresh_window(paths, monkeypatch, auto_refresh_catalog=False)
+    manager.catalog = [_catalog_entry("com.example.mod", "1.2.0"), _fork_entry()]
+    pack = manager.packs.get(manager.config.last_pack_id)
+    manager.packs.upsert_mod(
+        pack.id, PinnedMod(guid="com.example.mod", version="1.2.0", repo="https://github.com/example/mod")
+    )
+    shown: list[tuple[list[str], str]] = []
+
+    class _Dialog(SelectVersionDialog):
+        def start_remote(self, fetch):
+            self._on_remote([("2.0.0", "v2.0.0")])
+
+        def exec(self):
+            labels = [self.list.item(index).text() for index in range(self.list.count())]
+            hint = " ".join(label.text() for label in self.findChildren(QLabel))
+            shown.append((labels, hint))
+            return 0
+
+    monkeypatch.setattr(main_window_module, "SelectVersionDialog", _Dialog)
+    try:
+        window._reload_views()
+        window._install_from_catalog("com.example.mod", "https://github.com/me/mod-fork")
+        window._install_from_catalog("com.example.mod", "https://github.com/example/mod")
+    finally:
+        window.close()
+        window.deleteLater()
+        manager.close()
+    app.processEvents()
+
+    fork_labels, fork_hint = shown[0]
+    assert len(fork_labels) == 1 and "v2.0.0" in fork_labels[0]
+    assert "me/mod-fork" in fork_hint and "Only releases of this source" in fork_hint
+    same_labels, _ = shown[1]
+    assert any("1.2.0" in label and "current" in label for label in same_labels)
