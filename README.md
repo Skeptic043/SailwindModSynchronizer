@@ -33,7 +33,21 @@ Config, catalog cache, artifact library, and ModPack instances live under:
 
 Override with `SAILWIND_MOD_SYNC_HOME`.
 
-BepInEx is downloaded from Thunderstore **BepInExPack**. Mods are downloaded from GitHub/GitLab **release zip assets** listed in ModVersionChecker. Extra mods that are not in that list live in this repo's [`catalog/ModList.json`](catalog/ModList.json) (and [`catalog/release_versions.json`](catalog/release_versions.json)) on `master`; **Refresh catalog** and **Scan updates** merge them in after MVC. On the Catalog tab you can also **Add GitHub repo** for projects that are not in either list. Play copies `winhttp.dll` into the game folder and launches `Sailwind.exe` with `--doorstop-target-assembly` pointed at the selected pack.
+**Tools → Clear cache…** deletes everything the app can download again: cached catalogs, update check results, downloaded mods, BepInEx packs and staged app updates. Packs and their mod settings, your own catalog entries and backups are kept. Mods imported from files are kept too, unless you tick **Also delete mods imported from files**, as some of them may not be downloadable. Packs download their mods again on the next **Play**, or one by one with **Download** on the Pack tab.
+
+## Catalog
+
+BepInEx is downloaded from Thunderstore **BepInExPack**. Mods are downloaded from GitHub/GitLab **release zip assets**. The catalog combines three lists:
+
+- [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker);
+- this repo's [`catalog/ModList.json`](catalog/ModList.json) (and [`catalog/release_versions.json`](catalog/release_versions.json)) on `master`, for mods that are not in ModVersionChecker;
+- repositories you add with **Add GitHub repo** on the Catalog tab, including forks of mods that are already listed.
+
+A mod listed from several repositories, such as an original and a fork, gets a row for each source; the **Source** column tells them apart. **Switch source** moves the selected pack to another source, and each pack keeps the source of each of its mods, so different packs can use different sources of the same mod. Downloads of the same version from different sources are stored separately in the library.
+
+The catalog refreshes in the background once a day, at startup and while the app stays open (turn it off in Settings with **Refresh the catalog once a day**); **Refresh catalog** refreshes it on demand. **Scan updates** checks the latest release of every repository. Its results are kept across restarts and win over a catalog that lists no version or an older one. **Update all** on the Pack tab updates every mod of the pack that has a newer version.
+
+Play copies `winhttp.dll` into the game folder and launches `Sailwind.exe` with `--doorstop-target-assembly` pointed at the selected pack. Mods the pack needs that are not downloaded yet are downloaded first.
 
 ## Tests
 
