@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.6.0 (2026-10-06)
+
+- **Linux and Steam Deck support.** Download the `linux-x86_64.tar.gz` and see the Linux guide in the project's `docs/linux.md`. The app finds Steam and Sailwind on Linux (including SD cards and Flatpak Steam), launches ModPacks through Proton, and backs up the saves Proton keeps.
+- On Linux, **Play** checks that Sailwind's Steam launch options let mods load, and shows exactly what to paste if not. You can instead let the app set it in Sailwind's Proton files, after it explains what changes; undo it in **Settings → Proton**.
+- **Help → Check for updates** works on Linux too. In Steam Deck Game Mode the app closes to update; start it again from your library, and it opens as soon as the update is done.
+- A **Filter** box on the Pack tab finds mods by name or GUID. **Update all**'s tooltip says how many outdated mods the filter is hiding.
+- **Tools** has **Open Config Folder**, **Open Latest Log** and **Export Logs…**. Exported logs leave out your Steam ID, Steam name and user folder, so they're safe to share.
+- Mods are identified from the plugin name, GUID and version declared inside their DLL, instead of guessed from file names. A file or folder that declares more than one plugin is reported instead of imported as one mod.
+- Replacing a mod with another version, or re-importing a file, keeps the installed mod and its cached download intact if anything goes wrong, and profiles that need recovery can't be changed until they're repaired.
+- Error messages stay visible in the status bar after a failed task or update check, instead of being replaced straight away.
+
 ## 0.5.0 (2026-10-05)
 
 - The catalog refreshes in the background once a day, at startup and while the app stays open. Turn it off in **Settings** with **Refresh the catalog once a day**.
