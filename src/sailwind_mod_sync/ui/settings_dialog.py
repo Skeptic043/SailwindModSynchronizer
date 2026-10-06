@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -21,6 +22,12 @@ from PySide6.QtWidgets import (
 
 from sailwind_mod_sync.config import AppConfig
 from sailwind_mod_sync.constants import GITHUB_NEW_TOKEN_URL
+from sailwind_mod_sync.game.proton import (
+    PrefixChangeError,
+    prefix_has_winhttp_override,
+    remove_prefix_winhttp_override,
+    sailwind_prefix_registry,
+)
 from sailwind_mod_sync.paths import AppPaths
 
 
@@ -79,8 +86,15 @@ class SettingsDialog(QDialog):
         form.addRow("Missing mods", self.warn_missing)
         self.warn_launch_option = QCheckBox("Remind me when Sailwind's Steam launch options can't load mods")
         self.warn_launch_option.setChecked(config.warn_proton_launch_option)
+        self.remove_proton_setting = QPushButton("Remove Proton setting")
+        self.remove_proton_setting.setToolTip("Undo the winhttp setting this app added to Sailwind's Proton files")
+        self.remove_proton_setting.clicked.connect(self._remove_proton_setting)
         if os.name != "nt":
-            form.addRow("Proton", self.warn_launch_option)
+            proton_row = QVBoxLayout()
+            proton_row.addWidget(self.warn_launch_option)
+            if prefix_has_winhttp_override():
+                proton_row.addWidget(self.remove_proton_setting, 0, Qt.AlignmentFlag.AlignLeft)
+            form.addRow("Proton", proton_row)
         self.check_updates = QCheckBox("Check GitHub for Sailwind Mod Synchronizer updates")
         self.check_updates.setChecked(config.check_for_updates)
         form.addRow("App updates", self.check_updates)
@@ -131,6 +145,26 @@ class SettingsDialog(QDialog):
         chosen = QFileDialog.getExistingDirectory(self, "Select Sailwind folder", start)
         if chosen:
             self.game_path.setText(chosen)
+
+    def _remove_proton_setting(self) -> None:
+        registry = sailwind_prefix_registry()
+        if registry is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Remove Proton setting",
+            "Remove the winhttp setting from Sailwind's Proton files? Mods will need the Steam launch "
+            "option again to load.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            remove_prefix_winhttp_override(registry)
+        except (PrefixChangeError, OSError) as exc:
+            QMessageBox.warning(self, "Remove Proton setting", str(exc))
+            return
+        self.remove_proton_setting.setEnabled(False)
+        self.remove_proton_setting.setText("Proton setting removed")
 
     def apply_to(self, config: AppConfig) -> None:
         config.game_path = self.game_path.text().strip()

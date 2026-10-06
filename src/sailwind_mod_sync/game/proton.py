@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import time
 from pathlib import Path
 
 from sailwind_mod_sync.constants import STEAM_APP_ID
@@ -166,4 +168,140 @@ def needs_winhttp_override(steam_root: Path | None = None, *, windows: bool | No
     options = sailwind_launch_options(steam_root)
     if options is None or has_winhttp_override(options):
         return None
+    if prefix_has_winhttp_override():
+        return None
     return suggested_launch_options(options)
+
+
+def prefix_has_winhttp_override(libraries: list[Path] | None = None) -> bool:
+    """True when the user chose to set the override inside Sailwind's Proton prefix."""
+    registry = sailwind_prefix_registry(libraries)
+    if registry is None:
+        return False
+    try:
+        return registry_has_winhttp_override(registry.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return False
+
+
+# --- Opt-in alternative: set the override inside Sailwind's Proton prefix -------------
+#
+# Wine reads DLL overrides from the prefix registry (pfx/user.reg), the same setting
+# winecfg and protontricks write. Setting winhttp there means no launch option is
+# needed. It edits Proton's files, so the app only does it when the user chooses to.
+
+# user.reg spells registry paths with doubled backslashes.
+PREFIX_SECTION = r"[Software\\Wine\\DllOverrides]"
+PREFIX_VALUE_LINE = '"winhttp"="native,builtin"'
+PREFIX_BACKUP_SUFFIX = ".sms-backup"
+_FILETIME_EPOCH_OFFSET = 11644473600
+
+
+def prefix_registry_candidates(libraries: list[Path] | None = None) -> list[Path]:
+    """Sailwind's Proton prefix user.reg in each Steam library (the prefix may sit in any of them)."""
+    if libraries is None:
+        from sailwind_mod_sync.game.detect import steam_libraries
+
+        libraries = steam_libraries()
+    return [library / "steamapps" / "compatdata" / STEAM_APP_ID / "pfx" / "user.reg" for library in libraries]
+
+
+def sailwind_prefix_registry(libraries: list[Path] | None = None) -> Path | None:
+    """The user.reg of Sailwind's Proton prefix, or None until the game has run under Proton once."""
+    return next((path for path in prefix_registry_candidates(libraries) if path.is_file()), None)
+
+
+def _section_bounds(lines: list[str]) -> tuple[int, int] | None:
+    """Start (header line) and end (exclusive) of the global DllOverrides section."""
+    for index, line in enumerate(lines):
+        if line.startswith(PREFIX_SECTION):
+            end = index + 1
+            while end < len(lines) and not lines[end].startswith("["):
+                end += 1
+            return index, end
+    return None
+
+
+def _is_winhttp_value(line: str) -> bool:
+    return line.strip().lower().startswith('"winhttp"=')
+
+
+def registry_has_winhttp_override(text: str) -> bool:
+    """True when the prefix registry already tells Wine to load the native winhttp.dll first."""
+    lines = text.splitlines()
+    bounds = _section_bounds(lines)
+    if bounds is None:
+        return False
+    for line in lines[bounds[0] + 1:bounds[1]]:
+        if _is_winhttp_value(line):
+            value = line.split("=", 1)[1].strip().strip('"').lower()
+            return value.startswith("native") or value.startswith("n")
+    return False
+
+
+def add_winhttp_to_registry(text: str, now: float | None = None) -> str:
+    """The registry text with winhttp set to native,builtin, replacing any other winhttp value."""
+    lines = text.splitlines()
+    bounds = _section_bounds(lines)
+    if bounds is not None:
+        start, end = bounds
+        body = [line for line in lines[start + 1:end] if not _is_winhttp_value(line)]
+        # Keep the trailing blank line that separates sections.
+        while body and not body[-1].strip():
+            body.pop()
+        lines[start + 1:end] = body + [PREFIX_VALUE_LINE, ""]
+        return "\n".join(lines) + "\n"
+    stamp = int(time.time() if now is None else now)
+    filetime = (stamp + _FILETIME_EPOCH_OFFSET) * 10_000_000
+    while lines and not lines[-1].strip():
+        lines.pop()
+    lines += ["", f"{PREFIX_SECTION} {stamp}", f"#time={filetime:x}", PREFIX_VALUE_LINE]
+    return "\n".join(lines) + "\n"
+
+
+def remove_winhttp_from_registry(text: str) -> str:
+    """The registry text without a winhttp override (the rest of the section is kept)."""
+    lines = text.splitlines()
+    bounds = _section_bounds(lines)
+    if bounds is None:
+        return text
+    start, end = bounds
+    lines[start + 1:end] = [line for line in lines[start + 1:end] if not _is_winhttp_value(line)]
+    return "\n".join(lines) + "\n"
+
+
+class PrefixChangeError(RuntimeError):
+    pass
+
+
+def _check_safe_to_edit(registry: Path) -> None:
+    from sailwind_mod_sync.game.wait_window import linux_game_process_running
+
+    if linux_game_process_running(min_age=0):
+        raise PrefixChangeError("Close Sailwind first. Proton rewrites this file when the game exits.")
+    if not registry.is_file():
+        raise PrefixChangeError("Sailwind's Proton prefix wasn't found. Start Sailwind from Steam once, then try again.")
+
+
+def _write_registry(registry: Path, text: str) -> None:
+    tmp = registry.with_name(registry.name + ".sms-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, registry)
+
+
+def set_prefix_winhttp_override(registry: Path) -> Path:
+    """Set the override in user.reg, keeping a backup of the original. Returns the backup path."""
+    _check_safe_to_edit(registry)
+    text = registry.read_text(encoding="utf-8")
+    backup = registry.with_name(registry.name + PREFIX_BACKUP_SUFFIX)
+    if not backup.exists():
+        shutil.copy2(registry, backup)
+    _write_registry(registry, add_winhttp_to_registry(text))
+    return backup
+
+
+def remove_prefix_winhttp_override(registry: Path) -> None:
+    """Undo set_prefix_winhttp_override by removing just the winhttp value."""
+    _check_safe_to_edit(registry)
+    text = registry.read_text(encoding="utf-8")
+    _write_registry(registry, remove_winhttp_from_registry(text))

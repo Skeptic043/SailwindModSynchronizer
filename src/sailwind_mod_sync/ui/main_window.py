@@ -38,7 +38,12 @@ from sailwind_mod_sync.catalog.github import GitHubDownloadError, repo_short_nam
 from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
-from sailwind_mod_sync.game.proton import needs_winhttp_override
+from sailwind_mod_sync.game.proton import (
+    PrefixChangeError,
+    needs_winhttp_override,
+    sailwind_prefix_registry,
+    set_prefix_winhttp_override,
+)
 from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.manager import Manager
@@ -49,7 +54,7 @@ from sailwind_mod_sync.ui.catalog_view import CatalogView
 from sailwind_mod_sync.ui.downloads_window import DownloadsWindow
 from sailwind_mod_sync.ui.hidden_mods_dialog import HiddenModsDialog
 from sailwind_mod_sync.ui.background_indicator import BackgroundIndicator
-from sailwind_mod_sync.ui.launch_option_dialog import LaunchOptionDialog
+from sailwind_mod_sync.ui.launch_option_dialog import LaunchOptionDialog, ProtonPrefixConsentDialog
 from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
 from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
@@ -1709,7 +1714,30 @@ class MainWindow(QMainWindow):
         if dialog.stop_reminding:
             self.manager.config.warn_proton_launch_option = False
             self.manager.save_config()
+        if accepted and dialog.chose_prefix:
+            return self._set_proton_prefix_override()
         return accepted
+
+    def _set_proton_prefix_override(self) -> bool:
+        """Opt-in: set the winhttp override in Sailwind's Proton prefix after explicit consent."""
+        registry = sailwind_prefix_registry()
+        if registry is None:
+            QMessageBox.information(
+                self,
+                "Proton setting",
+                "Sailwind's Proton files weren't found. Start Sailwind from Steam once, then try again.",
+            )
+            return False
+        if not ProtonPrefixConsentDialog(str(registry), self).exec():
+            return False
+        try:
+            set_prefix_winhttp_override(registry)
+        except (PrefixChangeError, OSError) as exc:
+            QMessageBox.warning(self, "Proton setting", str(exc))
+            return False
+        log.info("Set the winhttp override in %s", registry)
+        self.statusBar().showMessage("Proton setting changed. Mods will load from now on.")
+        return True
 
     def _confirm_missing_mods(self, pack_id: str) -> bool:
         if not self.manager.config.warn_missing_mods:

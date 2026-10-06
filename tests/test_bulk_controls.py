@@ -1201,6 +1201,7 @@ def test_play_asks_about_proton_launch_option_only_when_needed(window, manager, 
         def __init__(self, suggested, parent):
             shown.append(suggested)
             self.stop_reminding = _Dialog.stop
+            self.chose_prefix = False
 
         def exec(self):
             return _Dialog.answer
@@ -1226,3 +1227,55 @@ def test_play_asks_about_proton_launch_option_only_when_needed(window, manager, 
     assert manager.config.warn_proton_launch_option is False
     assert window._confirm_proton_launch_option()
     assert len(shown) == 3
+
+
+def test_play_can_set_the_proton_prefix_override_after_consent(window, manager, monkeypatch, tmp_path):
+    from sailwind_mod_sync.ui import main_window as main_window_module
+
+    app, window = window
+    registry = tmp_path / "user.reg"
+    registry.write_text("WINE REGISTRY Version 2\n", encoding="utf-8")
+    calls: list[str] = []
+
+    class _Choice:
+        def __init__(self, suggested, parent):
+            self.stop_reminding = False
+            self.chose_prefix = True
+
+        def exec(self):
+            return 1
+
+    class _Consent:
+        answer = 0
+
+        def __init__(self, path, parent):
+            calls.append(f"consent {path}")
+
+        def exec(self):
+            return _Consent.answer
+
+    monkeypatch.setattr(main_window_module, "needs_winhttp_override", lambda: "SUGGESTED")
+    monkeypatch.setattr(main_window_module, "LaunchOptionDialog", _Choice)
+    monkeypatch.setattr(main_window_module, "ProtonPrefixConsentDialog", _Consent)
+    monkeypatch.setattr(main_window_module, "sailwind_prefix_registry", lambda: registry)
+    monkeypatch.setattr(main_window_module, "set_prefix_winhttp_override", lambda path: calls.append(f"set {path}"))
+
+    # Declining consent changes nothing and doesn't start the game.
+    assert not window._confirm_proton_launch_option()
+    assert calls == [f"consent {registry}"]
+
+    # Agreeing changes the prefix, then Play continues.
+    _Consent.answer = 1
+    assert window._confirm_proton_launch_option()
+    assert calls[-1] == f"set {registry}"
+
+
+def test_proton_prefix_consent_dialog_requires_understanding():
+    from sailwind_mod_sync.ui.launch_option_dialog import ProtonPrefixConsentDialog
+
+    QApplication.instance() or QApplication([])
+    dialog = ProtonPrefixConsentDialog("/home/deck/.../pfx/user.reg")
+    assert not dialog.change_button.isEnabled()
+    dialog.understand.setChecked(True)
+    assert dialog.change_button.isEnabled()
+    dialog.deleteLater()
