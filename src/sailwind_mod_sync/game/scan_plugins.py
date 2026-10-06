@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from sailwind_mod_sync.catalog.mvc import find_entry
+from sailwind_mod_sync.game.plugin_metadata import read_plugin_metadata
 from sailwind_mod_sync.library.main_dll import (
     SKIP_GUID_PREFIXES,
     is_generic_folder_name,
@@ -13,6 +15,8 @@ from sailwind_mod_sync.library.main_dll import (
     _tokens,
 )
 from sailwind_mod_sync.models import CatalogEntry, parse_mod_version
+
+log = logging.getLogger(__name__)
 
 LOAD_RE = re.compile(r"Loading \[(.+?) (\d+(?:\.\d+){1,3})\]")
 LOG_GUID_RE = re.compile(r"Plugin ([A-Za-z0-9_.]+) is loaded")
@@ -28,6 +32,10 @@ AUTO_MATCH_MARGIN = 15
 SUGGEST_SCORE = 12
 
 
+class AmbiguousPluginError(ValueError):
+    """A file or folder declares more than one plugin and cannot be one mod."""
+
+
 @dataclass
 class DiscoveredPlugin:
     name: str
@@ -37,19 +45,27 @@ class DiscoveredPlugin:
     plugin_paths: list[Path]
     repo: str = ""
     source: str = ""
+    declared_identity: bool = False
+
+
+@dataclass(frozen=True)
+class PluginScanResult:
+    discovered: tuple[DiscoveredPlugin, ...]
+    skipped_plugins: tuple[str, ...] = ()
 
 
 def scan_plugins_dir(
     plugins_dir: Path,
     catalog: list[CatalogEntry] | None = None,
     log_path: Path | None = None,
-) -> list[DiscoveredPlugin]:
+) -> PluginScanResult:
     catalog = catalog or []
     log_versions = parse_load_versions(log_path) if log_path and log_path.exists() else {}
     log_guids = parse_log_guids(log_path) if log_path and log_path.exists() else {}
     discovered: list[DiscoveredPlugin] = []
+    skipped: list[str] = []
     if not plugins_dir.is_dir():
-        return discovered
+        return PluginScanResult(())
     for child in sorted(plugins_dir.iterdir(), key=lambda p: p.name.lower()):
         if child.name.startswith("."):
             continue
@@ -57,14 +73,21 @@ def scan_plugins_dir(
             dlls = list(child.rglob("*.dll"))
             if not dlls:
                 continue
-            unit = _from_unit(child.name, [child], dlls, catalog, log_versions, log_guids)
+            name = child.name
         elif child.suffix.lower() == ".dll":
-            unit = _from_unit(child.stem, [child], [child], catalog, log_versions, log_guids)
+            name = child.stem
+            dlls = [child]
         else:
+            continue
+        try:
+            unit = _from_unit(name, [child], dlls, catalog, log_versions, log_guids)
+        except AmbiguousPluginError as exc:
+            log.warning("Skipping %s", exc)
+            skipped.append(str(exc))
             continue
         if unit:
             discovered.append(unit)
-    return discovered
+    return PluginScanResult(tuple(discovered), tuple(skipped))
 
 
 def discover_local_file(
@@ -133,6 +156,27 @@ def _from_unit(
     loose_guid: bool = False,
     hints: tuple[str, ...] = (),
 ) -> DiscoveredPlugin | None:
+    inspected = [(dll, read_plugin_metadata(dll)) for dll in dlls]
+    declared = [plugin for _, result in inspected for plugin in result.plugins]
+    if len(declared) > 1:
+        identities = ", ".join(f"{plugin.name} ({plugin.guid})" for plugin in declared)
+        raise AmbiguousPluginError(
+            f"Multiple plugin identities found in {name}: {identities}. "
+            "Import a package containing one plugin per file or folder."
+        )
+    if declared:
+        plugin = declared[0]
+        # Catalog associates a download source, never changes declared identity.
+        entry = find_entry(catalog, plugin.guid)
+        return DiscoveredPlugin(
+            name=plugin.name, guid=plugin.guid, version=plugin.version,
+            version_raw=plugin.version, plugin_paths=paths,
+            repo=entry.repo if entry else "", source=str(paths[0]),
+            declared_identity=True,
+        )
+    dlls = [dll for dll, result in inspected if result.status == "unsupported"]
+    if not dlls:
+        return None
     main_dlls = [path for path in dlls if not _skip_dll(path)]
     search_dlls = main_dlls or dlls
     all_hints = (name,) + hints if name else hints
@@ -151,7 +195,6 @@ def _from_unit(
         name = main_dll.stem
     version = (
         _match_log_version(name, guid, log_versions)
-        or (entry.latest_version if entry else None)
         or "0.0.0"
     )
     return DiscoveredPlugin(
@@ -344,7 +387,10 @@ def _discover_zip(
         _strip_junk(root)
         source = _unwrap_single_root(root)
         plugins = _find_bepinex_plugins(source)
-        found = scan_plugins_dir(plugins or source, catalog=catalog)
+        scan = scan_plugins_dir(plugins or source, catalog=catalog)
+        if scan.skipped_plugins:
+            raise AmbiguousPluginError("\n\n".join(scan.skipped_plugins))
+        found = scan.discovered
         refined: list[DiscoveredPlugin] = []
         for unit in found:
             dlls = []
@@ -367,6 +413,8 @@ def _discover_zip(
 
 
 def _refine_local_identity(unit: DiscoveredPlugin, path: Path) -> None:
+    if unit.declared_identity:
+        return
     dlls: list[Path] = []
     for item in unit.plugin_paths:
         if item.is_file() and item.suffix.lower() == ".dll":

@@ -89,6 +89,12 @@ class CacheClearResult:
     failures: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class GamePluginImportResult:
+    pack: ModPack
+    skipped_plugins: tuple[str, ...] = ()
+
+
 class Manager:
     def __init__(
         self,
@@ -1376,7 +1382,7 @@ class Manager:
         pack_name: str = "Current game",
         plugins_dir: Path | None = None,
         progress: ProgressFn | None = None,
-    ) -> ModPack:
+    ) -> GamePluginImportResult:
         game_dir = self.game_dir()
         if plugins_dir is None:
             if game_dir is None:
@@ -1389,8 +1395,11 @@ class Manager:
         log_path = plugins_dir.parent / "LogOutput.log"
         if progress:
             progress(f"Scanning {plugins_dir}…")
-        discovered = scan_plugins_dir(plugins_dir, catalog=self.catalog, log_path=log_path)
+        scan = scan_plugins_dir(plugins_dir, catalog=self.catalog, log_path=log_path)
+        discovered = scan.discovered
         if not discovered:
+            if scan.skipped_plugins:
+                raise ValueError("No plugins imported. Skipped:\n\n" + "\n\n".join(scan.skipped_plugins))
             raise FileNotFoundError(f"No BepInEx plugins found in {plugins_dir}")
         pack = self.packs.create(pack_name)
         for plugin in discovered:
@@ -1427,7 +1436,7 @@ class Manager:
             )
         self.config.last_pack_id = pack.id
         self.save_config()
-        return self.packs.get(pack.id)
+        return GamePluginImportResult(self.packs.get(pack.id), scan.skipped_plugins)
 
     def prune_library(self) -> int:
         pinned: set[tuple[str, str]] = set()
