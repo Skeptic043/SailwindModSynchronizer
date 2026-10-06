@@ -77,3 +77,19 @@ def test_filter_keeps_native_update_all_scope(window, manager):
     view.update_all_requested.connect(updates.append)
     view.update_all.click()
     assert updates == [["example.apple", "example.zebra"]]
+
+
+def test_update_all_tooltip_mentions_mods_hidden_by_the_filter(window, manager):
+    _, window = window
+    _populate(manager, window)
+    manager.catalog = [CatalogEntry(
+        name=guid, repo=f"https://github.com/example/{guid.rsplit('.', 1)[-1]}",
+        guids=[guid], primary_guid=guid, latest_raw="2.0.0", latest_version="2.0.0", available=True,
+    ) for guid in ("example.apple", "example.zebra")]
+    window._reload_views()
+    view = window.pack_view
+    assert view.update_all.toolTip() == "Update 2 mod(s) to the latest version from their source"
+    _filter(view).setText("apple")
+    assert view.update_all.toolTip().endswith(", including 1 hidden by the filter")
+    _filter(view).clear()
+    assert "hidden" not in view.update_all.toolTip()
