@@ -2297,5 +2297,5 @@ class MainWindow(QMainWindow):
             box.exec()
         else:
             QMessageBox.critical(self, "Error", text)
-        self.statusBar().showMessage(text)
         self._reload_views()
+        self.statusBar().showMessage(text)
