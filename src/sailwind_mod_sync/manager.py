@@ -7,6 +7,7 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import chain
 from pathlib import Path
 
 from sailwind_mod_sync.catalog.custom import (
@@ -66,7 +67,7 @@ from sailwind_mod_sync.packs.instance import (
     ensure_instance_bepinex,
     sync_pack_plugins,
 )
-from sailwind_mod_sync.packs.modpack import PackStore
+from sailwind_mod_sync.packs.modpack import BulkRollbackError, PackStore
 from sailwind_mod_sync.packs.share import encode_pack_share, parse_share_text
 from sailwind_mod_sync.paths import AppPaths
 
@@ -75,10 +76,6 @@ log = logging.getLogger(__name__)
 
 class TokenAuthError(RuntimeError):
     """Raised when a configured GitHub token is rejected (HTTP 401)."""
-
-
-class BulkRollbackError(RuntimeError):
-    """An incomplete rollback retained recovery files for the user."""
 
 
 @dataclass
@@ -658,7 +655,7 @@ class Manager:
         version_raw: str | None = None,
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
-        self._check_bulk_recovery(pack_id)
+        self.packs.check_recovery(pack_id)
         entry = find_entry(self.catalog, guid, repo or "")
         repo = repo or (entry.repo if entry else "") or (known_repo_for(guid) or "")
         if not repo:
@@ -750,7 +747,7 @@ class Manager:
 
         The pin's repository is ``repo``, or else the repository the artifact was downloaded from.
         """
-        self._check_bulk_recovery(pack_id)
+        self.packs.check_recovery(pack_id)
         meta = self.library.read_mod_meta(guid, key)
         if meta is None:
             raise FileNotFoundError(f"{guid} {key} is not in the library")
@@ -779,6 +776,10 @@ class Manager:
         no repository; without it, every pin changes. Library artifacts downloaded from a repository keep it.
         """
         page = canonicalize_repo_url(repo)
+        for pack in self.packs.list_packs():
+            pinned = pack.find_mod(guid)
+            if pinned is not None and _takes_repo(pack, pinned, pack_id):
+                self.packs.check_recovery(pack.id)
         for pack in self.packs.list_packs():
             pinned = pack.find_mod(guid)
             if pinned is None or not _takes_repo(pack, pinned, pack_id):
@@ -820,6 +821,10 @@ class Manager:
             raise ValueError("No catalog entry or repository to associate")
         page = canonicalize_repo_url(entry.repo)
         new_guid = guid if guid in entry.guids or guid == entry.primary_guid else entry.primary_guid
+        for pack in self.packs.list_packs():
+            pinned = pack.find_mod(guid)
+            if pinned is not None and (new_guid != guid or _takes_repo(pack, pinned, pack_id)):
+                self.packs.check_recovery(pack.id)
         if self.library.has_mod(guid, version):
             self.library.rekey_mod(guid, version, new_guid, repo=page)
         elif self.library.has_mod(new_guid, version):
@@ -906,7 +911,7 @@ class Manager:
         *,
         guid: str | None = None,
     ) -> PinnedMod:
-        self._check_bulk_recovery(pack_id)
+        self.packs.check_recovery(pack_id)
         path = Path(path)
         if progress:
             progress(f"Reading {path.name}…")
@@ -1001,7 +1006,7 @@ class Manager:
         return updated, failures
 
     def set_mod_enabled(self, pack_id: str, guid: str, enabled: bool) -> ModPack:
-        self._check_bulk_recovery(pack_id)
+        self.packs.check_recovery(pack_id)
         self._set_bulk_mod_enabled(pack_id, guid, enabled)
         return self.packs.get(pack_id)
 
@@ -1017,7 +1022,7 @@ class Manager:
         progress: ProgressFn | None = None,
         on_changed: Callable[[str, bool], None] | None = None,
     ) -> tuple[int, list[str]]:
-        self._check_bulk_recovery(pack_id)
+        self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
         pending = [mod.guid for mod in pack.mods
                    if mod.enabled != enabled and (guids is None or mod.guid in guids)]
@@ -1060,7 +1065,7 @@ class Manager:
         install: bool, require_artifact: bool = False,
     ) -> None:
         """Stage files before replacing a pin, retaining backups if rollback fails."""
-        self._check_bulk_recovery(pack_id)
+        self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
         previous = pack.find_mod(pinned.guid)
         artifact_folders = (
@@ -1071,8 +1076,14 @@ class Manager:
             raise FileNotFoundError(f"No extracted plugin folders for {pinned.guid} {pinned.version}")
         folders = artifact_folders if install else []
         affected = set(previous.plugin_folders if previous else []) | set(folders)
+        if len({name.casefold() for name in artifact_folders}) != len(artifact_folders):
+            raise ValueError("Plugin folder names differ only by case.")
+        reserved = {"CON", "PRN", "AUX", "NUL"} | {
+            f"{prefix}{i}" for prefix in ("COM", "LPT") for i in range(1, 10)
+        }
         if any(not name or name in (".", "..") or Path(name).name != name
-               or ":" in name or "\\" in name or "/" in name for name in affected):
+               or name != name.rstrip(" .") or any(ord(c) < 32 or c in '<>:"/\\|?*' for c in name)
+               or name.split(".", 1)[0].upper() in reserved for name in affected | set(artifact_folders)):
             raise ValueError("Invalid plugin folder name.")
         plugins = self.packs.plugins_dir(pack_id)
         pack_dir = self.packs.pack_dir(pack_id)
@@ -1091,6 +1102,17 @@ class Manager:
         present = sorted(
             item.name for item in plugins.iterdir() if item.name.casefold() in affected_names
         ) if plugins.is_dir() else []
+        if len({name.casefold() for name in present}) != len(present):
+            raise ValueError("Existing plugin folder names differ only by case.")
+        if self.packs.manifest_path(pack_id).resolve() != pack_dir.resolve() / "modpack.json":
+            raise ValueError("Linked profile manifests cannot be changed.")
+        owned = {name.casefold() for name in previous.plugin_folders} if previous else set()
+        untracked = [name for name in present if name.casefold() not in owned]
+        if untracked:
+            raise ValueError("Plugin folders are not owned by this mod: " + ", ".join(untracked))
+        if folders and any(path.is_symlink() or path.resolve() != path.absolute()
+                           for path in chain((extracted,), extracted.rglob("*"))):
+            raise ValueError("Linked library files cannot be installed.")
         work = Path(tempfile.mkdtemp(prefix=".bulk-", dir=self.packs.pack_dir(pack_id)))
         staged = work / "staged"
         backup = work / "backup"
@@ -1186,21 +1208,25 @@ class Manager:
             if not preserve:
                 # A cleanup failure must not undo an already committed change.
                 try:
+                    (work / "recovery-resolved.txt").write_text(
+                        "Completed or rolled back. Cleanup only.\n", encoding="utf-8",
+                    )
+                except OSError:
+                    log.warning("Could not mark completed mod change at %s", work, exc_info=True)
+                try:
                     (work / "recovery-required.txt").unlink(missing_ok=True)
+                except OSError:
+                    log.warning("Could not remove completed recovery marker at %s", work, exc_info=True)
+                try:
                     shutil.rmtree(work)
                 except OSError:
                     log.warning("Could not remove bulk staging folder %s", work, exc_info=True)
 
     def bulk_recovery_path(self, pack_id: str) -> Path | None:
-        return next(self.packs.pack_dir(pack_id).glob(".bulk-*/recovery-required.txt"), None)
-
-    def _check_bulk_recovery(self, pack_id: str) -> None:
-        marker = self.bulk_recovery_path(pack_id)
-        if marker is not None:
-            raise BulkRollbackError(f"This profile needs recovery before playing or changing mods. See {marker}")
+        return self.packs.recovery_path(pack_id)
 
     def prepare_pack(self, pack_id: str, progress: ProgressFn | None = None) -> Path:
-        self._check_bulk_recovery(pack_id)
+        self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
         with log_duration(log, f"prepare pack {pack_id} ({pack.name})"):
             if progress:
@@ -1222,6 +1248,7 @@ class Manager:
             return preloader
 
     def resolve_pack_artifacts(self, pack_id: str, progress: ProgressFn | None = None) -> None:
+        self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
         total = len(pack.mods)
         missing = 0
@@ -1332,6 +1359,7 @@ class Manager:
         if bundle and not include_context:
             return self.packs.export_bundle(pack_id, dest, self.library, progress=progress)
         if bundle:
+            self.packs.check_recovery(pack_id)
             # Cache everything first so the bundle installs without GitHub or Thunderstore.
             pack = self.packs.get(pack_id)
             bx_version, _ = ensure_bepinex(

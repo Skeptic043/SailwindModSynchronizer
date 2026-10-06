@@ -10,6 +10,7 @@ import pytest
 from sailwind_mod_sync.config import AppConfig
 from sailwind_mod_sync.http_util import HttpClient
 from sailwind_mod_sync.manager import BulkRollbackError, Manager
+from sailwind_mod_sync.models import CatalogEntry, PinnedMod
 
 
 def zip_mod(path, files):
@@ -223,3 +224,174 @@ def test_incomplete_cache_refuses_replacement_before_removing_active_files(repla
     with pytest.raises(FileNotFoundError, match="No extracted plugin folders"):
         replace_mod(replacement_case, "cached")
     assert_original(replacement_case)
+
+
+
+
+@pytest.mark.parametrize("name", ["unsafe.", "CON", "bad\x01"])
+def test_windows_aliased_names_are_refused_before_profile_mutation(replacement_case, name):
+    manager, pack_id, guid, _, _, _ = replacement_case
+    pack = manager.packs.get(pack_id)
+    pack.find_mod(guid).plugin_folders.append(name)
+    manager.packs.save(pack)
+    before = manager.packs.manifest_path(pack_id).read_bytes()
+    with pytest.raises(ValueError, match="Invalid plugin folder name"):
+        replace_mod(replacement_case, "cached")
+    assert_original((*replacement_case[:-1], before))
+
+
+def test_untracked_destination_is_preserved_instead_of_overwritten(replacement_case):
+    manager, pack_id, _, _, _, before = replacement_case
+    plugins = manager.packs.plugins_dir(pack_id)
+    (plugins / "ZNew").mkdir()
+    foreign = plugins / "ZNew" / "foreign.dll"
+    foreign.write_bytes(b"untracked files")
+    with pytest.raises(ValueError, match="not owned by this mod"):
+        replace_mod(replacement_case, "cached")
+    assert foreign.read_bytes() == b"untracked files"
+    assert (plugins / "Old/mod.dll").read_bytes() == b"old-a"
+    assert (plugins / "Shared/mod.dll").read_bytes() == b"old-b"
+    assert manager.packs.manifest_path(pack_id).read_bytes() == before
+
+
+@pytest.mark.parametrize("target", ["manifest", "library_file"])
+def test_redirected_manifest_or_library_content_is_refused(replacement_case, tmp_path, target):
+    manager, pack_id, guid, key, _, before = replacement_case
+    linked = (manager.packs.manifest_path(pack_id) if target == "manifest"
+              else manager.library.mod_extracted(guid, key) / "Shared" / "mod.dll")
+    original = linked.read_bytes()
+    external = tmp_path / "external"
+    external.write_bytes(original)
+    linked.unlink()
+    try:
+        try:
+            linked.symlink_to(external)
+        except OSError:
+            linked.write_bytes(original)
+            pytest.skip("Creating symlinks is unavailable in this environment")
+        with pytest.raises(ValueError, match="Linked"):
+            replace_mod(replacement_case, "cached")
+        assert external.read_bytes() == original
+        assert manager.packs.manifest_path(pack_id).read_bytes() == before
+    finally:
+        if linked.is_symlink():
+            linked.unlink()
+            linked.write_bytes(original)
+
+
+@pytest.fixture
+def recovery_case(replacement_case):
+    manager, pack_id, _, _, _, _ = replacement_case
+    marker = manager.packs.pack_dir(pack_id) / ".bulk-recovery" / "recovery-required.txt"
+    marker.parent.mkdir()
+    marker.write_bytes(b"Recover this profile.\n")
+    backup = marker.parent / "backup/Old/mod.dll"
+    backup.parent.mkdir(parents=True)
+    backup.write_bytes(b"retained recovery copy")
+    return replacement_case, marker, backup
+
+
+@pytest.mark.parametrize("operation", ["save", "delete", "duplicate", "remove", "repo", "associate", "resolve"])
+def test_recovery_blocks_writes_without_destroying_backup(recovery_case, operation):
+    case, marker, backup = recovery_case
+    manager, pack_id, guid, key, _, _ = case
+    pack = manager.packs.get(pack_id)
+    operations = {
+        "save": lambda: manager.packs.save(pack),
+        "delete": lambda: manager.packs.delete(pack_id),
+        "duplicate": lambda: manager.packs.duplicate(pack_id, "Copy"),
+        "remove": lambda: manager.packs.remove_mod(pack_id, guid),
+        "repo": lambda: manager.set_mod_repo(guid, "https://github.com/example/new", pack_id),
+        "associate": lambda: manager.associate_mod(guid, key, catalog_entry=CatalogEntry(
+            name="Replacement", repo="https://github.com/example/new", guids=[guid], primary_guid=guid,
+            latest_raw="2.0.0", latest_version="2.0.0", available=True,
+        ), pack_id=pack_id),
+        "resolve": lambda: manager.resolve_pack_artifacts(pack_id),
+    }
+    with pytest.raises(BulkRollbackError, match="needs recovery"):
+        operations[operation]()
+    assert_original(case)
+    assert marker.read_bytes() == b"Recover this profile.\n"
+    assert backup.read_bytes() == b"retained recovery copy"
+
+
+def test_repository_update_preserves_nonparticipating_broken_pack(recovery_case):
+    case, marker, backup = recovery_case
+    manager, broken_id, guid, _, _, _ = case
+    healthy = manager.packs.create("Healthy")
+    manager.packs.upsert_mod(healthy.id, PinnedMod(guid=guid, version="1.0.0", repo=""))
+    repo = "https://github.com/example/healthy"
+    manager.set_mod_repo(guid, repo, healthy.id)
+    assert manager.packs.get(healthy.id).find_mod(guid).repo == repo
+    assert manager.packs.get(broken_id).find_mod(guid).repo == "https://github.com/example/original"
+    assert_original(case)
+    assert marker.exists() and backup.read_bytes() == b"retained recovery copy"
+
+
+@pytest.mark.parametrize("failed_cleanup", ["marker_and_directory", "resolved_and_directory"])
+def test_completed_replacement_remains_usable_after_cleanup_failures(replacement_case, monkeypatch, failed_cleanup):
+    real_unlink, real_write, real_rmtree = Path.unlink, Path.write_text, shutil.rmtree
+
+    def unlink(path, *args, **kwargs):
+        if failed_cleanup.startswith("marker") and path.name == "recovery-required.txt":
+            raise PermissionError("cleanup injection")
+        return real_unlink(path, *args, **kwargs)
+
+    def write(path, *args, **kwargs):
+        if failed_cleanup.startswith("resolved") and path.name == "recovery-resolved.txt":
+            raise PermissionError("cleanup injection")
+        return real_write(path, *args, **kwargs)
+
+    def rmtree(path, *args, **kwargs):
+        if Path(path).name.startswith(".bulk-"):
+            raise PermissionError("cleanup injection")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    monkeypatch.setattr(Path, "write_text", write)
+    monkeypatch.setattr(shutil, "rmtree", rmtree)
+    pinned = replace_mod(replacement_case, "cached")
+    manager, pack_id, _, _, _, _ = replacement_case
+    assert pinned.version == "2.0.0"
+    assert (manager.packs.plugins_dir(pack_id) / "Shared/mod.dll").read_bytes().startswith(b"MZ")
+    assert manager.bulk_recovery_path(pack_id) is None
+    manager.packs.rename(pack_id, "Still usable")
+
+
+@pytest.mark.parametrize("operation", ["rename", "delete", "remove", "associate"])
+def test_recovery_ui_explains_blocked_action_and_preserves_evidence(recovery_case, monkeypatch, operation):
+    from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
+    from sailwind_mod_sync.ui.main_window import MainWindow
+
+    case, marker, backup = recovery_case
+    manager, pack_id, guid, _, _, _ = case
+    manager.catalog = [CatalogEntry(
+        name="Replacement", repo="https://github.com/example/replacement", guids=[guid], primary_guid=guid,
+        latest_raw="1.0.0", latest_version="1.0.0", available=True,
+    )]
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(MainWindow, "_maybe_check_updates", lambda self: None)
+    monkeypatch.setattr(MainWindow, "_maybe_auto_scan_mods", lambda self: None)
+    monkeypatch.setattr(QInputDialog, "getText", lambda *_args, **_kwargs: ("Renamed", True))
+    monkeypatch.setattr(QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: warnings.append(str(_args[-1])))
+    window = MainWindow(manager)
+    try:
+        window._reload_packs(select_id=pack_id)
+        if operation == "rename":
+            window._rename_pack()
+        elif operation == "delete":
+            window._delete_pack()
+        elif operation == "remove":
+            window._remove_mod(guid)
+        else:
+            window._offer_catalog_association([PinnedMod(guid=guid, version="1.0.0")], pack_id=pack_id)
+        assert len(warnings) == 1 and "needs recovery" in warnings[0] and str(marker) in warnings[0]
+        assert_original(case)
+        assert marker.read_bytes() == b"Recover this profile.\n"
+        assert backup.read_bytes() == b"retained recovery copy"
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()

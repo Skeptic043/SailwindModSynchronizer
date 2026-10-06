@@ -48,6 +48,7 @@ from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.manager import Manager
 from sailwind_mod_sync.models import PinnedMod, parse_mod_version
+from sailwind_mod_sync.packs.modpack import BulkRollbackError
 from sailwind_mod_sync.packs.share import DISCORD_MESSAGE_LIMIT, parse_share_text
 from sailwind_mod_sync.ui.associate_dialog import AssociateCatalogDialog, AssociateTarget
 from sailwind_mod_sync.ui.catalog_view import CatalogView
@@ -669,7 +670,11 @@ class MainWindow(QMainWindow):
         new_name = name.strip()
         if not new_name or new_name == pack.name:
             return
-        self.manager.packs.rename(pack_id, new_name)
+        try:
+            self.manager.packs.rename(pack_id, new_name)
+        except BulkRollbackError as exc:
+            QMessageBox.warning(self, "Could not rename ModPack", str(exc))
+            return
         self._reload_packs()
         self._reload_views()
         self.statusBar().showMessage(f"Renamed to {new_name}")
@@ -682,7 +687,11 @@ class MainWindow(QMainWindow):
         pack = self.manager.packs.get(pack_id)
         if QMessageBox.question(self, "Delete ModPack", f"Delete {pack.name}?") != QMessageBox.StandardButton.Yes:
             return
-        self.manager.packs.delete(pack_id)
+        try:
+            self.manager.packs.delete(pack_id)
+        except BulkRollbackError as exc:
+            QMessageBox.warning(self, "Could not delete ModPack", str(exc))
+            return
         if not self.manager.packs.list_packs():
             created = self.manager.packs.ensure_default()
             self.manager.config.last_pack_id = created.id
@@ -1336,7 +1345,11 @@ class MainWindow(QMainWindow):
         pack_id = self.current_pack_id()
         if not pack_id:
             return
-        self.manager.packs.remove_mod(pack_id, guid)
+        try:
+            self.manager.packs.remove_mod(pack_id, guid)
+        except BulkRollbackError as exc:
+            QMessageBox.warning(self, "Could not remove mod", str(exc))
+            return
         self._reload_views()
 
     @_unless_bulk_running
@@ -1499,7 +1512,11 @@ class MainWindow(QMainWindow):
             if not force:
                 if catalog_hit:
                     if not pin.repo:
-                        self.manager.set_mod_repo(pin.guid, catalog_hit.repo, pack_id)
+                        try:
+                            self.manager.set_mod_repo(pin.guid, catalog_hit.repo, pack_id)
+                        except BulkRollbackError as exc:
+                            QMessageBox.warning(self, "Could not associate", str(exc))
+                            continue
                     continue
             name = labels.get(pin.guid) or self.manager.mod_display_name(
                 pin.guid,

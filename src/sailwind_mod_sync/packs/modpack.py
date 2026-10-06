@@ -26,6 +26,10 @@ def slugify(name: str) -> str:
     return slug or "pack"
 
 
+class BulkRollbackError(RuntimeError):
+    """An incomplete mod change retained recovery files for the user."""
+
+
 class PackStore:
     def __init__(self, paths: AppPaths) -> None:
         self.paths = paths
@@ -64,7 +68,17 @@ class PackStore:
     def manifest_path(self, pack_id: str) -> Path:
         return self.pack_dir(pack_id) / PACK_FILENAME
 
+    def recovery_path(self, pack_id: str) -> Path | None:
+        return next((marker for marker in self.pack_dir(pack_id).glob(".bulk-*/recovery-required.txt")
+                     if not (marker.parent / "recovery-resolved.txt").exists()), None)
+
+    def check_recovery(self, pack_id: str) -> None:
+        marker = self.recovery_path(pack_id)
+        if marker is not None:
+            raise BulkRollbackError(f"This profile needs recovery before playing or changing mods. See {marker}")
+
     def save(self, pack: ModPack) -> None:
+        self.check_recovery(pack.id)
         directory = self.pack_dir(pack.id)
         directory.mkdir(parents=True, exist_ok=True)
         self.manifest_path(pack.id).write_text(
@@ -86,6 +100,7 @@ class PackStore:
         return self.create(DEFAULT_PACK_NAME)
 
     def delete(self, pack_id: str) -> None:
+        self.check_recovery(pack_id)
         directory = self.pack_dir(pack_id)
         if directory.exists():
             shutil.rmtree(directory)
@@ -97,6 +112,7 @@ class PackStore:
         return pack
 
     def duplicate(self, pack_id: str, new_name: str) -> ModPack:
+        self.check_recovery(pack_id)
         source = self.get(pack_id)
         copy = self.create(new_name, bepinex=source.bepinex)
         copy.version = source.version
