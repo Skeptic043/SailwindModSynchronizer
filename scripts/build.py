@@ -510,9 +510,15 @@ def pyinstaller_args(*, windowed: bool, clean: bool) -> list[str]:
 
 
 def exe_in_use(exe: Path) -> bool:
-    """Windows refuses write access to a running executable."""
+    """True when the dist exe is running, so PyInstaller would delete files out from under it.
+
+    Asks Windows for processes started from that exact path, and also tries to open
+    the exe for writing (Windows refuses while it runs). Either one is enough.
+    """
     if not exe.is_file():
         return False
+    if os.name == "nt" and exe_running_processes(exe):
+        return True
     try:
         mode = exe.stat().st_mode
         if not mode & stat.S_IWRITE:
@@ -521,6 +527,30 @@ def exe_in_use(exe: Path) -> bool:
             return False
     except PermissionError:
         return True
+
+
+def exe_running_processes(exe: Path) -> list[int]:
+    """PIDs of processes whose image is exactly this exe (Windows only; [] when unknown)."""
+    target = str(exe.resolve()).lower()
+    script = (
+        "Get-Process -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.Path } | ForEach-Object { \"$($_.Id)`t$($_.Path)\" }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = []
+    for line in result.stdout.splitlines():
+        pid, _, path = line.partition("\t")
+        if path.strip().lower() == target and pid.strip().isdigit():
+            pids.append(int(pid))
+    return pids
 
 
 def clear_readonly(*roots: Path) -> int:

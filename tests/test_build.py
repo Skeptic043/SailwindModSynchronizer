@@ -199,3 +199,25 @@ def test_linux_release_does_not_sign() -> None:
     build = _load_build()
     args = build.parse_args(["--release"])
     assert args.release and not args.sign
+
+
+def test_exe_running_processes_matches_the_exact_path(tmp_path: Path, monkeypatch) -> None:
+    import subprocess as subprocess_module
+
+    build = _load_build()
+    exe = tmp_path / "dist" / "App.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"MZ")
+    other = tmp_path / "elsewhere" / "App.exe"
+    listing = f"111\t{str(exe.resolve()).upper()}\n222\t{other}\nnot-a-pid\t{exe}\n"
+    monkeypatch.setattr(
+        build.subprocess, "run",
+        lambda *args, **kwargs: subprocess_module.CompletedProcess(args, 0, stdout=listing, stderr=""),
+    )
+    assert build.exe_running_processes(exe) == [111]
+
+    def broken(*args, **kwargs):
+        raise OSError("no powershell")
+
+    monkeypatch.setattr(build.subprocess, "run", broken)
+    assert build.exe_running_processes(exe) == []
