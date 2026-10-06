@@ -126,7 +126,8 @@ def test_find_app_update_rejects_untrusted_url(monkeypatch) -> None:
     assert not update.installable
 
 
-def test_download_and_stage_update(paths: AppPaths, tmp_path: Path) -> None:
+def test_download_and_stage_update(paths: AppPaths, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("sailwind_mod_sync.updater.on_windows", lambda: True)
     payload_src = tmp_path / "payload"
     payload_src.mkdir()
     (payload_src / EXE_NAME).write_bytes(b"MZ")
@@ -155,7 +156,8 @@ def test_download_and_stage_update(paths: AppPaths, tmp_path: Path) -> None:
     assert (staged / "_internal" / "readme.txt").read_text(encoding="utf-8") == "ok"
 
 
-def test_download_nested_payload_root(paths: AppPaths, tmp_path: Path) -> None:
+def test_download_nested_payload_root(paths: AppPaths, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("sailwind_mod_sync.updater.on_windows", lambda: True)
     nested = tmp_path / "outer" / "SailwindModSynchronizer"
     nested.mkdir(parents=True)
     (nested / EXE_NAME).write_bytes(b"MZ")
@@ -285,3 +287,118 @@ def test_linux_update_is_offered_but_not_installed_automatically(monkeypatch) ->
     assert update is not None and update.version == "0.6.0"
     assert update.asset_name.endswith("-linux-x86_64.tar.gz")
     assert not update.installable
+
+
+def _linux_update(name: str) -> AppUpdate:
+    return AppUpdate(
+        version="0.6.0",
+        version_raw="v0.6.0",
+        tag="v0.6.0",
+        html_url="https://github.com/foxyv/SailwindModSynchronizer/releases/tag/v0.6.0",
+        asset_name=name,
+        download_url=f"https://github.com/foxyv/SailwindModSynchronizer/releases/download/v0.6.0/{name}",
+        installable=True,
+    )
+
+
+def _linux_build(root: Path) -> Path:
+    build = root / "SailwindModSynchronizer"
+    (build / "_internal").mkdir(parents=True)
+    (build / "SailwindModSynchronizer").write_bytes(b"\x7fELF")
+    (build / "sailwind-mod-sync").write_text("#!/bin/sh\n", encoding="utf-8")
+    (build / "_internal" / "readme.txt").write_text("new", encoding="utf-8")
+    return build
+
+
+def test_self_update_supported_on_windows_and_linux(monkeypatch) -> None:
+    from sailwind_mod_sync import updater
+
+    monkeypatch.setattr(updater, "on_windows", lambda: False)
+    monkeypatch.setattr(updater.sys, "platform", "linux")
+    assert updater.self_update_supported()
+    assert updater.app_binary_name() == "SailwindModSynchronizer"
+    monkeypatch.setattr(updater.sys, "platform", "darwin")
+    assert not updater.self_update_supported()
+    monkeypatch.setattr(updater, "on_windows", lambda: True)
+    assert updater.self_update_supported()
+    assert updater.app_binary_name() == "SailwindModSynchronizer.exe"
+
+
+def test_download_and_stage_linux_tarball(paths: AppPaths, tmp_path: Path, monkeypatch) -> None:
+    import tarfile
+
+    monkeypatch.setattr("sailwind_mod_sync.updater.on_windows", lambda: False)
+    build = _linux_build(tmp_path / "src")
+    archive = tmp_path / "SailwindModSynchronizer-0.6.0-linux-x86_64.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(build, arcname=build.name)
+    http = MagicMock()
+    http.download.side_effect = lambda url, dest, progress=None: dest.write_bytes(archive.read_bytes())
+    staged = download_and_stage_update(http, _linux_update(archive.name), paths)
+    assert staged.name == "SailwindModSynchronizer"
+    assert (staged / "SailwindModSynchronizer").is_file()
+    assert (staged / "_internal" / "readme.txt").read_text(encoding="utf-8") == "new"
+
+
+def test_safe_extract_tar_refuses_escaping_paths(tmp_path: Path) -> None:
+    import io
+    import tarfile
+
+    from sailwind_mod_sync.library.extract import ExtractError
+    from sailwind_mod_sync.updater import safe_extract_tar
+
+    archive = tmp_path / "evil.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        data = b"pwned"
+        info = tarfile.TarInfo("../escaped.txt")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    with pytest.raises((ExtractError, tarfile.TarError)):
+        safe_extract_tar(archive, tmp_path / "out")
+    assert not (tmp_path / "escaped.txt").exists()
+
+
+def test_linux_apply_script_text(tmp_path: Path) -> None:
+    from sailwind_mod_sync.updater import write_linux_apply_script
+
+    src = tmp_path / "updates" / "payload" / "extracted"
+    src.mkdir(parents=True)
+    script = write_linux_apply_script(src, tmp_path / "it's app", tmp_path / "it's app" / "sailwind-mod-sync", 4242)
+    text = script.read_bytes().decode("utf-8")
+    assert text.startswith("#!/bin/sh\n") and "\r\n" not in text
+    assert "pid=4242" in text
+    assert "'\\''s app" in text  # single quote in the path is escaped for sh
+    assert 'cp -a "$src/." "$dst/"' in text
+    assert script.name == "apply_update.sh"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Runs the generated shell script")
+def test_linux_apply_script_waits_copies_and_restarts(tmp_path: Path) -> None:
+    import time
+
+    from sailwind_mod_sync.updater import write_linux_apply_script
+
+    staging = tmp_path / "updates" / "payload" / "extracted"
+    src = _linux_build(staging)
+    dest = tmp_path / "install"
+    (dest / "_internal").mkdir(parents=True)
+    (dest / "_internal" / "readme.txt").write_text("old", encoding="utf-8")
+    marker = tmp_path / "restarted"
+    start = dest / "sailwind-mod-sync"
+    # The "new" launcher just records that it was started.
+    (src / "sailwind-mod-sync").write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+    running = subprocess.Popen(["sleep", "2"])
+    script = write_linux_apply_script(src, dest, start, running.pid)
+    started = time.monotonic()
+    subprocess.run(["/bin/sh", str(script)], check=True, timeout=30)
+    assert time.monotonic() - started >= 1.5  # waited for the app to exit
+    running.wait(5)
+    for _ in range(50):
+        if marker.exists():
+            break
+        time.sleep(0.1)
+    assert (dest / "_internal" / "readme.txt").read_text(encoding="utf-8") == "new"
+    assert os.access(dest / "sailwind-mod-sync", os.X_OK)
+    assert marker.exists()
+    log = (tmp_path / "updates" / "apply.log").read_text(encoding="utf-8")
+    assert "Copying files" in log and "Done" in log

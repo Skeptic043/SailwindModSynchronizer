@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,8 @@ from sailwind_mod_sync.paths import AppPaths
 log = logging.getLogger(__name__)
 
 EXE_NAME = "SailwindModSynchronizer.exe"
+LINUX_BINARY_NAME = "SailwindModSynchronizer"
+LINUX_LAUNCHER_NAME = "sailwind-mod-sync"
 _TRUSTED_HOSTS = {
     "github.com",
     "api.github.com",
@@ -46,8 +49,14 @@ def on_windows() -> bool:
 
 
 def self_update_supported() -> bool:
-    """The apply step is a Windows PowerShell script; Linux gets the release page until #22's self-update lands."""
-    return on_windows()
+    """Windows applies updates with PowerShell, Linux with a shell script."""
+    return on_windows() or sys.platform.startswith("linux")
+
+
+def app_binary_name(*, windows: bool | None = None) -> str:
+    if windows is None:
+        windows = on_windows()
+    return EXE_NAME if windows else LINUX_BINARY_NAME
 
 
 def is_frozen() -> bool:
@@ -170,7 +179,7 @@ def download_and_stage_update(
     progress: ProgressFn | None = None,
 ) -> Path:
     if not update.download_url:
-        raise RuntimeError("This release has no Windows zip to install")
+        raise RuntimeError("This release has no download for this platform")
     if not _trusted_download_url(update.download_url):
         raise RuntimeError("Update download is not from GitHub")
     paths.updates_dir.mkdir(parents=True, exist_ok=True)
@@ -187,8 +196,11 @@ def download_and_stage_update(
     extracted = staging / "extracted"
     extracted.mkdir()
     try:
-        safe_extract_zip(archive, extracted)
-    except ExtractError as exc:
+        if archive.name.lower().endswith((".tar.gz", ".tgz")):
+            safe_extract_tar(archive, extracted)
+        else:
+            safe_extract_zip(archive, extracted)
+    except (ExtractError, tarfile.TarError) as exc:
         raise RuntimeError(str(exc)) from exc
     payload = _payload_root(extracted)
     log.info("Staged app update %s at %s", update.version, payload)
@@ -198,7 +210,10 @@ def download_and_stage_update(
 def launch_apply_and_exit(payload: Path, *, pid: int | None = None) -> Path:
     dest = install_dir()
     if dest is None:
-        raise RuntimeError("Auto-update only works for the installed SailwindModSynchronizer.exe")
+        raise RuntimeError("Auto-update only works for the installed Sailwind Mod Synchronizer")
+    wait_pid = pid if pid is not None else os.getpid()
+    if not on_windows():
+        return _launch_linux_apply(payload, dest, wait_pid)
     exe = dest / EXE_NAME
     if not exe.is_file() and Path(sys.executable).name.lower().endswith(".exe"):
         exe = Path(sys.executable).resolve()
@@ -207,13 +222,105 @@ def launch_apply_and_exit(payload: Path, *, pid: int | None = None) -> Path:
     dest = dest.resolve()
     if src == dest or dest in src.parents:
         raise RuntimeError("Update payload overlaps the install folder")
-    script = _write_apply_script(src, dest, exe, pid if pid is not None else os.getpid())
-    if os.name == "nt":
-        _launch_hidden(script)
-    else:
-        subprocess.Popen(["sh", str(script)], start_new_session=True)
+    script = _write_apply_script(src, dest, exe, wait_pid)
+    _launch_hidden(script)
     log.info("Launched update script %s", script)
     return script
+
+
+def _launch_linux_apply(payload: Path, dest: Path, pid: int) -> Path:
+    src = payload.resolve()
+    dest = dest.resolve()
+    if src == dest or dest in src.parents:
+        raise RuntimeError("Update payload overlaps the install folder")
+    # Restart through the launcher so Steam's LD_LIBRARY_PATH/LD_PRELOAD are cleared.
+    start = dest / LINUX_LAUNCHER_NAME
+    if not (src / LINUX_LAUNCHER_NAME).is_file() and not start.is_file():
+        start = dest / LINUX_BINARY_NAME
+    script = write_linux_apply_script(src, dest, start, pid)
+    subprocess.Popen(
+        ["/bin/sh", str(script)],
+        cwd=str(script.parent),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
+    log.info("Launched update script %s", script)
+    return script
+
+
+def write_linux_apply_script(src: Path, dest: Path, start: Path, pid: int) -> Path:
+    """A shell script that waits for the app to exit, copies the new build over it, and restarts it."""
+    work = _updates_folder(src)
+    log_path = work / "apply.log"
+    script = work / "apply_update.sh"
+    lines = [
+        "#!/bin/sh",
+        f"src={_sh_single(str(src))}",
+        f"dst={_sh_single(str(dest))}",
+        f"start={_sh_single(str(start))}",
+        f"log={_sh_single(str(log_path))}",
+        f"pid={int(pid)}",
+        'say() { echo "$(date -Iseconds 2>/dev/null || date) $*" >> "$log"; }',
+        # A process that has exited but not been reaped yet is a zombie ("Z"); kill -0 still
+        # succeeds on it, so read its state from /proc instead.
+        'alive() {',
+        '  [ -r "/proc/$pid/stat" ] || return 1',
+        '  state=$(sed "s/^.*) //" "/proc/$pid/stat" 2>/dev/null | cut -c1)',
+        '  [ -n "$state" ] && [ "$state" != "Z" ]',
+        '}',
+        'say "Waiting for process $pid"',
+        'waited=0',
+        'while alive; do',
+        '  if [ "$waited" -ge 300 ]; then',
+        '    say "Gave up waiting for process $pid; nothing was changed"',
+        '    exit 1',
+        '  fi',
+        '  sleep 1',
+        '  waited=$((waited + 1))',
+        'done',
+        "sleep 1",
+        'say "Copying files"',
+        'if ! cp -a "$src/." "$dst/"; then',
+        '  say "Copy failed"',
+        "  exit 1",
+        "fi",
+        'chmod +x "$dst/SailwindModSynchronizer" "$dst/sailwind-mod-sync" 2>/dev/null',
+        'say "Starting app"',
+        'cd "$dst" || exit 1',
+        'nohup "$start" >/dev/null 2>&1 &',
+        'say "Done"',
+    ]
+    script.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    script.chmod(0o755)
+    return script
+
+
+def _updates_folder(src: Path) -> Path:
+    """The updates folder holding payload/ (the Linux archive nests one folder deeper than the zip)."""
+    for parent in src.parents:
+        if parent.name == "payload":
+            return parent.parent
+    return src.parent.parent
+
+
+def safe_extract_tar(archive: Path, dest: Path) -> None:
+    """Extract a .tar.gz, refusing absolute paths, '..' and links that point outside dest."""
+    dest.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:*") as tar:
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(dest, filter="data")
+            return
+        root = dest.resolve()
+        for member in tar.getmembers():
+            target = (dest / member.name).resolve()
+            if member.name.startswith(("/", "\\")) or (target != root and root not in target.parents):
+                raise ExtractError(f"Unsafe path in update archive: {member.name}")
+            if member.issym() or member.islnk():
+                raise ExtractError(f"Links are not allowed in update archive: {member.name}")
+        tar.extractall(dest)
 
 
 def zip_release_dir(source: Path, dest: Path) -> Path:
@@ -228,12 +335,13 @@ def zip_release_dir(source: Path, dest: Path) -> Path:
 
 
 def _payload_root(extracted: Path) -> Path:
-    direct = extracted / EXE_NAME
+    name = app_binary_name()
+    direct = extracted / name
     if direct.is_file():
         return extracted
-    matches = [path for path in extracted.rglob(EXE_NAME) if path.is_file()]
+    matches = [path for path in extracted.rglob(name) if path.is_file()]
     if not matches:
-        raise RuntimeError(f"Update zip did not contain {EXE_NAME}")
+        raise RuntimeError(f"Update archive did not contain {name}")
     matches.sort(key=lambda path: len(path.parts))
     return matches[0].parent
 
@@ -327,6 +435,10 @@ def _write_apply_script(src: Path, dest: Path, exe: Path, pid: int) -> Path:
         encoding="utf-8",
     )
     return script
+
+
+def _sh_single(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
 
 
 def _ps_single(value: str) -> str:
