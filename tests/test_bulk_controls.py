@@ -11,18 +11,9 @@ from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QShortcutEvent, 
 from PySide6.QtWidgets import QApplication, QCheckBox, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
 
-from sailwind_mod_sync.config import AppConfig
 from sailwind_mod_sync.manager import Manager
 from sailwind_mod_sync.models import CatalogEntry, PinnedMod
 from sailwind_mod_sync.ui.main_window import MainWindow
-
-
-@pytest.fixture
-def manager(paths):
-    manager = Manager(paths=paths, config=AppConfig(game_path="missing", check_for_updates=False, auto_scan_mods=False))
-    manager.catalog = [CatalogEntry(name="Test", repo="https://github.com/example/test", guids=["example.test"], primary_guid="example.test", latest_raw="1.0.0", latest_version="1.0.0", available=True)]
-    yield manager
-    manager.close()
 
 
 def add_mod(manager, pack, guid, enabled=False, artifact=True):
@@ -121,20 +112,6 @@ def test_bulk_failed_rollback_preserves_backup_and_stops(manager, monkeypatch):
             restarted.prepare_pack(pack.id)
     finally:
         restarted.close()
-
-
-@pytest.fixture
-def window(manager, monkeypatch):
-    app = QApplication.instance() or QApplication([])
-    monkeypatch.setattr(MainWindow, "_maybe_check_updates", lambda self: None)
-    monkeypatch.setattr(MainWindow, "_maybe_auto_scan_mods", lambda self: None)
-    monkeypatch.setattr(MainWindow, "_maybe_refresh_catalog", lambda self: None)
-    window = MainWindow(manager)
-    yield app, window
-    assert window._bulk_pack_id is None
-    window.close()
-    window.deleteLater()
-    app.processEvents()
 
 
 def test_bulk_worker_keeps_events_running_and_blocks_alternate_mutations(window, manager, monkeypatch):
