@@ -29,7 +29,12 @@ def test_geometry_round_trip(data_root: Path) -> None:
     app = _app()
     root = SimpleNamespace(root=data_root)
     window, splitter = _make_window()
-    window.resize(900, 640)
+    # Restoring shrinks windows to fit the screen, and headless test screens
+    # can be small, so pick a size that fits whatever screen this runs on.
+    available = app.primaryScreen().availableGeometry()
+    width = min(900, available.width() - 100)
+    height = min(640, available.height() - 100)
+    window.resize(width, height)
     window.move(40, 30)
     save_window_state(window, splitter, paths=root)
     assert (data_root / "geometry.ini").exists()
@@ -37,8 +42,8 @@ def test_geometry_round_trip(data_root: Path) -> None:
     restored, restored_splitter = _make_window()
     ok = restore_window_state(restored, restored_splitter, paths=root)
     assert ok is True
-    assert restored.size().width() == 900
-    assert restored.size().height() == 640
+    assert restored.size().width() == width
+    assert restored.size().height() == height
     app.processEvents()
     restored.close()
 

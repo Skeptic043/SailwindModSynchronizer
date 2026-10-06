@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
+import os
 import subprocess
 
 import pytest
@@ -176,6 +177,7 @@ def test_download_nested_payload_root(paths: AppPaths, tmp_path: Path) -> None:
     assert (staged / "readme.txt").read_text(encoding="utf-8") == "nested"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="The update apply script is PowerShell until Linux self-update lands (#22)")
 def test_launch_apply_writes_script(tmp_path: Path, monkeypatch) -> None:
     payload = tmp_path / "payload" / "extracted"
     payload.mkdir(parents=True)
@@ -204,6 +206,7 @@ def test_launch_apply_writes_script(tmp_path: Path, monkeypatch) -> None:
     assert "cmd.exe" not in args
 
 
+@pytest.mark.skipif(os.name != "nt", reason="The update apply script is PowerShell until Linux self-update lands (#22)")
 def test_apply_script_copies_when_pid_already_gone(tmp_path: Path) -> None:
     src = tmp_path / "payload" / "extracted"
     src.mkdir(parents=True)

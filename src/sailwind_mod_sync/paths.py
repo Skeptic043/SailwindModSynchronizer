@@ -11,6 +11,9 @@ def default_data_root() -> Path:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         return Path(local) / "SailwindModSynchronizer"
+    if os.name != "nt":
+        data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+        return Path(data_home) / "SailwindModSynchronizer"
     return Path.home() / "AppData" / "Local" / "SailwindModSynchronizer"
 
 

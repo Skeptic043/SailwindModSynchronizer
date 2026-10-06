@@ -30,6 +30,12 @@ def detect_game_path() -> Path | None:
     return None
 
 
+def steam_libraries() -> list[Path]:
+    """Every Steam library folder on this machine, the main Steam folder first."""
+    steam_root = _steam_install_path()
+    return _steam_libraries(steam_root) if steam_root else []
+
+
 def resolve_game_dir(configured: str) -> Path | None:
     if configured.strip():
         found = _as_game_dir(Path(configured))
