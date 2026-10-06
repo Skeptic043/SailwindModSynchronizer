@@ -1110,3 +1110,65 @@ def test_download_fetches_the_pinned_version(window, manager, monkeypatch):
         app.processEvents()
         time.sleep(.005)
     assert calls == [(pack.id, "example.test", "1.0.0", "v1.0.0")]
+
+
+def test_play_refreshes_pack_view_when_every_mod_downloaded(window, manager, monkeypatch):
+    app, window = window
+    pack = manager.packs.get(manager.config.last_pack_id)
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="example.test", version="1.0.0", plugin_folders=["test"]))
+    window._reload_views()
+    assert "1 not downloaded" in window.pack_view.subtitle.text()
+
+    # What Play's background download leaves behind: the artifact is now in the library.
+    folder = manager.library.mod_extracted("example.test", "1.0.0") / "test"
+    folder.mkdir(parents=True)
+    (folder / "mod.dll").write_bytes(b"MZ")
+    assert manager.missing_mods(manager.packs.get(pack.id)) == []
+
+    monkeypatch.setattr(window, "_open_launch_splash", lambda splash, *, status: None)
+    window._sailwind_started(None, pack_id=pack.id)
+    assert "not downloaded" not in window.pack_view.subtitle.text()
+
+
+def test_background_mod_scan_shows_spinner_until_done(window, manager, monkeypatch):
+    app, window = window
+    release = threading.Event()
+    monkeypatch.setattr(manager, "scan_updates", lambda live=True, progress=None: release.wait(5))
+    indicator = window._background_indicator
+    assert indicator.isHidden()
+    window._start_background_mod_scan()
+    try:
+        assert not indicator.isHidden()
+        assert indicator.spinner.is_spinning()
+        assert indicator.label.text() == "Checking for mod updates…"
+    finally:
+        release.set()
+    assert _pump_until(app, lambda: not window._mod_scan_running)
+    assert indicator.isHidden()
+    assert not indicator.spinner.is_spinning()
+
+
+def test_background_catalog_refresh_shows_spinner(window):
+    from sailwind_mod_sync.ui.workers import TaskBridge
+
+    app, window = window
+    indicator = window._background_indicator
+    # The window fixture stubs _maybe_refresh_catalog, so set the bridge it would create.
+    window._catalog_bridge = TaskBridge(window)
+    window._update_background_indicator()
+    assert indicator.label.text() == "Refreshing catalog…"
+    assert not indicator.isHidden()
+    window._background_catalog_failed("offline")
+    assert indicator.isHidden()
+
+
+def test_background_indicator_lists_every_running_task():
+    from sailwind_mod_sync.ui.background_indicator import BackgroundIndicator
+
+    QApplication.instance() or QApplication([])
+    indicator = BackgroundIndicator()
+    indicator.set_tasks(["Checking for mod updates…", "Refreshing catalog…"])
+    assert indicator.label.text() == "Checking for mod updates… (+1 more)"
+    assert "Refreshing catalog…" in indicator.toolTip()
+    indicator.set_tasks([])
+    assert indicator.isHidden() and not indicator.spinner.is_spinning()

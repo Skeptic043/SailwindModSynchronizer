@@ -47,6 +47,7 @@ from sailwind_mod_sync.ui.associate_dialog import AssociateCatalogDialog, Associ
 from sailwind_mod_sync.ui.catalog_view import CatalogView
 from sailwind_mod_sync.ui.downloads_window import DownloadsWindow
 from sailwind_mod_sync.ui.hidden_mods_dialog import HiddenModsDialog
+from sailwind_mod_sync.ui.background_indicator import BackgroundIndicator
 from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
 from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
@@ -168,6 +169,8 @@ class MainWindow(QMainWindow):
         self._updates_hint.setStyleSheet(UPDATES_HINT_STYLE)
         self._updates_hint.hide()
         self.statusBar().addPermanentWidget(self._updates_hint)
+        self._background_indicator = BackgroundIndicator(self.statusBar())
+        self.statusBar().addPermanentWidget(self._background_indicator)
 
         self.pack_list = QListWidget()
         self.pack_list.currentItemChanged.connect(self._on_pack_selected)
@@ -1002,6 +1005,14 @@ class MainWindow(QMainWindow):
         self._maybe_refresh_catalog()
         self._maybe_check_updates()
 
+    def _update_background_indicator(self) -> None:
+        tasks = []
+        if self._mod_scan_running:
+            tasks.append("Checking for mod updates…")
+        if self._catalog_bridge is not None:
+            tasks.append("Refreshing catalog…")
+        self._background_indicator.set_tasks(tasks)
+
     def _catalog_refresh_running(self) -> bool:
         return self._catalog_bridge is not None or self._pending_catalog is not None
 
@@ -1021,6 +1032,7 @@ class MainWindow(QMainWindow):
         log.info("Refreshing the catalog in the background")
         bridge = TaskBridge(self)
         self._catalog_bridge = bridge
+        self._update_background_indicator()
         queued = Qt.ConnectionType.QueuedConnection
         bridge.finished.connect(self._background_catalog_fetched, queued)
         bridge.failed.connect(self._background_catalog_failed, queued)
@@ -1030,6 +1042,7 @@ class MainWindow(QMainWindow):
         if self._catalog_bridge is not None:
             self._catalog_bridge.deleteLater()
             self._catalog_bridge = None
+        self._update_background_indicator()
 
     @Slot(object)
     def _background_catalog_fetched(self, entries: object) -> None:
@@ -1174,6 +1187,7 @@ class MainWindow(QMainWindow):
             return
         self._mod_scan_running = True
         self._update_bulk_actions_availability()
+        self._update_background_indicator()
         self.statusBar().showMessage("Scanning repositories for updates…")
         bridge = TaskBridge(self)
         self._mod_scan_bridge = bridge
@@ -1186,6 +1200,7 @@ class MainWindow(QMainWindow):
     def _clear_mod_scan(self) -> None:
         self._mod_scan_running = False
         self._update_bulk_actions_availability()
+        self._update_background_indicator()
         self._mod_scan_done_at = time.monotonic()
         if self._mod_scan_bridge is not None:
             self._mod_scan_bridge.deleteLater()
@@ -1713,6 +1728,8 @@ class MainWindow(QMainWindow):
         if missing:
             noun = "mod" if len(missing) == 1 else "mods"
             status = f"{status} {len(missing)} {noun} could not be downloaded and will not load."
+        if pack is not None:
+            # Play downloads anything missing, so refresh even when every download succeeded.
             self._reload_views()
         self._open_launch_splash(LaunchSplash(self, process, heading=heading), status=status)
 
