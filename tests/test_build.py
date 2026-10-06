@@ -221,3 +221,66 @@ def test_exe_running_processes_matches_the_exact_path(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(build.subprocess, "run", broken)
     assert build.exe_running_processes(exe) == []
+
+
+def _launcher_dir(tmp_path: Path) -> tuple[Path, Path]:
+    build = _load_build()
+    app = tmp_path / "SailwindModSynchronizer"
+    app.mkdir()
+    marker = tmp_path / "started"
+    binary = app / "SailwindModSynchronizer"
+    binary.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+    binary.chmod(0o755)
+    build.write_linux_extras(app)
+    return app, marker
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Runs the Linux launcher")
+def test_launcher_waits_for_a_running_update(tmp_path: Path) -> None:
+    import subprocess
+    import time
+
+    app, marker = _launcher_dir(tmp_path)
+    updater = subprocess.Popen(["sleep", "3"])
+    lock = app / ".update-in-progress"
+    lock.write_text(f"{updater.pid}\n", encoding="utf-8")
+    launcher = subprocess.Popen([str(app / "sailwind-mod-sync")])
+    time.sleep(1.5)
+    assert not marker.exists()  # still waiting for the update
+    updater.wait(10)
+    lock.unlink()  # what the apply script does when the copy is done
+    assert launcher.wait(10) == 0
+    assert marker.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Runs the Linux launcher")
+def test_launcher_ignores_a_stale_update_lock(tmp_path: Path) -> None:
+    import subprocess
+    import time
+
+    app, marker = _launcher_dir(tmp_path)
+    finished = subprocess.Popen(["true"])
+    finished.wait(5)
+    lock = app / ".update-in-progress"
+    lock.write_text(f"{finished.pid}\n", encoding="utf-8")
+    started = time.monotonic()
+    assert subprocess.run([str(app / "sailwind-mod-sync")], timeout=20).returncode == 0
+    assert time.monotonic() - started < 5
+    assert marker.exists() and not lock.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Runs the Linux launcher")
+def test_launcher_starts_right_away_without_a_lock(tmp_path: Path) -> None:
+    import subprocess
+
+    app, marker = _launcher_dir(tmp_path)
+    assert subprocess.run([str(app / "sailwind-mod-sync")], timeout=20).returncode == 0
+    assert marker.exists()
+
+
+def test_launcher_wait_block_is_parsed_before_it_runs() -> None:
+    # The update may replace the launcher while it waits; the wait and the re-exec must be
+    # inside one if-block so the shell has read them all before running any of it.
+    script = _load_build().LINUX_LAUNCHER_SCRIPT
+    block = script[script.index("if [ -f"):script.index("\nfi\n") + 4]
+    assert "while" in block and 'exec "$here/sailwind-mod-sync"' in block
