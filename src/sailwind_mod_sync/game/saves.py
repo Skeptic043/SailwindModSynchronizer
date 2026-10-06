@@ -14,6 +14,7 @@ from sailwind_mod_sync.game.backup import (
     _zip_file_names,
     zip_folder,
 )
+from sailwind_mod_sync.constants import STEAM_APP_ID
 from sailwind_mod_sync.http_util import ProgressFn
 
 SAVES_COMPANY = "Raw Lion Workshop"
@@ -31,7 +32,32 @@ def default_saves_dir() -> Path:
     env = os.environ.get("SAILWIND_SAVES_DIR")
     if env:
         return Path(env).expanduser().resolve()
+    if os.name != "nt":
+        candidates = proton_saves_candidates()
+        for candidate in candidates:
+            if candidate.is_dir():
+                return candidate
+        if candidates:
+            return candidates[0]
     return Path.home() / "AppData" / "LocalLow" / SAVES_COMPANY / SAVES_PRODUCT
+
+
+def proton_saves_candidates(libraries: list[Path] | None = None) -> list[Path]:
+    """Where Sailwind keeps saves when it runs through Proton, one per Steam library.
+
+    Proton gives the game a Windows-style prefix under compatdata. It isn't always
+    in the same library as the game itself (e.g. the game on an SD card, the
+    prefix in the main Steam folder), so every library is checked.
+    """
+    if libraries is None:
+        from sailwind_mod_sync.game.detect import steam_libraries
+
+        libraries = steam_libraries()
+    relative = (
+        Path("steamapps") / "compatdata" / str(STEAM_APP_ID) / "pfx" / "drive_c" / "users" / "steamuser"
+        / "AppData" / "LocalLow" / SAVES_COMPANY / SAVES_PRODUCT
+    )
+    return [library / relative for library in libraries]
 
 
 def saves_dir_has_files(path: Path) -> bool:

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
+
+import pytest
 
 
 def _load_build():
@@ -137,6 +140,7 @@ def test_sign_files_batches(tmp_path: Path, monkeypatch) -> None:
     assert str(files[-1]) in calls[1]
 
 
+@pytest.mark.skipif(os.name != "nt", reason="OneDrive read-only flags are a Windows build concern")
 def test_clear_readonly_makes_files_and_folders_writable(tmp_path: Path) -> None:
     import os
     import stat
