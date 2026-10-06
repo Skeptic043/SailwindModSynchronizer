@@ -1,5 +1,21 @@
 # Change Log
 
+## 0.5.0 (2026-10-06)
+
+- The catalog refreshes in the background once a day, at startup and while the app stays open. Turn it off in **Settings** with **Refresh the catalog once a day**.
+- When a mod is published from more than one repository, such as an original and a fork, the **Catalog** shows a row for each, with a new **Source** column. **Switch source** moves the selected pack to another one, and different packs can use different sources of the same mod.
+- **Add GitHub repo** accepts a fork of a mod that is already in the catalog.
+- **Update all** on the Pack tab updates every mod that has a newer version.
+- **Tools → Clear cache…** deletes downloaded catalogs, mods, BepInEx packs and app updates. Packs, settings, your own catalog entries and backups are kept, and mods imported from files are kept unless you choose to delete them too.
+- Mods that are not downloaded yet show a **Download** button, and the **Latest** column always shows the newest version instead of **Missing**.
+- Mods on the Pack tab are sorted by name by default.
+- The once-a-day check for app updates no longer waits for a restart; if the app stays open longer than a day, it checks again.
+- Repositories you added yourself are no longer dropped from the catalog after **Scan updates** when ModVersionChecker lists the same mod. Sources your packs still use are added back on the first start.
+- Versions found by **Scan updates** are kept after a restart, so mods like StickyFix no longer show as **Unavailable** until the next scan.
+- The warning before **Play** lists only mods that can't be downloaded; other missing mods download while the pack starts.
+- Hiding a catalog row hides only that source of the mod.
+- Linking a mod to a repository in one pack no longer changes it in your other packs.
+
 ## 0.4.2 (2026-10-05)
 
 - New **Help → Change log** shows what changed in each version, even without an internet connection.
