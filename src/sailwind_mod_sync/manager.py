@@ -64,8 +64,6 @@ from sailwind_mod_sync.models import (
 )
 from sailwind_mod_sync.packs.instance import (
     ensure_instance_bepinex,
-    install_pinned_into_plugins,
-    remove_plugin_folders,
     sync_pack_plugins,
 )
 from sailwind_mod_sync.packs.modpack import PackStore
@@ -660,6 +658,7 @@ class Manager:
         version_raw: str | None = None,
         progress: ProgressFn | None = None,
     ) -> PinnedMod:
+        self._check_bulk_recovery(pack_id)
         entry = find_entry(self.catalog, guid, repo or "")
         repo = repo or (entry.repo if entry else "") or (known_repo_for(guid) or "")
         if not repo:
@@ -751,6 +750,7 @@ class Manager:
 
         The pin's repository is ``repo``, or else the repository the artifact was downloaded from.
         """
+        self._check_bulk_recovery(pack_id)
         meta = self.library.read_mod_meta(guid, key)
         if meta is None:
             raise FileNotFoundError(f"{guid} {key} is not in the library")
@@ -758,8 +758,6 @@ class Manager:
             progress(f"Adding {guid} {meta.version} to the pack…")
         pack = self.packs.get(pack_id)
         previous = pack.find_mod(guid)
-        if previous:
-            remove_plugin_folders(self.packs.plugins_dir(pack_id), previous.plugin_folders)
         pinned = PinnedMod(
             guid=guid,
             version=meta.version,
@@ -768,15 +766,10 @@ class Manager:
             plugin_folders=list(meta.plugin_folders),
             version_raw=meta.version_raw,
         )
-        folders = install_pinned_into_plugins(
-            pinned,
-            self.library.mod_extracted(guid, key),
-            self.packs.plugins_dir(pack_id),
+        self._change_pack_mod(
+            pack_id, pinned, self.library.mod_extracted(guid, key),
+            install=pinned.enabled, require_artifact=True,
         )
-        pinned.plugin_folders = folders
-        if not pinned.enabled:
-            remove_plugin_folders(self.packs.plugins_dir(pack_id), pinned.plugin_folders)
-        self.packs.upsert_mod(pack_id, pinned)
         return pinned
 
     def set_mod_repo(self, guid: str, repo: str, pack_id: str | None = None) -> str:
@@ -913,6 +906,7 @@ class Manager:
         *,
         guid: str | None = None,
     ) -> PinnedMod:
+        self._check_bulk_recovery(pack_id)
         path = Path(path)
         if progress:
             progress(f"Reading {path.name}…")
@@ -954,8 +948,6 @@ class Manager:
             )
         else:
             raise ValueError(f"Unsupported file type: {path.suffix}. Use a .dll or .zip.")
-        if previous:
-            remove_plugin_folders(self.packs.plugins_dir(pack_id), previous.plugin_folders)
         pinned = PinnedMod(
             guid=meta.guid,
             version=meta.version,
@@ -964,13 +956,10 @@ class Manager:
             plugin_folders=list(meta.plugin_folders),
             version_raw=meta.version_raw,
         )
-        folders = install_pinned_into_plugins(
-            pinned,
-            self.library.mod_extracted(meta.guid, meta.version),
-            self.packs.plugins_dir(pack_id),
+        self._change_pack_mod(
+            pack_id, pinned, self.library.mod_extracted(meta.guid, meta.version),
+            install=pinned.enabled, require_artifact=True,
         )
-        pinned.plugin_folders = folders
-        self.packs.upsert_mod(pack_id, pinned)
         return pinned
 
     def update_mod(self, pack_id: str, guid: str, progress: ProgressFn | None = None) -> PinnedMod:
@@ -1063,8 +1052,25 @@ class Manager:
         # A selection can precede installation. Only usable extracted files
         # can be staged here; retain missing selections and their folder names.
         install = enabled and extracted.is_dir() and any(extracted.rglob("*.dll"))
-        folders = [item.name for item in extracted.iterdir() if item.is_dir()] if install else []
-        affected = set(pinned.plugin_folders) | set(folders)
+        pinned.enabled = enabled
+        self._change_pack_mod(pack_id, pinned, extracted, install=install)
+
+    def _change_pack_mod(
+        self, pack_id: str, pinned: PinnedMod, extracted: Path, *,
+        install: bool, require_artifact: bool = False,
+    ) -> None:
+        """Stage files before replacing a pin, retaining backups if rollback fails."""
+        self._check_bulk_recovery(pack_id)
+        pack = self.packs.get(pack_id)
+        previous = pack.find_mod(pinned.guid)
+        artifact_folders = (
+            [item.name for item in extracted.iterdir() if item.is_dir()]
+            if install or require_artifact else []
+        )
+        if require_artifact and not any(any((extracted / name).rglob("*.dll")) for name in artifact_folders):
+            raise FileNotFoundError(f"No extracted plugin folders for {pinned.guid} {pinned.version}")
+        folders = artifact_folders if install else []
+        affected = set(previous.plugin_folders if previous else []) | set(folders)
         if any(not name or name in (".", "..") or Path(name).name != name
                or ":" in name or "\\" in name or "/" in name for name in affected):
             raise ValueError("Invalid plugin folder name.")
@@ -1074,13 +1080,17 @@ class Manager:
                 or plugins.resolve() != pack_dir.resolve() / "instance" / "BepInEx" / "plugins"):
             raise ValueError("Linked profile folders cannot be changed.")
         affected_names = {folder.casefold() for folder in affected}
-        overlaps = sorted({name for other in pack.mods if other.guid != guid
+        overlaps = sorted({name for other in pack.mods if other.guid != pinned.guid
                            for name in other.plugin_folders
                            if name.casefold() in affected_names})
         if overlaps:
             raise ValueError("Plugin folders are shared with another mod: " + ", ".join(overlaps))
         if any((plugins / name).resolve() != plugins.resolve() / name for name in affected):
             raise ValueError("Linked plugin folders cannot be changed.")
+        # Use the actual old spelling once when a new artifact changes only case.
+        present = sorted(
+            item.name for item in plugins.iterdir() if item.name.casefold() in affected_names
+        ) if plugins.is_dir() else []
         work = Path(tempfile.mkdtemp(prefix=".bulk-", dir=self.packs.pack_dir(pack_id)))
         staged = work / "staged"
         backup = work / "backup"
@@ -1098,25 +1108,26 @@ class Manager:
             manifest = work / "modpack.json"
             original_manifest = self.packs.manifest_path(pack_id).read_bytes()
             (work / "original-modpack.json").write_bytes(original_manifest)
-            pinned.enabled = enabled
-            if install:
-                pinned.plugin_folders = folders
+            if install or require_artifact:
+                pinned.plugin_folders = artifact_folders
+            pack.mods = [mod for mod in pack.mods if mod.guid != pinned.guid] + [pinned]
+            pack.mods.sort(key=lambda mod: mod.guid.lower())
             planned_manifest = (json.dumps(pack.to_dict(), indent=2) + "\n").encode("utf-8")
             manifest.write_bytes(planned_manifest)
             (work / "planned-modpack.json").write_bytes(planned_manifest)
             # Write all recovery facts before the first profile mutation. File
             # presence remains meaningful even if interrupted between renames.
             plan = {
-                "pack_id": pack_id, "guid": guid, "enabled": enabled,
+                "pack_id": pack_id, "guid": pinned.guid, "enabled": pinned.enabled,
                 "profile_plugins": str(plugins),
                 "profile_manifest": str(self.packs.manifest_path(pack_id)),
-                "originally_present": sorted(name for name in affected if (plugins / name).exists()),
+                "originally_present": present,
                 "affected_folders": sorted(affected), "install_folders": folders,
             }
             (work / "transaction.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
             marker = work / "recovery-required.txt"
             marker.write_text(
-                f"Interrupted mod change: {guid} in profile {pack_id}.\n"
+                f"Interrupted mod change: {pinned.guid} in profile {pack_id}.\n"
                 "Do not play or change this profile until recovery is complete. Close the synchronizer first.\n"
                 f"Before recovery, make a separate copy of this entire profile, including {work.name}.\n"
                 "transaction.json records affected folders, which existed before the change, and which were to be installed.\n"
@@ -1125,6 +1136,8 @@ class Manager:
                 "matching the planned means it was committed. Neither match means later changes or damage: stop and seek help. "
                 "A manifest match alone does not prove the plugin files are consistent.\n"
                 "To restore the original state, inspect each affected folder in transaction.json:\n"
+                "Case-only renames alias one folder on Windows. Remove a replacement spelling only when its "
+                "original backup exists, before restoring that backup. Never remove an alias already restored.\n"
                 "- If originally present and backup/<folder> exists, preserve any current plugin folder separately, "
                 "then restore that backup folder to profile_plugins/<folder>.\n"
                 "- If originally present but no backup exists, do not delete or replace the current folder. "
@@ -1139,7 +1152,7 @@ class Manager:
             )
             preserve = True
             try:
-                for name in sorted(affected):
+                for name in present:
                     target = plugins / name
                     if target.exists():
                         target.replace(backup / name)
@@ -1156,6 +1169,11 @@ class Manager:
                         shutil.rmtree(plugins / name)
                     for name in moved:
                         (backup / name).replace(plugins / name)
+                    active_manifest = self.packs.manifest_path(pack_id)
+                    if active_manifest.read_bytes() != original_manifest:
+                        restored_manifest = work / "restore-modpack.json"
+                        restored_manifest.write_bytes(original_manifest)
+                        restored_manifest.replace(active_manifest)
                 except Exception as rollback:
                     preserve = True
                     raise BulkRollbackError(
