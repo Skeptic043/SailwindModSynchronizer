@@ -73,6 +73,225 @@ def replacement_case(paths, tmp_path):
     manager.close()
 
 
+@pytest.mark.parametrize("phase", ["ingest", "cache_backup", "cache_promote"])
+def test_failed_local_ingestion_or_cache_promotion_preserves_existing_artifact(replacement_case, monkeypatch, phase):
+    from sailwind_mod_sync.library.store import LibraryStore
+
+    manager, pack_id, guid, _, archive, _ = replacement_case
+    replace_mod(replacement_case, "import")
+    cache = manager.library.mod_dir(guid, "2.0.0")
+    snapshot = {item.relative_to(cache): item.read_bytes() for item in cache.rglob("*") if item.is_file()}
+    before_manifest = manager.packs.manifest_path(pack_id).read_bytes()
+    before_dll = (manager.packs.plugins_dir(pack_id) / "Shared/mod.dll").read_bytes()
+    zip_mod(archive, {"Shared/mod.dll": before_dll + b"revision", "ZNew/mod.dll": before_dll + b"revision"})
+    real_replace, real_ingest = Path.replace, LibraryStore.ingest_mod_zip
+
+    def replace(source, destination):
+        if ((phase == "cache_backup" and Path(destination).name == "library-backup")
+                or (phase == "cache_promote" and source.name == "2.0.0" and Path(destination) == cache)):
+            raise PermissionError("cache injection")
+        return real_replace(source, destination)
+
+    def ingest(store, *args, **kwargs):
+        result = real_ingest(store, *args, **kwargs)
+        if phase == "ingest":
+            raise OSError("cache injection")
+        return result
+
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(LibraryStore, "ingest_mod_zip", ingest)
+    with pytest.raises(OSError, match="cache injection"):
+        replace_mod(replacement_case, "import")
+    assert {item.relative_to(cache): item.read_bytes() for item in cache.rglob("*") if item.is_file()} == snapshot
+    assert manager.packs.manifest_path(pack_id).read_bytes() == before_manifest
+    monkeypatch.setattr(Path, "replace", real_replace)
+    manager.resolve_pack_artifacts(pack_id)
+    assert (manager.packs.plugins_dir(pack_id) / "Shared/mod.dll").read_bytes() == before_dll
+
+
+def test_failed_cache_restore_retains_original_artifact_for_manual_recovery(replacement_case, monkeypatch):
+    import json
+
+    manager, pack_id, guid, _, archive, _ = replacement_case
+    replace_mod(replacement_case, "import")
+    cache = manager.library.mod_dir(guid, "2.0.0")
+    before_dll = (cache / "extracted/Shared/mod.dll").read_bytes()
+    zip_mod(archive, {"Shared/mod.dll": before_dll + b"revision", "ZNew/mod.dll": before_dll + b"revision"})
+    real_replace = Path.replace
+
+    def replace(source, destination):
+        if source.name == "library-backup" or (source.parent.name == "staged" and source.name == "ZNew"):
+            raise PermissionError("cache rollback injection")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    with pytest.raises(BulkRollbackError, match="Backup retained"):
+        replace_mod(replacement_case, "import")
+    marker = manager.bulk_recovery_path(pack_id)
+    plan = json.loads((marker.parent / "transaction.json").read_text())
+    assert plan["library_artifact"] == str(cache) and plan["library_originally_present"]
+    assert (Path(plan["library_backup"]) / "extracted/Shared/mod.dll").read_bytes() == before_dll
+    assert "restore its original cache" in marker.read_text()
+
+
+def test_local_reimport_of_source_variant_preserves_other_repository_cache(replacement_case):
+    manager, pack_id, guid, key, archive, _ = replacement_case
+    pin = replace_mod(replacement_case, "cached")
+    plain_cache = manager.library.mod_dir(guid, "2.0.0")
+    plain_snapshot = {item.relative_to(plain_cache): item.read_bytes()
+                      for item in plain_cache.rglob("*") if item.is_file()}
+    dll = (manager.packs.plugins_dir(pack_id) / "Shared/mod.dll").read_bytes() + b"local revision"
+    zip_mod(archive, {"Shared/mod.dll": dll, "ZNew/mod.dll": dll})
+    imported = replace_mod(replacement_case, "import")
+    assert imported.repo == pin.repo and manager.library.pinned_key(imported) == key
+    manager.resolve_pack_artifacts(pack_id)
+    assert (manager.packs.plugins_dir(pack_id) / "Shared/mod.dll").read_bytes() == dll
+    assert {item.relative_to(plain_cache): item.read_bytes()
+            for item in plain_cache.rglob("*") if item.is_file()} == plain_snapshot
+
+
+def test_reimport_can_read_its_input_from_cache_being_replaced(replacement_case):
+    manager, pack_id, guid, _, _, _ = replacement_case
+    replace_mod(replacement_case, "import")
+    cache = manager.library.mod_dir(guid, "2.0.0")
+    input_zip = manager.library.mod_zip_path(guid, "2.0.0")
+    old_dll = (cache / "extracted/Shared/mod.dll").read_bytes()
+    zip_mod(input_zip, {"Shared/mod.dll": old_dll + b"from cache", "ZNew/mod.dll": old_dll + b"from cache"})
+    manager.import_local_mod(input_zip, pack_id, guid=guid)
+    manager.resolve_pack_artifacts(pack_id)
+    assert (cache / "extracted/Shared/mod.dll").read_bytes() == old_dll + b"from cache"
+    assert (manager.packs.plugins_dir(pack_id) / "Shared/mod.dll").read_bytes() == old_dll + b"from cache"
+
+
+def test_failed_import_removes_new_cache_and_restores_original_profile(replacement_case, monkeypatch):
+    manager, pack_id, guid, _, archive, _ = replacement_case
+    payload = b"MZ" + b"\0" * 32 + guid.encode() + b"\0" + b"3.0.0" + b"\0" * 16
+    zip_mod(archive, {"Shared/mod.dll": payload, "ZNew/mod.dll": payload})
+    real_replace = Path.replace
+
+    def replace(source, destination):
+        if source.parent.name == "staged" and source.name == "ZNew":
+            raise OSError("new cache injection")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    with pytest.raises(OSError, match="new cache injection"):
+        replace_mod(replacement_case, "import")
+    assert not manager.library.mod_dir(guid, "3.0.0").exists()
+    assert_original(replacement_case)
+
+
+@pytest.mark.parametrize("consumer_repo", ["stored", "catalog"])
+def test_partial_cache_rollback_blocks_only_consumers_of_that_artifact(replacement_case, monkeypatch, consumer_repo):
+    from sailwind_mod_sync.models import CatalogEntry
+
+    manager, pack_id, guid, key, archive, _ = replacement_case
+    pin = replace_mod(replacement_case, "cached")
+    consumer = manager.packs.create("Shared cache consumer")
+    manager.add_library_mod_to_pack(consumer.id, guid, key, repo=pin.repo)
+    if consumer_repo == "catalog":
+        pack = manager.packs.get(consumer.id)
+        pack.find_mod(guid).repo = ""
+        manager.packs.save(pack)
+        manager.catalog = [CatalogEntry(
+            name="Replacement", repo=pin.repo, guids=[guid], primary_guid=guid,
+            latest_raw="2.0.0", latest_version="2.0.0", available=True,
+        )]
+    unrelated = manager.packs.create("Other cache")
+    manager.add_library_mod_to_pack(unrelated.id, guid, "1.0.0")
+    cache = manager.library.mod_dir(guid, key)
+    consumer_manifest = manager.packs.manifest_path(consumer.id).read_bytes()
+    original_dll = (cache / "extracted/Shared/mod.dll").read_bytes()
+    zip_mod(archive, {"Shared/mod.dll": original_dll + b"rejected", "ZNew/mod.dll": original_dll + b"rejected"})
+    real_replace, real_rmtree = Path.replace, shutil.rmtree
+
+    def replace(source, destination):
+        if source.parent.name == "staged" and source.name == "ZNew":
+            raise PermissionError("promotion injection")
+        return real_replace(source, destination)
+
+    def rmtree(path, *args, **kwargs):
+        if Path(path) == cache:
+            raise PermissionError("cache cleanup injection")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(shutil, "rmtree", rmtree)
+    with pytest.raises(BulkRollbackError, match="Backup retained"):
+        replace_mod(replacement_case, "import")
+    marker = manager.bulk_recovery_path(pack_id)
+    assert (marker.parent / "library-backup/extracted/Shared/mod.dll").read_bytes() == original_dll
+    monkeypatch.setattr(Path, "replace", real_replace)
+    monkeypatch.setattr(shutil, "rmtree", real_rmtree)
+    # Direct preparation, cached replacement and enabled toggles all consume
+    # that same artifact. A different version remains usable.
+    for action in (
+        lambda: manager.resolve_pack_artifacts(consumer.id),
+        lambda: manager.add_library_mod_to_pack(consumer.id, guid, key, repo=pin.repo),
+        lambda: manager.import_local_mod(archive, consumer.id, guid=guid),
+    ):
+        with pytest.raises(BulkRollbackError, match="artifact needs recovery"):
+            action()
+    assert manager.packs.manifest_path(consumer.id).read_bytes() == consumer_manifest
+    assert (manager.packs.plugins_dir(consumer.id) / "Shared/mod.dll").read_bytes() == original_dll
+    if consumer_repo == "catalog":
+        pack = manager.packs.get(consumer.id)
+        pack.find_mod(guid).repo = pin.repo
+        manager.packs.save(pack)
+    manager.set_mod_enabled(consumer.id, guid, False)
+    with pytest.raises(BulkRollbackError, match="artifact needs recovery"):
+        manager.set_mod_enabled(consumer.id, guid, True)
+    manager.resolve_pack_artifacts(unrelated.id)
+    assert (manager.packs.plugins_dir(unrelated.id) / "Shared/mod.dll").read_bytes() == b"old-b"
+
+
+@pytest.mark.parametrize("state", ["malformed", "resolved"])
+def test_external_recovery_records_do_not_gate_usable_cache(replacement_case, state, caplog):
+    import json
+
+    manager, pack_id, guid, _, _, _ = replacement_case
+    consumer = manager.packs.create("Usable cache")
+    manager.add_library_mod_to_pack(consumer.id, guid, "1.0.0")
+    work = manager.packs.pack_dir(pack_id) / ".bulk-external"
+    work.mkdir()
+    (work / "recovery-required.txt").write_text("Recovery facts\n", encoding="utf-8")
+    if state == "malformed":
+        (work / "transaction.json").write_text("{invalid", encoding="utf-8")
+    else:
+        (work / "transaction.json").write_text(json.dumps({
+            "library_artifact": str(manager.library.mod_dir(guid, "1.0.0")),
+        }), encoding="utf-8")
+        (work / "recovery-resolved.txt").write_text("Cleanup only\n", encoding="utf-8")
+    manager.resolve_pack_artifacts(consumer.id)
+    assert (manager.packs.plugins_dir(consumer.id) / "Shared/mod.dll").read_bytes() == b"old-b"
+    if state == "malformed":
+        assert "Could not read library recovery facts" in caplog.text
+
+
+def test_resolving_multiple_enabled_mods_scans_recovery_records_once(replacement_case, tmp_path, monkeypatch):
+    manager, pack_id, _, _, _, _ = replacement_case
+    other_guid = "com.example.other"
+    archive = zip_mod(tmp_path / "other.zip", {"Other/mod.dll": b"other"})
+    manager.library.ingest_mod_zip(
+        other_guid, "1.0.0", archive, version_raw="1.0.0", repo="", source_url=str(archive),
+    )
+    manager.add_library_mod_to_pack(pack_id, other_guid, "1.0.0")
+    scans = []
+    real_glob = Path.glob
+
+    def glob(path, pattern, *args, **kwargs):
+        if pattern == "*/.bulk-*/recovery-required.txt":
+            scans.append(path)
+        return real_glob(path, pattern, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "glob", glob)
+    manager.resolve_pack_artifacts(pack_id)
+    assert scans == [manager.paths.packs_dir]
+    plugins = manager.packs.plugins_dir(pack_id)
+    assert (plugins / "Shared/mod.dll").read_bytes() == b"old-b"
+    assert (plugins / "Other/mod.dll").read_bytes() == b"other"
+
+
 @pytest.mark.parametrize("caller", ["cached", "import"])
 @pytest.mark.parametrize("phase", ["copy", "backup", "promote", "manifest", "commit", "after_commit"])
 def test_failed_replacement_restores_files_and_exact_manifest(replacement_case, monkeypatch, caller, phase):
@@ -210,6 +429,9 @@ def test_same_version_reimport_preserves_active_files_on_failure(replacement_cas
     else:
         pin = replace_mod(replacement_case, "import")
         assert pin.version == "2.0.0" and pin.guid == guid
+    # Preparing the pack must not replay the payload of a failed reimport.
+    monkeypatch.setattr(Path, "replace", real_replace)
+    manager.resolve_pack_artifacts(pack_id)
     expected = before_dll if failure else before_dll + b"revision"
     assert (plugins / "Shared/mod.dll").read_bytes() == expected
     assert (plugins / "ZNew/mod.dll").read_bytes() == expected
