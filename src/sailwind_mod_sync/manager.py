@@ -922,45 +922,53 @@ class Manager:
         if previous and (not use_version or use_version in ("0", "0.0.0")):
             use_version = previous.version
             use_raw = previous.version_raw or previous.version
-        source = str(path)
-        if path.suffix.lower() == ".dll":
-            if progress:
-                progress(f"Importing {use_guid} {use_version}…")
-            meta = self.library.ingest_plugin_paths(
-                use_guid,
-                use_version,
-                [path],
-                version_raw=use_raw,
-                repo=plugin.repo or (previous.repo if previous else ""),
-                source_url=source,
+        use_repo = plugin.repo or (previous.repo if previous else "")
+        cache_key = self.library.artifact_key(use_guid, use_version, use_repo)
+        self._check_artifact_recovery(self.library.mod_dir(use_guid, cache_key))
+        # Ingestion can clear an existing artifact before extraction fails.
+        # Finish it off to the side, then commit cache and profile together.
+        with tempfile.TemporaryDirectory(prefix=".import-", dir=self.paths.root, ignore_cleanup_errors=True) as temp:
+            staging_library = LibraryStore(AppPaths(Path(temp)))
+            source = str(path)
+            if path.suffix.lower() == ".dll":
+                if progress:
+                    progress(f"Importing {use_guid} {use_version}…")
+                meta = staging_library.ingest_plugin_paths(
+                    use_guid,
+                    cache_key,
+                    [path],
+                    version_raw=use_raw,
+                    repo=use_repo,
+                    source_url=source,
+                )
+            elif path.suffix.lower() == ".zip":
+                if progress:
+                    progress(f"Importing {use_guid} {use_version}…")
+                meta = staging_library.ingest_mod_zip(
+                    use_guid,
+                    cache_key,
+                    path,
+                    version_raw=use_raw,
+                    repo=use_repo,
+                    source_url=source,
+                    filename=path.name,
+                )
+            else:
+                raise ValueError(f"Unsupported file type: {path.suffix}. Use a .dll or .zip.")
+            pinned = PinnedMod(
+                guid=meta.guid,
+                version=meta.version,
+                repo=meta.repo,
+                enabled=previous.enabled if previous else True,
+                plugin_folders=list(meta.plugin_folders),
+                version_raw=meta.version_raw,
             )
-        elif path.suffix.lower() == ".zip":
-            if progress:
-                progress(f"Importing {use_guid} {use_version}…")
-            meta = self.library.ingest_mod_zip(
-                use_guid,
-                use_version,
-                path,
-                version_raw=use_raw,
-                repo=plugin.repo or (previous.repo if previous else ""),
-                source_url=source,
-                filename=path.name,
+            self._change_pack_mod(
+                pack_id, pinned, staging_library.mod_extracted(meta.guid, cache_key),
+                install=pinned.enabled, require_artifact=True,
+                cache_target=self.library.mod_dir(meta.guid, cache_key),
             )
-        else:
-            raise ValueError(f"Unsupported file type: {path.suffix}. Use a .dll or .zip.")
-        pinned = PinnedMod(
-            guid=meta.guid,
-            version=meta.version,
-            repo=meta.repo,
-            enabled=previous.enabled if previous else True,
-            plugin_folders=list(meta.plugin_folders),
-            version_raw=meta.version_raw,
-        )
-        self._change_pack_mod(
-            pack_id, pinned, self.library.mod_extracted(meta.guid, meta.version),
-            install=pinned.enabled, require_artifact=True,
-        )
-        return pinned
+            return pinned
 
     def update_mod(self, pack_id: str, guid: str, progress: ProgressFn | None = None) -> PinnedMod:
         pack = self.packs.get(pack_id)
@@ -1057,12 +1065,14 @@ class Manager:
 
     def _change_pack_mod(
         self, pack_id: str, pinned: PinnedMod, extracted: Path, *,
-        install: bool, require_artifact: bool = False,
+        install: bool, require_artifact: bool = False, cache_target: Path | None = None,
     ) -> None:
         """Stage files before replacing a pin, retaining backups if rollback fails."""
         self._check_bulk_recovery(pack_id)
         pack = self.packs.get(pack_id)
         previous = pack.find_mod(pinned.guid)
+        if install or require_artifact or cache_target is not None:
+            self._check_artifact_recovery(cache_target if cache_target is not None else extracted.parent)
         artifact_folders = (
             [item.name for item in extracted.iterdir() if item.is_dir()]
             if install or require_artifact else []
@@ -1094,6 +1104,10 @@ class Manager:
         work = Path(tempfile.mkdtemp(prefix=".bulk-", dir=self.packs.pack_dir(pack_id)))
         staged = work / "staged"
         backup = work / "backup"
+        cache_backup = work / "library-backup"
+        cache_source = extracted.parent if cache_target is not None else None
+        cache_present = cache_target is not None and cache_target.exists()
+        cache_installed = False
         moved: list[str] = []
         installed: list[str] = []
         preserve = False
@@ -1124,6 +1138,9 @@ class Manager:
                 "originally_present": present,
                 "affected_folders": sorted(affected), "install_folders": folders,
             }
+            if cache_target is not None:
+                plan.update(library_artifact=str(cache_target), library_backup=str(cache_backup),
+                            library_originally_present=cache_present)
             (work / "transaction.json").write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
             marker = work / "recovery-required.txt"
             marker.write_text(
@@ -1150,6 +1167,16 @@ class Manager:
                 "Keep the separate copy until the recovered profile has been tested. Deleting the marker alone is not a repair.\n",
                 encoding="utf-8",
             )
+            if cache_target is not None:
+                with marker.open("a", encoding="utf-8") as instructions:
+                    instructions.write(
+                        "This local import also changes the library artifact recorded in transaction.json. "
+                        "Before restarting or preparing any profile that uses it, restore its original cache: "
+                        "if library_backup exists, preserve/remove the current library_artifact and move that "
+                        "backup back to library_artifact. If originally present without a backup, leave the "
+                        "current artifact alone and verify it as it may already be restored. If originally "
+                        "absent, preserve/remove the newly created artifact. Keep the separate copy until verified.\n"
+                    )
             preserve = True
             try:
                 for name in present:
@@ -1157,6 +1184,12 @@ class Manager:
                     if target.exists():
                         target.replace(backup / name)
                         moved.append(name)
+                if cache_target is not None:
+                    cache_target.parent.mkdir(parents=True, exist_ok=True)
+                    if cache_present:
+                        cache_target.replace(cache_backup)
+                    cache_source.replace(cache_target)
+                    cache_installed = True
                 for name in folders:
                     (staged / name).replace(plugins / name)
                     installed.append(name)
@@ -1169,6 +1202,16 @@ class Manager:
                         shutil.rmtree(plugins / name)
                     for name in moved:
                         (backup / name).replace(plugins / name)
+                    if cache_target is not None:
+                        # Backup presence also covers a rename that succeeded
+                        # before an exception was reported to the caller.
+                        if cache_backup.exists():
+                            if cache_target.exists():
+                                shutil.rmtree(cache_target)
+                            cache_backup.replace(cache_target)
+                        elif not cache_present and (cache_installed or not cache_source.exists()):
+                            if cache_target.exists():
+                                shutil.rmtree(cache_target)
                     active_manifest = self.packs.manifest_path(pack_id)
                     if active_manifest.read_bytes() != original_manifest:
                         restored_manifest = work / "restore-modpack.json"
@@ -1199,6 +1242,35 @@ class Manager:
         if marker is not None:
             raise BulkRollbackError(f"This profile needs recovery before playing or changing mods. See {marker}")
 
+    def _artifact_recovery_paths(self) -> dict[Path, Path]:
+        """Index retained cache transactions by their exact artifact directory."""
+        artifacts: dict[Path, Path] = {}
+        for marker in self.paths.packs_dir.glob("*/.bulk-*/recovery-required.txt"):
+            if (marker.parent / "recovery-resolved.txt").exists():
+                continue
+            try:
+                plan = json.loads((marker.parent / "transaction.json").read_text(encoding="utf-8"))
+                if not isinstance(plan, dict):
+                    raise ValueError("Recovery facts must be an object")
+                recorded = plan.get("library_artifact")
+                if recorded is None:
+                    continue  # Ordinary bulk-enable changes do not modify the cache.
+                if not isinstance(recorded, str) or not Path(recorded).is_absolute():
+                    raise ValueError("Recovery artifact path must be absolute")
+            except (OSError, ValueError):
+                log.warning("Could not read library recovery facts at %s", marker.parent, exc_info=True)
+                continue
+            artifacts[Path(recorded)] = marker
+        return artifacts
+
+    def _check_artifact_recovery(self, artifact_dir: Path, recovery: dict[Path, Path] | None = None) -> None:
+        """Do not reuse a shared cache whose retained transaction needs recovery."""
+        recovery = self._artifact_recovery_paths() if recovery is None else recovery
+        artifact_dir = artifact_dir.absolute()
+        if artifact_dir in recovery:
+            marker = recovery[artifact_dir]
+            raise BulkRollbackError(f"This library artifact needs recovery before it can be used. See {marker}")
+
     def prepare_pack(self, pack_id: str, progress: ProgressFn | None = None) -> Path:
         self._check_bulk_recovery(pack_id)
         pack = self.packs.get(pack_id)
@@ -1223,6 +1295,12 @@ class Manager:
 
     def resolve_pack_artifacts(self, pack_id: str, progress: ProgressFn | None = None) -> None:
         pack = self.packs.get(pack_id)
+        recovery = self._artifact_recovery_paths()
+        for pinned in pack.mods:
+            if pinned.enabled:
+                effective_repo = pinned.repo or self._download_repo(pinned)
+                key = self.library.artifact_key(pinned.guid, pinned.version, effective_repo)
+                self._check_artifact_recovery(self.library.mod_dir(pinned.guid, key), recovery)
         total = len(pack.mods)
         missing = 0
         log.info("Resolving %s mod(s) for pack %s (%s)", total, pack_id, pack.name)
