@@ -8,10 +8,12 @@ Grab `SailwindModSynchronizer-<version>-windows.zip` from the [latest release](h
 
 The exe is signed, but not yet with a publicly trusted certificate, so the first time you run it Windows SmartScreen may show **Windows protected your PC**. Click **More info**, then **Run anyway**.
 
+**Linux and Steam Deck:** grab `SailwindModSynchronizer-<version>-linux-x86_64.tar.gz` instead. See the [Linux and Steam Deck guide](docs/linux.md) for setup, getting mods to load through Proton, and Game Mode.
+
 ## Requirements
 
 - Python 3.11+
-- Windows (Sailwind / Doorstop `winhttp.dll`)
+- Windows, or Linux with Sailwind running through Proton (see the [Linux guide](docs/linux.md))
 - A Sailwind install (Steam appid `1764530`)
 
 ## Install and run
@@ -29,7 +31,7 @@ Or: `python -m sailwind_mod_sync`
 
 Config, catalog cache, artifact library, and ModPack instances live under:
 
-`%LOCALAPPDATA%\SailwindModSynchronizer`
+`%LOCALAPPDATA%\SailwindModSynchronizer` on Windows, or `~/.local/share/SailwindModSynchronizer` (`$XDG_DATA_HOME`) on Linux.
 
 Override with `SAILWIND_MOD_SYNC_HOME`.
 
