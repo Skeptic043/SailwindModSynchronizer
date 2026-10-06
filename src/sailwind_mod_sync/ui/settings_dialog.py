@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
@@ -76,6 +77,10 @@ class SettingsDialog(QDialog):
         self.warn_missing = QCheckBox("Warn when starting a pack with missing mods")
         self.warn_missing.setChecked(config.warn_missing_mods)
         form.addRow("Missing mods", self.warn_missing)
+        self.warn_launch_option = QCheckBox("Remind me when Sailwind's Steam launch options can't load mods")
+        self.warn_launch_option.setChecked(config.warn_proton_launch_option)
+        if os.name != "nt":
+            form.addRow("Proton", self.warn_launch_option)
         self.check_updates = QCheckBox("Check GitHub for Sailwind Mod Synchronizer updates")
         self.check_updates.setChecked(config.check_for_updates)
         form.addRow("App updates", self.check_updates)
@@ -131,6 +136,7 @@ class SettingsDialog(QDialog):
         config.game_path = self.game_path.text().strip()
         config.github_token = self.token.text().strip()
         config.warn_missing_mods = self.warn_missing.isChecked()
+        config.warn_proton_launch_option = self.warn_launch_option.isChecked()
         config.check_for_updates = self.check_updates.isChecked()
         config.auto_scan_mods = self.auto_scan.isChecked()
         config.auto_refresh_catalog = self.auto_refresh_catalog.isChecked()

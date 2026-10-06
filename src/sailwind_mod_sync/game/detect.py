@@ -30,6 +30,11 @@ def detect_game_path() -> Path | None:
     return None
 
 
+def steam_root() -> Path | None:
+    """The main Steam folder (where userdata and the Steam client live), or None."""
+    return _steam_install_path()
+
+
 def steam_libraries() -> list[Path]:
     """Every Steam library folder on this machine, the main Steam folder first."""
     steam_root = _steam_install_path()
