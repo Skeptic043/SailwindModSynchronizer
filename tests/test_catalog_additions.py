@@ -256,6 +256,131 @@ RELEASE_LAYOUTS = [
             "MoreSailwindSails.dll",
         ),
     ),
+    (
+        "DogEggz01/EconomyOverhaul",
+        "DogEggz.EconomyOverhaul",
+        "0.9.0",
+        "EconomyOverhaul-0.9.0.zip",
+        (
+            "EconomyOverhaul/EconomyOverhaul.dll",
+        ),
+    ),
+    (
+        "NANDbrew/HeadBonker",
+        "com.nandbrew.headbonker",
+        "v0.0.3",
+        "HeadBonker.zip",
+        (
+            "HeadBonker/bonk.wav",
+            "HeadBonker/HeadBonker.dll",
+        ),
+    ),
+    (
+        "DogEggz01/MooringLineFix",
+        "DogEggz.Moorlinefix",
+        "1.0.1",
+        "MooringLineFix-1.0.1.zip",
+        (
+            "MooringLineFix/MooringLineFix.dll",
+        ),
+    ),
+    (
+        "DogEggz01/Hercules-Throw",
+        "com.DogEggz.HerculesThrow",
+        "0.2.0",
+        "HerculesThrow-0.2.0.zip",
+        (
+            "HerculesThrow/HerculesThrow.dll",
+        ),
+    ),
+    (
+        "ExocetC3i/Sailwind_WaterIntakeModifier",
+        "com.Exocet.WaterIntakePatch",
+        "1.0.0",
+        "WaterIntakePatch.zip",
+        (
+            "WaterIntakePatch/WaterIntakePatch.dll",
+        ),
+    ),
+    (
+        "JohnGilb/SailwindPhysicsTuning",
+        "com.johng.physicstuning",
+        "1.0.0",
+        "PhysicsTuning.dll",
+        (
+            "PhysicsTuning.dll",
+        ),
+    ),
+    (
+        "Kemylar/SailwindWaterPushRestored",
+        "com.kemylar.sailwind.waterpushrestored",
+        "v1.0.2",
+        "SailwindWaterPushRestored.dll",
+        (
+            "SailwindWaterPushRestored.dll",
+        ),
+    ),
+    (
+        "GilanRanger/GreatLakesSailwind",
+        "com.greatlakes.navigation",
+        "0.3.0",
+        "GreatLakes-0.3.0.zip",
+        (
+            "CHANGELOG.md",
+            "Companion/map.html",
+            "Companion/README.txt",
+            "icon.png",
+            "LICENSE",
+            "manifest.json",
+            "plugins/GreatLakes/ATTRIBUTION.md",
+            "plugins/GreatLakes/coastline.bin",
+            "plugins/GreatLakes/fetch.bin",
+            "plugins/GreatLakes/GreatLakes.Celestial.dll",
+            "plugins/GreatLakes/GreatLakes.Charts.dll",
+            "plugins/GreatLakes/GreatLakes.Coast.dll",
+            "plugins/GreatLakes/GreatLakes.Layout.dll",
+            "plugins/GreatLakes/GreatLakes.Nav.dll",
+            "plugins/GreatLakes/GreatLakes.Plugin.dll",
+            "plugins/GreatLakes/GreatLakes.Weather.dll",
+            "plugins/GreatLakes/hyg-filtered.bin",
+            "plugins/GreatLakes/hyg-LICENSE.txt",
+            "plugins/GreatLakes/map_alankh.png",
+            "plugins/GreatLakes/map_emerald.png",
+            "plugins/GreatLakes/map_georef.txt",
+            "plugins/GreatLakes/map_medi.png",
+            "plugins/GreatLakes/map_ocean.png",
+            "plugins/GreatLakes/port_names.txt",
+            "plugins/GreatLakes/ports.bin",
+            "plugins/GreatLakes/regions.txt",
+            "plugins/GreatLakes/stars-named.json",
+            "plugins/GreatLakes/watercolors.txt",
+            "plugins/GreatLakes/windzones.txt",
+            "README.md",
+        ),
+    ),
+    (
+        "Skeptic043/ship-shuffle",
+        "com.skeptic043.sailwind.shipshuffle",
+        "v1.0.0",
+        "ShipShuffle-1.0.0.zip",
+        (
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "manifest.json",
+            "icon.png",
+            "BepInEx/plugins/ShipShuffle/ShipShuffle.dll",
+        ),
+    ),
+    (
+        "DiamondMiner99/sailwind-rigbalance",
+        "com.sailwindrigbalance.mod",
+        "v0.16.1",
+        "SailwindRigBalance-v0.16.1.zip",
+        (
+            "BepInEx/plugins/SailwindRigBalance/SailwindRigBalance.dll",
+        ),
+    ),
 ]
 
 
@@ -338,7 +463,31 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
     # All runtime binaries and asset files must survive folder filtering.
     for name in files:
         runtime_file = name.lower().endswith(".dll") or (
-            "/" in name and not name.startswith(("docs/", "licenses/"))
+            "/" in name and not name.startswith(("docs/", "licenses/", "Companion/"))
         )
         if runtime_file:
             assert Path(name).name in extracted_names
+            if repo == "GilanRanger/GreatLakesSailwind":
+                # The suite loads its data beside the DLLs in the same folder.
+                dlls = list(extracted.rglob("GreatLakes.Plugin.dll"))
+                assert len(dlls) == 1
+                assert (dlls[0].parent / Path(name).name).is_file()
+
+
+
+def test_great_lakes_is_a_single_bundle():
+    entries = merge_catalog(*_catalog_data())
+    matching = [entry for entry in entries if entry.repo.endswith("/GreatLakesSailwind")]
+    assert len(matching) == 1
+    entry = matching[0]
+    assert entry.name == "Great Lakes"
+    assert entry.primary_guid == "com.greatlakes.navigation"
+    assert entry.plugin_folders == ["GreatLakes"]
+
+
+def test_rig_balance_resolves_current_guid_once():
+    entries = merge_catalog(*_catalog_data())
+    matching = [entry for entry in entries if entry.repo.endswith("/sailwind-rigbalance")]
+    assert len(matching) == 1
+    assert matching[0].guids == ["com.sailwindrigbalance.mod"]
+    assert matching[0].latest_raw == "v0.16.1"

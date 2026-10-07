@@ -75,7 +75,7 @@
     "version": "v0.1.0"
   },
   {
-    "guid": "SailwindRigBalance.UI",
+    "guid": "com.sailwindrigbalance.mod",
     "repo": "https://github.com/DiamondMiner99/sailwind-rigbalance",
     "version": "v0.16.1"
   },
@@ -198,5 +198,50 @@
     "guid": "com.zorkinian.virtualcrew",
     "repo": "https://github.com/JohnGilb/SailwindVirtualCrew",
     "version": "0.2.2"
+  },
+  {
+    "guid": "DogEggz.EconomyOverhaul",
+    "repo": "https://github.com/DogEggz01/EconomyOverhaul",
+    "version": "0.9.0"
+  },
+  {
+    "guid": "com.nandbrew.headbonker",
+    "repo": "https://github.com/NANDbrew/HeadBonker",
+    "version": "v0.0.3"
+  },
+  {
+    "guid": "DogEggz.Moorlinefix",
+    "repo": "https://github.com/DogEggz01/MooringLineFix",
+    "version": "1.0.1"
+  },
+  {
+    "guid": "com.DogEggz.HerculesThrow",
+    "repo": "https://github.com/DogEggz01/Hercules-Throw",
+    "version": "0.2.0"
+  },
+  {
+    "guid": "com.Exocet.WaterIntakePatch",
+    "repo": "https://github.com/ExocetC3i/Sailwind_WaterIntakeModifier",
+    "version": "1.0.0"
+  },
+  {
+    "guid": "com.johng.physicstuning",
+    "repo": "https://github.com/JohnGilb/SailwindPhysicsTuning",
+    "version": "1.0.0"
+  },
+  {
+    "guid": "com.kemylar.sailwind.waterpushrestored",
+    "repo": "https://github.com/Kemylar/SailwindWaterPushRestored",
+    "version": "v1.0.2"
+  },
+  {
+    "guid": "com.greatlakes.navigation",
+    "repo": "https://github.com/GilanRanger/GreatLakesSailwind",
+    "version": "0.3.0"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.shipshuffle",
+    "repo": "https://github.com/Skeptic043/ship-shuffle",
+    "version": "v1.0.0"
   }
 ]
