@@ -1,5 +1,9 @@
 # Change Log
 
+## 0.6.1 (2026-10-06)
+
+- On Linux, buttons that open a web page, such as **Settings → GitHub token → Create…**, now show an error when no browser could be opened, instead of doing nothing. The message includes the link so you can copy it into your browser.
+
 ## 0.6.0 (2026-10-06)
 
 - **Linux and Steam Deck support.** Download the `linux-x86_64.tar.gz` and see the Linux guide in the project's `docs/linux.md`. The app finds Steam and Sailwind on Linux (including SD cards and Flatpak Steam), launches ModPacks through Proton, and backs up the saves Proton keeps.
