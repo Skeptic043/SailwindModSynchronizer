@@ -11,6 +11,12 @@ from sailwind_mod_sync.models import CatalogEntry
 from sailwind_mod_sync.paths import AppPaths
 
 
+@pytest.fixture(autouse=True)
+def no_real_xdg_open(monkeypatch):
+    # On Linux, links.open_web_url runs xdg-open itself; never launch a real browser from tests.
+    monkeypatch.setattr("sailwind_mod_sync.ui.links._xdg_open", lambda url: None)
+
+
 @pytest.fixture
 def data_root(tmp_path: Path) -> Path:
     root = tmp_path / "home"

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QPalette
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -22,6 +22,7 @@ from sailwind_mod_sync.catalog.custom import same_repo
 from sailwind_mod_sync.catalog.github import repo_page_url, repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, is_newer
+from sailwind_mod_sync.ui.links import open_web_url
 from sailwind_mod_sync.ui.tables import (
     enable_column_resize,
     enable_column_sort,
@@ -492,7 +493,7 @@ class PackView(QWidget):
             label = "Open GitLab in Browser" if "gitlab.com" in page.lower() else "Open GitHub in Browser"
             open_repo = menu.addAction(label)
             open_repo.setToolTip(page)
-            open_repo.triggered.connect(lambda _=False, url=page: QDesktopServices.openUrl(QUrl(url)))
+            open_repo.triggered.connect(lambda _=False, url=page: open_web_url(url, self))
         else:
             add_repo = menu.addAction("Add Repository")
             add_repo.setEnabled(editable)

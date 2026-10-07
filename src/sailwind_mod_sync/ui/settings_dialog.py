@@ -29,6 +29,7 @@ from sailwind_mod_sync.game.proton import (
     sailwind_prefix_registry,
 )
 from sailwind_mod_sync.paths import AppPaths
+from sailwind_mod_sync.ui.links import open_web_url
 
 
 class SettingsDialog(QDialog):
@@ -138,7 +139,7 @@ class SettingsDialog(QDialog):
         self.auto_scan.setEnabled(bool(text.strip()))
 
     def _open_github_token_page(self) -> None:
-        QDesktopServices.openUrl(QUrl(GITHUB_NEW_TOKEN_URL))
+        open_web_url(GITHUB_NEW_TOKEN_URL, self)
 
     def _browse_game(self) -> None:
         start = self.game_path.text() or str(Path.home())

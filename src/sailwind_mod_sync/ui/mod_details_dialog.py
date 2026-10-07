@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt, QUrl, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -20,6 +19,7 @@ from sailwind_mod_sync.catalog.github import repo_page_url
 from sailwind_mod_sync.http_util import ProgressFn
 from sailwind_mod_sync.models import ModDetails, RemoteModInfo
 from sailwind_mod_sync.ui.library_view import format_size
+from sailwind_mod_sync.ui.links import open_web_url
 from sailwind_mod_sync.ui.workers import TaskBridge, run_background
 
 
@@ -145,7 +145,7 @@ def _repo_row(repo: str) -> QWidget:
     layout.addWidget(_selectable(page or repo or "—"), 1)
     if page:
         button = QPushButton("Open")
-        button.clicked.connect(lambda _=False, url=page: QDesktopServices.openUrl(QUrl(url)))
+        button.clicked.connect(lambda _=False, url=page: open_web_url(url, self))
         layout.addWidget(button)
     return row
 

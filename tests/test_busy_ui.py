@@ -1042,7 +1042,7 @@ def test_pack_view_context_menu_moves_github_off_row(monkeypatch) -> None:
     )
     opened: list[str] = []
     monkeypatch.setattr(
-        "sailwind_mod_sync.ui.pack_view.QDesktopServices.openUrl",
+        "sailwind_mod_sync.ui.links.QDesktopServices.openUrl",
         lambda url: opened.append(url.toString()) or True,
     )
     try:
