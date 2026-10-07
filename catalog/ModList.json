@@ -90,7 +90,7 @@
     "plugin_folders": ["SailwindRichPresence"]
   },
   {
-    "guid": "SailwindRigBalance.UI",
+    "guid": "com.sailwindrigbalance.mod",
     "repo": "https://github.com/DiamondMiner99/sailwind-rigbalance",
     "name": "SailwindRigBalance",
     "plugin_folders": ["SailwindRigBalance"]
@@ -238,5 +238,59 @@
     "repo": "https://github.com/JohnGilb/SailwindVirtualCrew",
     "name": "Virtual Crew",
     "plugin_folders": ["SailwindVirtualCrew"]
+  },
+  {
+    "guid": "DogEggz.EconomyOverhaul",
+    "repo": "https://github.com/DogEggz01/EconomyOverhaul",
+    "name": "EconomyOverhaul",
+    "plugin_folders": ["EconomyOverhaul"]
+  },
+  {
+    "guid": "com.nandbrew.headbonker",
+    "repo": "https://github.com/NANDbrew/HeadBonker",
+    "name": "HeadBonker",
+    "plugin_folders": ["HeadBonker"]
+  },
+  {
+    "guid": "DogEggz.Moorlinefix",
+    "repo": "https://github.com/DogEggz01/MooringLineFix",
+    "name": "MooringLineFix",
+    "plugin_folders": ["MooringLineFix"]
+  },
+  {
+    "guid": "com.DogEggz.HerculesThrow",
+    "repo": "https://github.com/DogEggz01/Hercules-Throw",
+    "name": "Hercules Throw",
+    "plugin_folders": ["HerculesThrow"]
+  },
+  {
+    "guid": "com.Exocet.WaterIntakePatch",
+    "repo": "https://github.com/ExocetC3i/Sailwind_WaterIntakeModifier",
+    "name": "Water Intake Patch",
+    "plugin_folders": ["WaterIntakePatch"]
+  },
+  {
+    "guid": "com.johng.physicstuning",
+    "repo": "https://github.com/JohnGilb/SailwindPhysicsTuning",
+    "name": "PhysicsTuning",
+    "plugin_folders": ["PhysicsTuning"]
+  },
+  {
+    "guid": "com.kemylar.sailwind.waterpushrestored",
+    "repo": "https://github.com/Kemylar/SailwindWaterPushRestored",
+    "name": "Water Push Restored",
+    "plugin_folders": ["SailwindWaterPushRestored"]
+  },
+  {
+    "guid": "com.greatlakes.navigation",
+    "repo": "https://github.com/GilanRanger/GreatLakesSailwind",
+    "name": "Great Lakes",
+    "plugin_folders": ["GreatLakes"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.shipshuffle",
+    "repo": "https://github.com/Skeptic043/ship-shuffle",
+    "name": "Ship Shuffle",
+    "plugin_folders": ["ShipShuffle"]
   }
 ]
