@@ -62,7 +62,7 @@ from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
 from sailwind_mod_sync.ui.launch_splash import LaunchSplash
 from sailwind_mod_sync.ui.library_view import format_size
-from sailwind_mod_sync.ui.links import help_text_to_html
+from sailwind_mod_sync.ui.links import help_text_to_html, open_web_url
 from sailwind_mod_sync.ui.mod_details_dialog import ModDetailsDialog
 from sailwind_mod_sync.ui.missing_mods_dialog import MissingModsWarningDialog
 from sailwind_mod_sync.ui.pack_view import PackView
@@ -607,7 +607,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Skipping {update.version_raw}")
             return
         if choice == OPEN:
-            QDesktopServices.openUrl(QUrl(update.html_url))
+            open_web_url(update.html_url, self)
             return
         if choice != UPDATE:
             return
