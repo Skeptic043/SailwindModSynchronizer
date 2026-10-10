@@ -381,7 +381,46 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/SailwindRigBalance/SailwindRigBalance.dll",
         ),
     ),
+    (
+        "winterspices/AgeOfExploration",
+        "com.winter.ageofexploration",
+        "v0.1.2",
+        "AgeOfExploration.zip",
+        (
+            "AgeOfExploration/exploration",
+            "AgeOfExploration/exploration.dll",
+            "AgeOfExploration/exploration.manifest",
+        ),
+    ),
+    (
+        "KeeviDev/SailwindKeeviFixes",
+        "com.keevi.fixes",
+        "v1.0.1",
+        "KeeviFixes-1.0.1.zip",
+        (
+            "KeeviFixes/KeeviFixes.dll",
+        ),
+    ),
+    (
+        "TheOriginOfAllEvil/The-Gaff-Pack",
+        "com.TheOriginOfAllEvil.S_Topsail1",
+        "v0.4.0",
+        "Crystal.Isles.Sail.Pack.0.4.0.zip",
+        (
+            "Crystal Isles Sail Pack/s_jackyard_gaff_136",
+            "Crystal Isles Sail Pack/s_jackyard_gaff_136.manifest",
+            "Crystal Isles Sail Pack/S_Jackyard1_Patcher.dll",
+            "Crystal Isles Sail Pack/s_topsail_gaff_135",
+            "Crystal Isles Sail Pack/s_topsail_gaff_135.manifest",
+            "Crystal Isles Sail Pack/S_Topsail1_Patcher.dll",
+        ),
+    ),
 ]
+
+FIXED_PLUGIN_FOLDERS = {
+    "winterspices/AgeOfExploration": "AgeOfExploration",
+    "TheOriginOfAllEvil/The-Gaff-Pack": "Crystal Isles Sail Pack",
+}
 
 
 def _catalog_data():
@@ -472,6 +511,11 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
                 dlls = list(extracted.rglob("GreatLakes.Plugin.dll"))
                 assert len(dlls) == 1
                 assert (dlls[0].parent / Path(name).name).is_file()
+            if repo in FIXED_PLUGIN_FOLDERS:
+                # These load bundles from a hardcoded BepInEx/plugins/<folder> path.
+                folder = FIXED_PLUGIN_FOLDERS[repo]
+                assert entry.plugin_folders == [folder]
+                assert (extracted / folder / Path(name).name).is_file()
 
 
 

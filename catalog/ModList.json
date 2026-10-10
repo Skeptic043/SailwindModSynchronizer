@@ -292,5 +292,23 @@
     "repo": "https://github.com/Skeptic043/ship-shuffle",
     "name": "Ship Shuffle",
     "plugin_folders": ["ShipShuffle"]
+  },
+  {
+    "guid": "com.winter.ageofexploration",
+    "repo": "https://github.com/winterspices/AgeOfExploration",
+    "name": "Age of Exploration",
+    "plugin_folders": ["AgeOfExploration"]
+  },
+  {
+    "guid": "com.keevi.fixes",
+    "repo": "https://github.com/KeeviDev/SailwindKeeviFixes",
+    "name": "Keevi Fixes",
+    "plugin_folders": ["KeeviFixes"]
+  },
+  {
+    "guid": "com.TheOriginOfAllEvil.S_Topsail1",
+    "repo": "https://github.com/TheOriginOfAllEvil/The-Gaff-Pack",
+    "name": "The Gaff Pack",
+    "plugin_folders": ["Crystal Isles Sail Pack"]
   }
 ]
