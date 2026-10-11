@@ -243,5 +243,20 @@
     "guid": "com.skeptic043.sailwind.shipshuffle",
     "repo": "https://github.com/Skeptic043/ship-shuffle",
     "version": "v1.0.0"
+  },
+  {
+    "guid": "com.winter.ageofexploration",
+    "repo": "https://github.com/winterspices/AgeOfExploration",
+    "version": "v0.1.2"
+  },
+  {
+    "guid": "com.keevi.fixes",
+    "repo": "https://github.com/KeeviDev/SailwindKeeviFixes",
+    "version": "v1.0.1"
+  },
+  {
+    "guid": "com.TheOriginOfAllEvil.S_Topsail1",
+    "repo": "https://github.com/TheOriginOfAllEvil/The-Gaff-Pack",
+    "version": "v0.4.0"
   }
 ]
