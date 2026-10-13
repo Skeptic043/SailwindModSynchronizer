@@ -1604,3 +1604,34 @@ def test_switch_source_lists_only_versions_of_the_new_source(paths: AppPaths, mo
     assert "me/mod-fork" in fork_hint and "Only releases of this source" in fork_hint
     same_labels, _ = shown[1]
     assert any("1.2.0" in label and "current" in label for label in same_labels)
+
+
+def test_file_conflicts_are_asked_on_the_gui_thread(window, pump_until, monkeypatch):
+    import threading
+
+    from sailwind_mod_sync.packs.plugin_files import FileConflict
+    from sailwind_mod_sync.ui.file_conflict_dialog import FileConflictDialog
+
+    app, window = window
+    conflicts = [
+        FileConflict("example.test", "Test/a.cfg"),
+        FileConflict("example.test", "Test/ship.json", ("BOAT BRIG (10)/drag",), merged=True),
+    ]
+    on_gui_thread = []
+
+    def answer(dialog):
+        on_gui_thread.append(threading.current_thread() is threading.main_thread())
+        if len(on_gui_thread) > 1:
+            return 0  # Closing the dialog keeps the player's versions.
+        next(button for button in dialog.findChildren(QPushButton) if button.text() == "Use all new").click()
+        return 1
+
+    monkeypatch.setattr(FileConflictDialog, "exec", answer)
+    results = []
+    worker = threading.Thread(target=lambda: results.append(window._resolve_file_conflicts(conflicts)))
+    worker.start()
+    assert pump_until(app, lambda: bool(results))
+    worker.join()
+    assert results == [set(conflicts)]
+    assert window._resolve_file_conflicts(conflicts) == set()
+    assert on_gui_thread == [True, True]

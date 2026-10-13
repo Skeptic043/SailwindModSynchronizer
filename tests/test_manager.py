@@ -1293,7 +1293,7 @@ def test_update_mods_continues_past_failures(paths: AppPaths, monkeypatch) -> No
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
     pack = manager.packs.create("Crew")
 
-    def fake_update(pack_id, guid, progress=None):
+    def fake_update(pack_id, guid, progress=None, **kwargs):
         if guid == "com.example.broken":
             raise RuntimeError("No GitHub release")
         return PinnedMod(guid=guid, version="2.0.0")
@@ -1433,3 +1433,77 @@ def test_strict_library_versions_leave_out_imported_files(paths: AppPaths, tmp_p
         assert manager.library_versions("com.example.mod", fork, strict=True) == [("1.1.0", "v1.1.0")]
     finally:
         manager.close()
+
+
+def _drag_pack(manager: Manager, tmp_path: Path, name: str = "Drag") -> tuple[str, Path]:
+    """A pack whose Better Drag style mod ships a DLL and an overrides file; return its id and plugins folder."""
+    archive = _zip_with(tmp_path / "drag.zip", {"Drag/drag.dll": b"MZ", "Drag/ship.json": b'{"brig": 1}\n'})
+    manager.library.ingest_mod_zip(
+        "com.example.betterdrag", "1.0.0", archive, version_raw="1.0.0", repo="https://github.com/example/drag",
+        source_url="https://example/drag.zip",
+    )
+    pack = manager.packs.create(name)
+    return pack.id, manager.packs.plugins_dir(pack.id)
+
+
+def test_prepare_keeps_files_edited_before_the_install_record_existed(paths: AppPaths, tmp_path: Path) -> None:
+    import shutil
+
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    guid = "com.example.betterdrag"
+    pack_id, plugins = _drag_pack(manager, tmp_path)
+    manager.packs.upsert_mod(pack_id, PinnedMod(
+        guid=guid, version="1.0.0", repo="https://github.com/example/drag", plugin_folders=["Drag"],
+    ))
+    # What an older release left behind: the package copied in and edited by the player.
+    shutil.copytree(manager.library.mod_extracted(guid, "1.0.0") / "Drag", plugins / "Drag")
+    (plugins / "Drag/ship.json").write_bytes(b'{"brig": 2}\n')
+    copy = manager.packs.duplicate(pack_id, "Copy")
+    for target in (pack_id, copy.id, pack_id, copy.id):
+        manager.resolve_pack_artifacts(target, resolve_conflicts=lambda _c: pytest.fail("Nothing to ask"))
+        folder = manager.packs.plugins_dir(target) / "Drag"
+        assert (folder / "ship.json").read_bytes() == b'{"brig": 2}\n'
+        assert (folder / "drag.dll").read_bytes() == b"MZ"
+    manager.close()
+
+
+def test_removed_mod_comes_back_clean(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    guid = "com.example.betterdrag"
+    pack_id, plugins = _drag_pack(manager, tmp_path)
+    manager.add_library_mod_to_pack(pack_id, guid, "1.0.0")
+    (plugins / "Drag/ship.json").write_bytes(b'{"brig": 2}\n')
+    (plugins / "Drag/scramble_1.json").write_bytes(b"{}")
+    manager.packs.remove_mod(pack_id, guid)
+    assert not (plugins / "Drag").exists()
+    manager.add_library_mod_to_pack(pack_id, guid, "1.0.0")
+    manager.resolve_pack_artifacts(pack_id, resolve_conflicts=lambda _c: pytest.fail("Nothing to ask"))
+    assert {path.name: path.read_bytes() for path in (plugins / "Drag").iterdir()} == {
+        "drag.dll": b"MZ", "ship.json": b'{"brig": 1}\n',
+    }
+    manager.close()
+
+
+@pytest.mark.parametrize("second_enabled", [True, False])
+def test_mods_sharing_a_plugin_folder_keep_each_others_files(
+    paths: AppPaths, tmp_path: Path, second_enabled: bool,
+) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    pack = manager.packs.create("Shared folder")
+    for name, enabled in (("first", True), ("second", second_enabled)):
+        guid = f"com.example.{name}"
+        archive = _zip_with(tmp_path / f"{name}.zip", {f"Common/{name}.dll": name.encode()})
+        manager.library.ingest_mod_zip(
+            guid, "1.0.0", archive, version_raw="1.0.0", repo=f"https://github.com/example/{name}",
+            source_url=f"https://example/{name}.zip",
+        )
+        # Pins can arrive from a share code, which does not check folder ownership.
+        manager.packs.upsert_mod(pack.id, PinnedMod(
+            guid=guid, version="1.0.0", repo=f"https://github.com/example/{name}",
+            enabled=enabled, plugin_folders=["Common"],
+        ))
+    expected = {"first.dll", "second.dll"} if second_enabled else {"first.dll"}
+    for _ in range(3):
+        manager.resolve_pack_artifacts(pack.id)
+        assert {path.name for path in (manager.packs.plugins_dir(pack.id) / "Common").iterdir()} == expected
+    manager.close()

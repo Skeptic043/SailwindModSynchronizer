@@ -6,6 +6,17 @@ from pathlib import Path
 
 from sailwind_mod_sync.library.store import LibraryStore
 from sailwind_mod_sync.models import ModPack, PinnedMod
+from sailwind_mod_sync.packs.plugin_files import (
+    ConflictResolver,
+    FilePlan,
+    apply_file_plan,
+    ask_conflicts,
+    baseline_from_package,
+    load_baselines,
+    package_paths,
+    plan_mod_files,
+    save_records,
+)
 
 log = logging.getLogger(__name__)
 
@@ -37,25 +48,49 @@ def ensure_instance_bepinex(instance_dir: Path, bepinex_extracted: Path) -> Path
     return preloader
 
 
-def sync_pack_plugins(pack: ModPack, plugins_dir: Path, store: LibraryStore) -> None:
+def sync_pack_plugins(
+    pack: ModPack, plugins_dir: Path, store: LibraryStore, pack_dir: Path,
+    resolve_conflicts: ConflictResolver | None = None,
+) -> None:
+    """Bring each mod's folders to its pinned package, keeping files players and mods changed."""
     plugins_dir.mkdir(parents=True, exist_ok=True)
+    baselines = load_baselines(pack_dir)
+    mods = []
+    claims: dict[str, set[str]] = {}
     for pinned in pack.mods:
-        if not pinned.enabled:
-            remove_plugin_folders(plugins_dir, pinned.plugin_folders)
-            continue
         key = store.pinned_key(pinned)
-        if not store.has_mod(pinned.guid, key):
-            continue
+        available = store.has_mod(pinned.guid, key)
         extracted = store.mod_extracted(pinned.guid, key)
-        folders = pinned.plugin_folders or [p.name for p in extracted.iterdir() if p.is_dir()]
-        for folder in folders:
-            src = extracted / folder
-            dst = plugins_dir / folder
-            if not src.exists():
-                continue
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
+        folders = pinned.plugin_folders
+        if pinned.enabled and available:
+            folders = pinned.plugin_folders or [p.name for p in extracted.iterdir() if p.is_dir()]
+            folders = [folder for folder in folders if (extracted / folder).exists()]
+        mods.append((pinned, key, available, extracted, folders))
+        # Mods can share a folder; each one only manages the files its package or record names.
+        recorded = baselines.get(pinned.guid)
+        claims[pinned.guid] = (package_paths(extracted, folders) if available else set()) | {
+            relpath.casefold() for relpath in (recorded.files if recorded is not None else ())
+        }
+    plans: list[tuple[FilePlan, str | None]] = []
+    for pinned, key, available, extracted, folders in mods:
+        claimed = set().union(*(paths for guid, paths in claims.items() if guid != pinned.guid))
+        baseline = baselines.get(pinned.guid)
+        if not pinned.enabled:
+            # BepInEx loads only DLLs, so edited and runtime files can stay for re-enabling.
+            if baseline is None and available:
+                baseline = baseline_from_package(extracted, folders)
+            plans.append((plan_mod_files(pinned.guid, None, [], plugins_dir, folders, baseline, claimed), None))
+            continue
+        if not available:
+            continue
+        # Packs prepared before the record existed were reset to the package on every launch.
+        baseline = baseline or baseline_from_package(extracted, folders)
+        plans.append((plan_mod_files(pinned.guid, extracted, folders, plugins_dir, folders, baseline, claimed), key))
+    use_new = ask_conflicts([plan for plan, _ in plans], resolve_conflicts)
+    for plan, _ in plans:
+        apply_file_plan(plan, use_new, plugins_dir)
+    save_records(pack_dir, [(plan, key) for plan, key in plans if key is not None],
+                 asked=resolve_conflicts is not None)
 
 
 def install_pinned_into_plugins(pinned: PinnedMod, extracted: Path, plugins_dir: Path) -> list[str]:

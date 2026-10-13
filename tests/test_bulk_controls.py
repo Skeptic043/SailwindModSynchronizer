@@ -233,10 +233,10 @@ def test_bulk_partial_failure_restores_controls_and_actual_checkboxes(window, ma
     add_mod(manager, pack, "example.good")
     add_mod(manager, pack, "example.missing", artifact=False)
     original_change = manager._set_bulk_mod_enabled
-    def fail_one(pack_id, guid, enabled):
+    def fail_one(pack_id, guid, enabled, *rest):
         if guid == "example.missing":
             raise PermissionError("injected profile write failure")
-        return original_change(pack_id, guid, enabled)
+        return original_change(pack_id, guid, enabled, *rest)
     monkeypatch.setattr(manager, "_set_bulk_mod_enabled", fail_one)
     window._reload_views()
     messages = []
@@ -337,11 +337,11 @@ def test_bulk_subtitle_counts_only_committed_mods_while_running(window, manager,
     window._reload_views()
     reached_second, release = threading.Event(), threading.Event()
     original = manager._set_bulk_mod_enabled
-    def delayed(pack_id, guid, enabled):
+    def delayed(pack_id, guid, enabled, *rest):
         if guid == "example.second":
             reached_second.set()
             assert release.wait(5)
-        return original(pack_id, guid, enabled)
+        return original(pack_id, guid, enabled, *rest)
     monkeypatch.setattr(manager, "_set_bulk_mod_enabled", delayed)
     try:
         window._set_all_mods_enabled(True)
@@ -957,7 +957,7 @@ def test_update_all_updates_pack_mods_and_reports_failures(window, manager, monk
     pack = manager.packs.get(manager.config.last_pack_id)
     calls: list[tuple[str, list[str]]] = []
 
-    def fake_update_mods(pack_id, guids, progress=None):
+    def fake_update_mods(pack_id, guids, progress=None, **kwargs):
         calls.append((pack_id, list(guids)))
         return [PinnedMod(guid="example.test", version="1.0.0")], ["example.broken: No GitHub release"]
 
