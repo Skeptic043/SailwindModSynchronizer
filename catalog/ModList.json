@@ -310,5 +310,53 @@
     "repo": "https://github.com/TheOriginOfAllEvil/The-Gaff-Pack",
     "name": "The Gaff Pack",
     "plugin_folders": ["Crystal Isles Sail Pack"]
+  },
+  {
+    "guid": "DogEggz.WindTotem",
+    "repo": "https://github.com/DogEggz01/WindTotem",
+    "name": "Wind Totem",
+    "plugin_folders": ["WindTotem"]
+  },
+  {
+    "guid": "gillez.islandtime",
+    "repo": "https://github.com/g1llez/sailwind-islandtime",
+    "name": "Island Time",
+    "plugin_folders": ["IslandTime"]
+  },
+  {
+    "guid": "DogEggz.PlayerHeightandWeight",
+    "repo": "https://github.com/DogEggz01/PlayerheightandWeight",
+    "name": "Player Height and Weight",
+    "plugin_folders": ["PlayerHeightandWeight"]
+  },
+  {
+    "guid": "com.yourname.sailwind.sealifeplugin",
+    "repo": "https://github.com/BryanP-JP19/SailwindSeaLifeMod",
+    "name": "Sea Life Mod",
+    "plugin_folders": ["SeaLifeMod"]
+  },
+  {
+    "guid": "com.sailwind.movementwinchtoggles",
+    "repo": "https://github.com/ExocetC3i/Sailwind_PushToToggleInputs",
+    "name": "Push-to-Toggle Inputs",
+    "plugin_folders": ["Sailwind_PushToToggleInputs"]
+  },
+  {
+    "guid": "com.app24.sailwindmoddinghelper",
+    "repo": "https://github.com/AppSailwindMods/SailwindModdingHelper",
+    "name": "Sailwind Modding Helper",
+    "plugin_folders": ["SailwindModdingHelper"]
+  },
+  {
+    "guid": "com.user.zorkfixes",
+    "repo": "https://github.com/JohnGilb/SailwindFixes",
+    "name": "Zork Fixes",
+    "plugin_folders": ["ZorkFixes"]
+  },
+  {
+    "guid": "com.sailwind.removefirstofficerrequirement",
+    "repo": "https://github.com/ExocetC3i/VirtualCrew_CaptainSetsWatches",
+    "name": "Remove First Officer Requirement",
+    "plugin_folders": ["RemoveFirstOfficerRequirement"]
   }
 ]

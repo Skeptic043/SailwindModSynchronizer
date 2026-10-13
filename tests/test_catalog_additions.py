@@ -12,12 +12,13 @@ from pathlib import Path
 import pytest
 
 from sailwind_mod_sync.catalog.mvc import merge_catalog
+from sailwind_mod_sync.http_util import HttpError
 from sailwind_mod_sync.library.download import ensure_mod_artifact
 from sailwind_mod_sync.library.store import LibraryStore
 from sailwind_mod_sync.paths import AppPaths
 
 
-# Each source is https://github.com/{repo}/releases/tag/{tag}.
+# Each source is https://github.com/{repo}/releases/tag/{release tag}.
 # GUIDs were verified from BepInPlugin attributes in those released DLLs.
 RELEASE_LAYOUTS = [
     (
@@ -107,8 +108,8 @@ RELEASE_LAYOUTS = [
     (
         "foxyv/DizzyFirewoodBundle",
         "com.dizzy.sailwind.firewoodbundle",
-        "v0.3.1",
-        "Dizzy.FirewoodBundle-0.3.1.zip",
+        "v0.12.0",
+        "Dizzy.FirewoodBundle-0.12.0.zip",
         (
             "Dizzy.FirewoodBundle/Dizzy.FirewoodBundle.dll",
             "Dizzy.FirewoodBundle/LICENSE",
@@ -128,8 +129,8 @@ RELEASE_LAYOUTS = [
     (
         "KeeviDev/SailwindDeftHands",
         "com.keevi.defthands",
-        "v1.2.0",
-        "DeftHands-1.2.0.zip",
+        "v1.2.1",
+        "DeftHands-1.2.1.zip",
         (
             "DeftHands/DeftHands.dll",
         ),
@@ -250,7 +251,7 @@ RELEASE_LAYOUTS = [
     (
         "sum-rock/MoreSailwindSails",
         "com.august.moresailwindsails",
-        "v0.2.1",
+        "v0.2.2",
         "MoreSailwindSails.dll",
         (
             "MoreSailwindSails.dll",
@@ -259,8 +260,8 @@ RELEASE_LAYOUTS = [
     (
         "DogEggz01/EconomyOverhaul",
         "DogEggz.EconomyOverhaul",
-        "0.9.0",
-        "EconomyOverhaul-0.9.0.zip",
+        "0.9.5",
+        "EconomyOverhaul-0.9.5.zip",
         (
             "EconomyOverhaul/EconomyOverhaul.dll",
         ),
@@ -415,7 +416,99 @@ RELEASE_LAYOUTS = [
             "Crystal Isles Sail Pack/S_Topsail1_Patcher.dll",
         ),
     ),
+    (
+        "DogEggz01/WindTotem",
+        "DogEggz.WindTotem",
+        "1.0.5",
+        "WindTotem-1.0.5.zip",
+        (
+            "WindTotem/WindTotem.dll",
+            "WindTotem/windtotem_assets",
+        ),
+    ),
+    (
+        "g1llez/sailwind-islandtime",
+        "gillez.islandtime",
+        "v1.0.0",
+        "IslandTime_v1.0.0.zip",
+        (
+            "IslandTime/IslandTime.dll",
+            "IslandTime/README.txt",
+        ),
+    ),
+    (
+        "DogEggz01/PlayerheightandWeight",
+        "DogEggz.PlayerHeightandWeight",
+        "1.0.0",
+        "PlayerHeightandWeight-1.0.0.zip",
+        (
+            "PlayerHeightandWeight/PlayerHeightandWeight.dll",
+        ),
+    ),
+    (
+        "BryanP-JP19/SailwindSeaLifeMod",
+        "com.yourname.sailwind.sealifeplugin",
+        "0.0.1",
+        "SeaLifeMod.zip",
+        (
+            "SeaLifeMod/SeaLifeMod",
+            "SeaLifeMod/SeaLifeMod.dll",
+            "SeaLifeMod/SeaLifeMod.manifest",
+            "SeaLifeMod/assets",
+            "SeaLifeMod/assets.manifest",
+        ),
+    ),
+    (
+        "ExocetC3i/Sailwind_PushToToggleInputs",
+        "com.sailwind.movementwinchtoggles",
+        "v1.0.1",
+        "Sailwind_PushToToggleInputs.zip",
+        (
+            "Sailwind_PushToToggleInputs/PushToToggleInputs.dll",
+        ),
+    ),
+    (
+        "AppSailwindMods/SailwindModdingHelper",
+        "com.app24.sailwindmoddinghelper",
+        "2.1.1",
+        "SailwindModdingHelper.zip",
+        (
+            "README.md",
+            "icon.png",
+            "manifest.json",
+            "plugins/Newtonsoft.Json.dll",
+            "plugins/SailwindModdingHelper.dll",
+            "plugins/alcohols.json",
+            "plugins/regions/AlAnkh.json",
+            "plugins/regions/Emerald.json",
+            "plugins/regions/Medi.json",
+            "plugins/regions/PlayableArea.json",
+        ),
+    ),
+    (
+        "JohnGilb/SailwindFixes",
+        "com.user.zorkfixes",
+        "1.0.0",
+        "ZorkFixes.dll",
+        (
+            "ZorkFixes.dll",
+        ),
+    ),
+    (
+        "ExocetC3i/VirtualCrew_CaptainSetsWatches",
+        "com.sailwind.removefirstofficerrequirement",
+        "v1.0.4",
+        "RemoveFirstOfficerRequirement.zip",
+        (
+            "RemoveFirstOfficerRequirement/RemoveFirstOfficerRequirement.dll",
+        ),
+    ),
 ]
+
+RELEASE_TAG_OVERRIDES = {
+    # The version is only in the release name. The literal tag is "release".
+    "BryanP-JP19/SailwindSeaLifeMod": "release",
+}
 
 FIXED_PLUGIN_FOLDERS = {
     "winterspices/AgeOfExploration": "AgeOfExploration",
@@ -443,19 +536,19 @@ def test_supplemental_catalog_has_unique_matching_release_entries():
 
 
 @pytest.mark.parametrize(
-    "repo,guid,tag,asset_name,files",
+    "repo,guid,version_raw,asset_name,files",
     RELEASE_LAYOUTS,
     ids=[row[0] for row in RELEASE_LAYOUTS],
 )
 def test_catalog_release_resolves_and_preserves_plugin_payload(
-    tmp_path, repo, guid, tag, asset_name, files
+    tmp_path, repo, guid, version_raw, asset_name, files
 ):
     entries = merge_catalog(*_catalog_data())
     matching = [entry for entry in entries if guid in entry.guids]
     assert len(matching) == 1
     entry = matching[0]
     assert entry.repo == f"https://github.com/{repo}"
-    assert entry.latest_raw == tag
+    assert entry.latest_raw == version_raw
     assert entry.available
 
     payload = b"fixture plugin or asset contents"
@@ -467,19 +560,27 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
         archive_bytes = buffer.getvalue()
     else:
         archive_bytes = payload
-    asset_url = f"https://github.com/{repo}/releases/download/{tag}/{asset_name}"
+    release_tag = RELEASE_TAG_OVERRIDES.get(repo, version_raw)
+    asset_url = f"https://github.com/{repo}/releases/download/{release_tag}/{asset_name}"
+    release_payload = {
+        "tag_name": release_tag,
+        "name": version_raw,
+        "html_url": f"https://github.com/{repo}/releases/tag/{release_tag}",
+        "assets": [{"name": asset_name, "browser_download_url": asset_url}],
+    }
 
     class ReleaseHttp:
         token = ""
 
         def get_json(self, url, extra_headers=None, etag=None):
             # Includes nonstandard and prerelease tags, which must be preserved.
-            assert url == f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-            return {
-                "tag_name": tag,
-                "html_url": f"https://github.com/{repo}/releases/tag/{tag}",
-                "assets": [{"name": asset_name, "browser_download_url": asset_url}],
-            }, None, False
+            if repo in RELEASE_TAG_OVERRIDES:
+                if "/releases/tags/" in url:
+                    raise HttpError("HTTP 404", status_code=404)
+                assert url == f"https://api.github.com/repos/{repo}/releases?per_page=50"
+                return [release_payload], None, False
+            assert url == f"https://api.github.com/repos/{repo}/releases/tags/{release_tag}"
+            return release_payload, None, False
 
         def download(self, url, dest, progress=None):
             assert url == asset_url
@@ -496,7 +597,7 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
         plugin_folders=entry.plugin_folders,
     )
     assert meta.plugin_folders == entry.plugin_folders
-    assert meta.version_raw == tag
+    assert meta.version_raw == version_raw
     extracted = store.mod_extracted(meta.guid, meta.version)
     extracted_names = {path.name for path in extracted.rglob("*") if path.is_file()}
     # All runtime binaries and asset files must survive folder filtering.

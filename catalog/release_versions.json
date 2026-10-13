@@ -112,12 +112,12 @@
   {
     "guid": "com.keevi.defthands",
     "repo": "https://github.com/KeeviDev/SailwindDeftHands",
-    "version": "v1.2.0"
+    "version": "v1.2.1"
   },
   {
     "guid": "com.dizzy.sailwind.firewoodbundle",
     "repo": "https://github.com/foxyv/DizzyFirewoodBundle",
-    "version": "v0.3.1"
+    "version": "v0.12.0"
   },
   {
     "guid": "com.skeptic043.sailwind.dropsafety",
@@ -142,7 +142,7 @@
   {
     "guid": "com.august.moresailwindsails",
     "repo": "https://github.com/sum-rock/MoreSailwindSails",
-    "version": "v0.2.1"
+    "version": "v0.2.2"
   },
   {
     "guid": "com.skeptic043.sailwind.newbeginnings",
@@ -202,7 +202,7 @@
   {
     "guid": "DogEggz.EconomyOverhaul",
     "repo": "https://github.com/DogEggz01/EconomyOverhaul",
-    "version": "0.9.0"
+    "version": "0.9.5"
   },
   {
     "guid": "com.nandbrew.headbonker",
@@ -258,5 +258,45 @@
     "guid": "com.TheOriginOfAllEvil.S_Topsail1",
     "repo": "https://github.com/TheOriginOfAllEvil/The-Gaff-Pack",
     "version": "v0.4.0"
+  },
+  {
+    "guid": "DogEggz.WindTotem",
+    "repo": "https://github.com/DogEggz01/WindTotem",
+    "version": "1.0.5"
+  },
+  {
+    "guid": "gillez.islandtime",
+    "repo": "https://github.com/g1llez/sailwind-islandtime",
+    "version": "v1.0.0"
+  },
+  {
+    "guid": "DogEggz.PlayerHeightandWeight",
+    "repo": "https://github.com/DogEggz01/PlayerheightandWeight",
+    "version": "1.0.0"
+  },
+  {
+    "guid": "com.yourname.sailwind.sealifeplugin",
+    "repo": "https://github.com/BryanP-JP19/SailwindSeaLifeMod",
+    "version": "0.0.1"
+  },
+  {
+    "guid": "com.sailwind.movementwinchtoggles",
+    "repo": "https://github.com/ExocetC3i/Sailwind_PushToToggleInputs",
+    "version": "v1.0.1"
+  },
+  {
+    "guid": "com.app24.sailwindmoddinghelper",
+    "repo": "https://github.com/AppSailwindMods/SailwindModdingHelper",
+    "version": "2.1.1"
+  },
+  {
+    "guid": "com.user.zorkfixes",
+    "repo": "https://github.com/JohnGilb/SailwindFixes",
+    "version": "1.0.0"
+  },
+  {
+    "guid": "com.sailwind.removefirstofficerrequirement",
+    "repo": "https://github.com/ExocetC3i/VirtualCrew_CaptainSetsWatches",
+    "version": "v1.0.4"
   }
 ]
