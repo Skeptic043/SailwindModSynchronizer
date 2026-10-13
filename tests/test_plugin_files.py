@@ -29,11 +29,15 @@ def read_tree(root: Path) -> dict[str, bytes]:
     return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
 
 
-def sync(tmp_path: Path, previous: dict | None, disk: dict, package: dict, resolver=None):
-    """Install ``package`` over ``disk``, which was installed from ``previous`` (None: no record)."""
+def sync(tmp_path: Path, previous: dict | None, disk: dict, package: dict, resolver=None, damaged: dict | None = None):
+    """Install ``package`` over ``disk``, which was installed from ``previous`` (None: no record).
+
+    ``damaged`` replaces recorded copies after their hashes were taken.
+    """
     plugins = write_tree(tmp_path / "plugins", disk)
     new = write_tree(tmp_path / "new", package)
     baseline = baseline_from_package(write_tree(tmp_path / "old", previous), ["Mod"]) if previous is not None else None
+    write_tree(tmp_path / "old", damaged or {})
     plan = plan_mod_files(GUID, new, ["Mod"], plugins, ["Mod"], baseline)
     apply_file_plan(plan, ask_conflicts([plan], resolver), plugins)
     return read_tree(plugins), plan.conflicts
@@ -97,6 +101,27 @@ def test_json_edits_kept_while_new_entries_arrive(tmp_path):
     assert merged.endswith("}\n") and '\n  "BOAT JUNK (20)"' in merged
 
 
+def test_failed_merged_write_leaves_the_players_file_whole_and_the_next_sync_merges(tmp_path, monkeypatch):
+    previous = {"Mod/ship.json": ship_json(SHIPDATA)}
+    disk = {"Mod/ship.json": ship_json(EDITED_SHIPDATA)}
+    package = {"Mod/ship.json": ship_json({**SHIPDATA, **GALLUS})}
+    real_replace = Path.replace
+
+    def replace(source, destination):
+        # Whatever the write goes through, its last step onto the player's file fails.
+        if Path(destination).name == "ship.json" and Path(destination).parent.parent.name == "plugins":
+            raise OSError("disk full")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    with pytest.raises(OSError, match="disk full"):
+        sync(tmp_path, previous, disk, package)
+    assert read_tree(tmp_path / "plugins") == disk
+    monkeypatch.setattr(Path, "replace", real_replace)
+    result, _ = sync(tmp_path, previous, disk, package)
+    assert json.loads(result["Mod/ship.json"]) == {**EDITED_SHIPDATA, **GALLUS}
+
+
 @pytest.mark.parametrize("choice", ["keep", "new"])
 def test_json_leaf_conflict_defaults_to_mine_and_still_adds_entries(tmp_path, choice):
     package = {**SHIPDATA, "BOAT BRIG (10)": {"drag": 0.5}, **GALLUS}
@@ -111,13 +136,21 @@ def test_json_leaf_conflict_defaults_to_mine_and_still_adds_entries(tmp_path, ch
     assert json.loads(result["Mod/ship.json"]) == expected
 
 
-def test_unparseable_json_is_a_whole_file_conflict(tmp_path):
+@pytest.mark.parametrize(
+    ("mine", "damaged"),
+    [
+        pytest.param(b"{ not json", None, id="unparseable"),
+        # Merging against a guessed base could bring back entries the player deleted.
+        pytest.param(ship_json(EDITED_SHIPDATA), {"Mod/ship.json": b"{}"}, id="damaged-recorded-copy"),
+    ],
+)
+def test_json_without_a_usable_base_or_file_is_a_whole_file_conflict(tmp_path, mine, damaged):
     result, conflicts = sync(
-        tmp_path, {"Mod/ship.json": ship_json(SHIPDATA)}, {"Mod/ship.json": b"{ not json"},
-        {"Mod/ship.json": ship_json({**SHIPDATA, **GALLUS})},
+        tmp_path, {"Mod/ship.json": ship_json(SHIPDATA)}, {"Mod/ship.json": mine},
+        {"Mod/ship.json": ship_json({**SHIPDATA, **GALLUS})}, damaged=damaged,
     )
     assert [(item.entries, item.merged) for item in conflicts] == [((), False)]
-    assert result["Mod/ship.json"] == b"{ not json"
+    assert result["Mod/ship.json"] == mine
 
 
 @pytest.mark.parametrize(

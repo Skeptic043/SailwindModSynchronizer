@@ -688,12 +688,18 @@ def edited_files_case(paths, tmp_path):
     manager.close()
 
 
-@pytest.mark.parametrize("choice", ["none", "keep", "new"])
-def test_version_change_carries_edited_files_and_adds_new_entries(edited_files_case, choice):
+@pytest.mark.parametrize(("choice", "detour"), [
+    ("none", False), ("keep", False), ("new", False),
+    pytest.param("keep", True, id="keep-via-version-without-the-files"),
+])
+def test_version_change_carries_edited_files_and_adds_new_entries(edited_files_case, choice, detour):
     import json
 
     manager, pack_id, guid = edited_files_case
     plugins = manager.packs.plugins_dir(pack_id)
+    # The player tuned one ship, deleted another and added their own.
+    mine = {"BOAT BRIG (10)": {"drag": 1.5}, "BOAT CUSTOM (1)": {"drag": 4.0}}
+    (plugins / "Drag/ship.json").write_bytes(ship_json(mine))
     (plugins / "Drag/notes.txt").write_bytes(b"my notes")
     asked = []
 
@@ -701,6 +707,11 @@ def test_version_change_carries_edited_files_and_adds_new_entries(edited_files_c
         asked.append(sorted(item.relpath for item in conflicts))
         return set(conflicts) if choice == "new" else set()
 
+    if detour:
+        # A version that ships neither file keeps both, and still knows what they were based on.
+        manager.add_library_mod_to_pack(pack_id, guid, "3.0.0", resolve_conflicts=resolver)
+        manager.resolve_pack_artifacts(pack_id, resolve_conflicts=lambda _c: pytest.fail("Nothing to ask"))
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(mine)
     manager.add_library_mod_to_pack(pack_id, guid, "2.0.0", resolve_conflicts=None if choice == "none" else resolver)
     assert asked == ([] if choice == "none" else [["Drag/notes.txt"]])
     # Without anyone to ask, the player's file was kept, and the question waits for the next launch.
@@ -708,7 +719,7 @@ def test_version_change_carries_edited_files_and_adds_new_entries(edited_files_c
     assert asked == [["Drag/notes.txt"]]
     for _ in range(2):
         assert (plugins / "Drag/drag.dll").read_bytes() == b"MZ 2"
-        assert json.loads((plugins / "Drag/ship.json").read_bytes()) == {**EDITED_SHIPDATA, **GALLUS}
+        assert json.loads((plugins / "Drag/ship.json").read_bytes()) == {**mine, **GALLUS}
         assert (plugins / "Drag/notes.txt").read_bytes() == (b"notes 2" if choice == "new" else b"my notes")
         assert (plugins / "Drag/scramble_1.json").read_bytes() == b"{}"
         # An answered question is not asked again, and launching does not reset the kept files.
@@ -737,11 +748,25 @@ def test_folder_a_version_dropped_stays_with_the_mod(edited_files_case):
     manager.add_library_mod_to_pack(pack_id, guid, "3.0.0")
     assert {path.name for path in (plugins / "Drag").iterdir()} == {"ship.json", "scramble_1.json"}
     assert (plugins / "Lite/drag.dll").read_bytes() == b"MZ 3"
+
+    # The kept folder is still the mod's: a DLL put there does not stay loaded.
+    (plugins / "Drag/old.dll").write_bytes(b"MZ 1")
+    for _ in range(2):
+        manager.resolve_pack_artifacts(pack_id)
+        assert {path.name for path in (plugins / "Drag").iterdir()} == {"ship.json", "scramble_1.json"}
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(EDITED_SHIPDATA)
+    # Resetting the kept file to 1.0.0's default does not make it a leftover of the current version.
+    (plugins / "Drag/ship.json").write_bytes(ship_json(SHIPDATA))
+    for enabled in (True, True, False):
+        manager.set_mod_enabled(pack_id, guid, enabled)
+        manager.resolve_pack_artifacts(pack_id)
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(SHIPDATA)
+    manager.set_mod_enabled(pack_id, guid, True)
     # Going back reuses the kept folder instead of refusing it as another mod's.
-    manager.add_library_mod_to_pack(pack_id, guid, "1.0.0")
+    manager.add_library_mod_to_pack(pack_id, guid, "1.0.0", resolve_conflicts=lambda _c: pytest.fail("Nothing to ask"))
     assert not (plugins / "Lite").exists()
     assert (plugins / "Drag/drag.dll").read_bytes() == b"MZ 1"
-    assert (plugins / "Drag/ship.json").read_bytes() == ship_json(EDITED_SHIPDATA)
+    assert (plugins / "Drag/ship.json").read_bytes() == ship_json(SHIPDATA)
     manager.add_library_mod_to_pack(pack_id, guid, "3.0.0")
     manager.packs.remove_mod(pack_id, guid)
     assert list(plugins.iterdir()) == []

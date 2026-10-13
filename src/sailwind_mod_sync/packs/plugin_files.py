@@ -1,14 +1,17 @@
 """Keep files that players and mods change inside a mod's plugin folders.
 
-Each pack records what it last installed for every mod: ``installed-files/record.json`` holds the
-SHA-256 of each package file, and ``installed-files/base/<guid>/`` holds a copy of each package
-``.json`` file for three-way merges. A file on disk is compared with the new package and that
-record to decide whether it is copied, kept, merged, deleted, or asked about. The record's
-``artifact`` field only says where the files came from; classification uses the hashes alone.
+Each pack records the last packaged version of every path it manages for a mod:
+``installed-files/record.json`` holds its SHA-256, and ``installed-files/base/<guid>/`` holds a copy
+of each such ``.json`` file for three-way merges. A path stays recorded while the player's edited
+copy is kept, even when the pinned version no longer ships it; the record's optional ``kept`` list
+names such paths, so they are never removed as stale package files. A file on disk is compared with
+the new package and that record to decide whether it is copied, kept, merged, deleted, or asked about.
+The record's ``artifact`` field only says where the files came from; classification uses the hashes alone.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -16,7 +19,7 @@ from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sailwind_mod_sync.fileutil import atomic_write_json
+from sailwind_mod_sync.fileutil import atomic_write_bytes, atomic_write_json
 from sailwind_mod_sync.library.hashing import sha256_file
 from sailwind_mod_sync.paths import sanitize_segment
 
@@ -82,22 +85,30 @@ class Baseline:
 
     files: dict[str, str]
     root: Path | None = None
+    # Paths kept for the player while the pinned version does not ship them.
+    kept: Collection[str] = ()
 
     def __post_init__(self) -> None:
         self._index = {relpath.casefold(): relpath for relpath in self.files}
+        self._kept = {relpath.casefold() for relpath in self.kept}
+
+    def is_kept(self, relpath: str) -> bool:
+        return relpath.casefold() in self._kept
 
     def hash(self, relpath: str) -> str | None:
         recorded = self._index.get(relpath.casefold())
         return self.files[recorded] if recorded is not None else None
 
     def content(self, relpath: str) -> bytes | None:
+        """The recorded copy, or None when it is missing or no longer matches its hash."""
         recorded = self._index.get(relpath.casefold())
         if recorded is None or self.root is None:
             return None
         try:
-            return (self.root / recorded).read_bytes()
+            data = (self.root / recorded).read_bytes()
         except OSError:
             return None
+        return data if hashlib.sha256(data).hexdigest() == self.files[recorded] else None
 
 
 def record_dir(pack_dir: Path) -> Path:
@@ -130,7 +141,9 @@ def load_baselines(pack_dir: Path) -> dict[str, Baseline]:
         if not isinstance(files, dict) or not all(isinstance(value, str) for value in files.values()):
             log.warning("Ignoring malformed install record for %s in %s", guid, pack_dir)
             continue
-        baselines[guid] = Baseline(dict(files), _base_dir(pack_dir, guid))
+        kept = entry.get("kept")
+        kept = [relpath for relpath in kept if isinstance(relpath, str)] if isinstance(kept, list) else []
+        baselines[guid] = Baseline(dict(files), _base_dir(pack_dir, guid), kept)
     return baselines
 
 
@@ -143,24 +156,30 @@ def baseline_from_package(extracted: Path, folders: list[str]) -> Baseline:
 def save_records(pack_dir: Path, installed: list[tuple[FilePlan, str]], *, asked: bool) -> None:
     """Record each plan's package files as installed from artifact ``key``; logs instead of raising.
 
-    Unless the player was ``asked``, a conflicting file keeps its previous record, so it is asked about later.
+    A kept file the package does not ship keeps its previous record, as does, unless the player was
+    ``asked``, a conflicting file, so it is asked about later.
     """
     try:
         mods = _read_record(pack_dir)
         changed = False
         for plan, key in installed:
             hashes, snapshots = dict(plan.package_hashes), dict(plan.package_json)
-            for conflict in [] if asked else plan.conflicts:
-                previous = plan.baseline.hash(conflict.relpath) if plan.baseline is not None else None
-                content = plan.baseline.content(conflict.relpath) if previous is not None else None
+            kept = [action.relpath for action in plan.actions
+                    if action.kind == KEEP and action.relpath not in plan.package_hashes]
+            carried = kept + ([] if asked else [conflict.relpath for conflict in plan.conflicts])
+            for relpath in carried:
+                previous = plan.baseline.hash(relpath) if plan.baseline is not None else None
+                content = plan.baseline.content(relpath) if previous is not None else None
                 if previous is None:
-                    hashes.pop(conflict.relpath, None)
+                    hashes.pop(relpath, None)
                 else:
-                    hashes[conflict.relpath] = previous
-                snapshots.pop(conflict.relpath, None)
-                if content is not None and _is_json(conflict.relpath):
-                    snapshots[conflict.relpath] = content
+                    hashes[relpath] = previous
+                snapshots.pop(relpath, None)
+                if content is not None and _is_json(relpath):
+                    snapshots[relpath] = content
             entry = {"artifact": key, "files": dict(sorted(hashes.items()))}
+            if kept := sorted(relpath for relpath in kept if relpath in hashes):
+                entry["kept"] = kept
             if mods.get(plan.guid) == entry:
                 continue
             base = _base_dir(pack_dir, plan.guid)
@@ -226,11 +245,12 @@ def plan_mod_files(
                 if installing and disk_hash != recorded:
                     log.info("Removing %s of %s: the package has no such DLL", relpath, guid)
                 plan.actions.append(FileAction(relpath, DELETE, current=disk))
-            elif recorded is not None and disk_hash == recorded:
+            elif recorded is not None and disk_hash == recorded and not baseline.is_kept(relpath):
                 plan.actions.append(FileAction(relpath, DELETE, current=disk))
             else:
                 if installing and recorded is not None:
-                    log.info("Keeping edited %s of %s, which the package no longer ships", relpath, guid)
+                    # Repeats on every launch while such a version is pinned.
+                    log.debug("Keeping edited %s of %s, which the package no longer ships", relpath, guid)
                 plan.actions.append(FileAction(relpath, KEEP, current=disk))
             continue
         if disk is None:
@@ -254,8 +274,10 @@ def plan_mod_files(
 
 def _both_changed(guid: str, relpath: str, source: Path, disk: Path, baseline: Baseline | None) -> FileAction:
     if _is_json(relpath):
-        base_bytes = baseline.content(relpath) if baseline is not None else None
-        base = _load_json_object(base_bytes) if base_bytes is not None else {}
+        recorded = baseline.hash(relpath) if baseline is not None else None
+        # Without a recorded version every entry counts as added; a lost copy of one cannot be guessed.
+        base_bytes = baseline.content(relpath) if recorded is not None else b"{}"
+        base = _load_json_object(base_bytes) if base_bytes is not None else None
         user = _load_json_object(disk.read_bytes())
         new = _load_json_object(source.read_bytes())
         if base is not None and user is not None and new is not None:
@@ -293,7 +315,8 @@ def apply_file_plan(plan: FilePlan, use_new: Collection[FileConflict], plugins_d
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(action.package, target)
         elif action.merged is not None and action.kind in (MERGE, CONFLICT):
-            target.write_bytes(action.merged)
+            # The player's own file: a failed write must not leave it truncated.
+            atomic_write_bytes(target, action.merged)
         elif action.kind == DELETE:
             target.unlink()
             emptied.add(target.parent)

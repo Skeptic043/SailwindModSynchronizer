@@ -65,14 +65,16 @@ def sync_pack_plugins(
         if pinned.enabled and available:
             folders = pinned.plugin_folders or [p.name for p in extracted.iterdir() if p.is_dir()]
             folders = [folder for folder in folders if (extracted / folder).exists()]
-        mods.append((pinned, key, available, extracted, folders))
+        # A pin can also own folders it keeps only for players' files; inspect those too.
+        owned = pinned.plugin_folders or folders
+        mods.append((pinned, key, available, extracted, folders, owned))
         # Mods can share a folder; each one only manages the files its package or record names.
         recorded = baselines.get(pinned.guid)
         claims[pinned.guid] = (package_paths(extracted, folders) if available else set()) | {
             relpath.casefold() for relpath in (recorded.files if recorded is not None else ())
         }
     plans: list[tuple[FilePlan, str | None]] = []
-    for pinned, key, available, extracted, folders in mods:
+    for pinned, key, available, extracted, folders, owned in mods:
         claimed = set().union(*(paths for guid, paths in claims.items() if guid != pinned.guid))
         baseline = baselines.get(pinned.guid)
         if not pinned.enabled:
@@ -85,7 +87,7 @@ def sync_pack_plugins(
             continue
         # Packs prepared before the record existed were reset to the package on every launch.
         baseline = baseline or baseline_from_package(extracted, folders)
-        plans.append((plan_mod_files(pinned.guid, extracted, folders, plugins_dir, folders, baseline, claimed), key))
+        plans.append((plan_mod_files(pinned.guid, extracted, folders, plugins_dir, owned, baseline, claimed), key))
     use_new = ask_conflicts([plan for plan, _ in plans], resolve_conflicts)
     for plan, _ in plans:
         apply_file_plan(plan, use_new, plugins_dir)
