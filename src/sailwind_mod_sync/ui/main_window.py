@@ -50,6 +50,7 @@ from sailwind_mod_sync.log_export import export_logs
 from sailwind_mod_sync.manager import Manager
 from sailwind_mod_sync.models import PinnedMod, parse_mod_version
 from sailwind_mod_sync.packs.modpack import BulkRollbackError
+from sailwind_mod_sync.packs.plugin_files import FileConflict
 from sailwind_mod_sync.packs.share import DISCORD_MESSAGE_LIMIT, parse_share_text
 from sailwind_mod_sync.ui.associate_dialog import AssociateCatalogDialog, AssociateTarget
 from sailwind_mod_sync.ui.catalog_view import CatalogView
@@ -59,6 +60,7 @@ from sailwind_mod_sync.ui.background_indicator import BackgroundIndicator
 from sailwind_mod_sync.ui.launch_option_dialog import LaunchOptionDialog, ProtonPrefixConsentDialog
 from sailwind_mod_sync.ui.changelog_dialog import ChangelogDialog
 from sailwind_mod_sync.ui.export_dialog import ExportDialog, ExportKind
+from sailwind_mod_sync.ui.file_conflict_dialog import ask_file_conflicts
 from sailwind_mod_sync.ui.import_plugins_dialog import ImportPluginsDialog
 from sailwind_mod_sync.ui.launch_splash import LaunchSplash
 from sailwind_mod_sync.ui.library_view import format_size
@@ -72,7 +74,7 @@ from sailwind_mod_sync.ui.settings_dialog import SettingsDialog
 from sailwind_mod_sync.ui.update_dialog import OPEN, SKIP, UPDATE, UpdateDialog
 from sailwind_mod_sync.ui.version_dialog import SelectVersionDialog
 from sailwind_mod_sync.ui.window_state import restore_window_state, save_window_state
-from sailwind_mod_sync.ui.workers import TaskBridge, run_background
+from sailwind_mod_sync.ui.workers import GuiCall, TaskBridge, run_background
 from sailwind_mod_sync.updater import (
     AppUpdate,
     download_and_stage_update,
@@ -174,6 +176,7 @@ class MainWindow(QMainWindow):
         self._mod_scan_bridge: TaskBridge | None = None
         self._catalog_bridge: TaskBridge | None = None
         self._pending_catalog: list | None = None
+        self._gui_call = GuiCall(self)
 
         self._updates_hint = QLabel(self.statusBar())
         self._updates_hint.setStyleSheet(UPDATES_HINT_STYLE)
@@ -1320,7 +1323,9 @@ class MainWindow(QMainWindow):
         if not pack_id:
             return
         self._run(
-            lambda progress: self.manager.update_mod(pack_id, guid, progress=progress),
+            lambda progress: self.manager.update_mod(
+                pack_id, guid, progress=progress, resolve_conflicts=self._resolve_file_conflicts,
+            ),
             lambda _r: QTimer.singleShot(0, self._reload_views),
             f"Updating {guid}…",
         )
@@ -1334,7 +1339,10 @@ class MainWindow(QMainWindow):
             return
         version_raw = pinned.version_raw or pinned.version
         self._run(
-            lambda progress: self.manager.set_pack_mod_version(pack_id, guid, pinned.version, version_raw, progress=progress),
+            lambda progress: self.manager.set_pack_mod_version(
+                pack_id, guid, pinned.version, version_raw, progress=progress,
+                resolve_conflicts=self._resolve_file_conflicts,
+            ),
             lambda _r: self._reload_views(),
             f"Downloading {guid} {version_raw}…",
         )
@@ -1345,7 +1353,9 @@ class MainWindow(QMainWindow):
         if not pack_id or not guids:
             return
         self._run(
-            lambda progress: self.manager.update_mods(pack_id, guids, progress=progress),
+            lambda progress: self.manager.update_mods(
+                pack_id, guids, progress=progress, resolve_conflicts=self._resolve_file_conflicts,
+            ),
             self._mods_updated,
             f"Updating {len(guids)} mods…",
         )
@@ -1366,6 +1376,26 @@ class MainWindow(QMainWindow):
             box.setDetailedText("\n\n".join(failures))
             box.exec()
         self.statusBar().showMessage(summary)
+
+    def _resolve_file_conflicts(self, conflicts: list[FileConflict]) -> set[FileConflict]:
+        """Ask on the GUI thread which version to keep of files both the player and a mod update changed."""
+        return self._gui_call(self._ask_file_conflicts, conflicts) or set()
+
+    def _ask_file_conflicts(self, conflicts: list[FileConflict]) -> set[FileConflict]:
+        packs = self.manager.packs.list_packs()
+        entries = self.manager.library.list_mods()
+        names = {
+            guid: self.manager.mod_display_name(guid, library_entries=entries, packs=packs)
+            for guid in {conflict.guid for conflict in conflicts}
+        }
+        # Keep the busy window from opening over the question; it can open once the question is answered.
+        waiting = self._progress_timer.isActive()
+        self._progress_timer.stop()
+        try:
+            return ask_file_conflicts(conflicts, names, QApplication.activeModalWidget() or self)
+        finally:
+            if waiting:
+                self._progress_timer.start(PROGRESS_DIALOG_DELAY_MS)
 
     @_unless_bulk_running
     def _remove_mod(self, guid: str) -> None:
@@ -1413,7 +1443,8 @@ class MainWindow(QMainWindow):
         if library.has_mod(guid, library.artifact_key(guid, version, repo or (pinned.repo if pinned else ""))):
             try:
                 pinned = self.manager.set_pack_mod_version(
-                    pack_id, guid, version, version_raw or version, repo=repo
+                    pack_id, guid, version, version_raw or version, repo=repo,
+                    resolve_conflicts=self._resolve_file_conflicts,
                 )
             except Exception as exc:
                 QMessageBox.warning(self, "Could not change version", str(exc))
@@ -1430,6 +1461,7 @@ class MainWindow(QMainWindow):
                 version_raw or version,
                 repo=repo,
                 progress=progress,
+                resolve_conflicts=self._resolve_file_conflicts,
             ),
             lambda _r: QTimer.singleShot(0, self._reload_views),
             f"Downloading {guid} {version_raw or version}…",
@@ -1698,7 +1730,9 @@ class MainWindow(QMainWindow):
         def work(progress):
             imported = []
             for path in files:
-                imported.append(self.manager.import_local_mod(path, pack_id, progress=progress))
+                imported.append(self.manager.import_local_mod(
+                    path, pack_id, progress=progress, resolve_conflicts=self._resolve_file_conflicts,
+                ))
             return imported
 
         self._run(work, self._local_mods_imported, f"Importing {files[0].name}…")
@@ -1720,7 +1754,9 @@ class MainWindow(QMainWindow):
         file_path = Path(path)
 
         def work(progress):
-            return [self.manager.import_local_mod(file_path, pack_id, progress=progress, guid=guid)]
+            return [self.manager.import_local_mod(
+                file_path, pack_id, progress=progress, guid=guid, resolve_conflicts=self._resolve_file_conflicts,
+            )]
 
         self._run(work, self._local_mods_imported, f"Importing {file_path.name}…")
 
@@ -1747,7 +1783,7 @@ class MainWindow(QMainWindow):
             return
 
         def work(progress):
-            return self.manager.play(pack_id, progress=progress)
+            return self.manager.play(pack_id, progress=progress, resolve_conflicts=self._resolve_file_conflicts)
 
         self._run(
             work,
@@ -1948,11 +1984,13 @@ class MainWindow(QMainWindow):
         bridge.failed.connect(self._bulk_failed, queued)
         if guid is None:
             work = lambda progress: self.manager.set_all_mods_enabled(
-                pack_id, enabled, progress, on_changed=bridge.enabled_changed.emit
+                pack_id, enabled, progress, on_changed=bridge.enabled_changed.emit,
+                resolve_conflicts=self._resolve_file_conflicts,
             )
         else:
             work = lambda progress: self.manager.set_mods_enabled(
-                pack_id, enabled, guids={guid}, progress=progress, on_changed=bridge.enabled_changed.emit
+                pack_id, enabled, guids={guid}, progress=progress, on_changed=bridge.enabled_changed.emit,
+                resolve_conflicts=self._resolve_file_conflicts,
             )
         try:
             self._bulk_thread = run_background(work, bridge)
