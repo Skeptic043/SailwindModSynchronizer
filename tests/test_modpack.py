@@ -165,3 +165,32 @@ def test_rename_keeps_id(paths: AppPaths) -> None:
     assert renamed.id == pack_id
     assert renamed.name == "New Name"
     assert store.get(pack_id).name == "New Name"
+
+
+def test_bundle_export_leaves_instance_plugins_alone(manager, tmp_path: Path, monkeypatch) -> None:
+    # A running game keeps plugin DLLs loaded, so an export must not replace them.
+    library = manager.library
+    bx_archive = tmp_path / "bx.zip"
+    with zipfile.ZipFile(bx_archive, "w") as zf:
+        zf.writestr("BepInExPack/BepInEx/core/BepInEx.Preloader.dll", b"MZ")
+        zf.writestr("BepInExPack/winhttp.dll", b"MZ")
+    library.ingest_bepinex_zip("5.4.2100", bx_archive)
+    plugin = tmp_path / "Local.Mod"
+    plugin.mkdir()
+    (plugin / "Local.Mod.dll").write_bytes(b"MZ")
+    library.ingest_plugin_paths("local.mod", "1.0.0", [plugin], version_raw="1.0.0", repo="", source_url="")
+    pack = manager.packs.create("Playing", bepinex="5.4.2100")
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="local.mod", version="1.0.0", plugin_folders=["Local.Mod"]))
+    loaded = manager.packs.plugins_dir(pack.id) / "Local.Mod" / "loaded-by-game.dll"
+    loaded.parent.mkdir(parents=True, exist_ok=True)
+    loaded.write_bytes(b"MZ")
+
+    def locked(*args, **kwargs):
+        raise PermissionError("[WinError 5] Access is denied")
+
+    monkeypatch.setattr("sailwind_mod_sync.manager.sync_pack_plugins", locked)
+    dest = tmp_path / "playing.zip"
+    manager.export_pack(pack.id, dest, bundle=True, include_context=True)
+    assert loaded.exists()
+    with zipfile.ZipFile(dest) as zf:
+        assert "bepinex/BepInExPack-5.4.2100.zip" in zf.namelist()
