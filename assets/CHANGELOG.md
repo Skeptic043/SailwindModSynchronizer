@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.7.0 (2026-10-13)
+
+- **Play** no longer resets files inside a mod's plugin folder. Files you edit, such as Better Drag's ship overrides, and files mods create, such as Scrambled Seas' saves and map exports or sounds you add to Virtual Crew, are kept. Mod DLLs always follow the pack's version.
+- Updating or changing a mod's version keeps your edited files too. When the new version changes a JSON file you also edited, its new entries are added alongside your edits. If you and the mod changed the same thing, the app asks which to keep, and keeps yours if you close the question.
+- Disabling a mod keeps the files you edited, ready for when you enable it again. Removing it from the pack still deletes its folders.
+- **Export** of a zipped bundle with configs now works while Sailwind is running. Before, it could fail with "Access is denied" and leave a mod's folder incomplete until the next **Play**.
+
 ## 0.6.1 (2026-10-06)
 
 - On Linux, buttons that open a web page, such as **Settings → GitHub token → Create…**, now show an error when no browser could be opened, instead of doing nothing. The message includes the link so you can copy it into your browser.
