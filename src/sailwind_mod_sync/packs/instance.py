@@ -73,9 +73,15 @@ def sync_pack_plugins(
         claims[pinned.guid] = (package_paths(extracted, folders) if available else set()) | {
             relpath.casefold() for relpath in (recorded.files if recorded is not None else ())
         }
+    # Two mods can ship the same path; the later one in the pack wins, as its files are applied last.
+    shipped = [
+        package_paths(extracted, folders) if pinned.enabled and available else set()
+        for pinned, _key, available, extracted, folders, _owned in mods
+    ]
     plans: list[tuple[FilePlan, str | None]] = []
-    for pinned, key, available, extracted, folders, owned in mods:
+    for index, (pinned, key, available, extracted, folders, owned) in enumerate(mods):
         claimed = set().union(*(paths for guid, paths in claims.items() if guid != pinned.guid))
+        superseded = set().union(*shipped[index + 1:])
         baseline = baselines.get(pinned.guid)
         if not pinned.enabled:
             # BepInEx loads only DLLs, so edited and runtime files can stay for re-enabling.
@@ -87,7 +93,10 @@ def sync_pack_plugins(
             continue
         # Packs prepared before the record existed were reset to the package on every launch.
         baseline = baseline or baseline_from_package(extracted, folders)
-        plans.append((plan_mod_files(pinned.guid, extracted, folders, plugins_dir, owned, baseline, claimed), key))
+        plans.append((
+            plan_mod_files(pinned.guid, extracted, folders, plugins_dir, owned, baseline, claimed, superseded),
+            key,
+        ))
     use_new = ask_conflicts([plan for plan, _ in plans], resolve_conflicts)
     for plan, _ in plans:
         apply_file_plan(plan, use_new, plugins_dir)

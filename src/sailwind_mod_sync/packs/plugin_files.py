@@ -217,11 +217,13 @@ def plan_mod_files(
     current_folders: list[str],
     baseline: Baseline | None,
     claimed: Collection[str] = (),
+    superseded: Collection[str] = (),
 ) -> FilePlan:
     """Classify each file of the package and of the mod's current folders.
 
     With no package folders (a disabled mod), only unmodified package files and DLLs are removed.
     Files other mods ``claimed`` (case-folded relative paths) are left to them unless this package ships them too.
+    A path that is ``superseded`` is also shipped by a mod later in the pack, whose copy wins.
     """
     package = _list_files(package_root, package_folders) if package_root is not None else {}
     spelling = {name.casefold(): name for name in package_folders}
@@ -259,6 +261,10 @@ def plan_mod_files(
         package_hash = plan.package_hashes[relpath]
         disk_hash = sha256_file(disk)
         if disk_hash == package_hash:
+            continue
+        if key in superseded:
+            # Replacing the later mod's copy would swap the file back and forth on every launch.
+            log.debug("Leaving %s to a later mod that also ships it, not %s", relpath, guid)
             continue
         if is_dll:
             log.info("Replacing modified %s of %s with the package's DLL", relpath, guid)

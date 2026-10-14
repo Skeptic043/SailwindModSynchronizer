@@ -190,3 +190,51 @@ def test_disabled_mod_keeps_only_changed_files(tmp_path, extra, expected):
     apply_file_plan(plan, set(), plugins)
     assert read_tree(plugins) == expected
     assert (plugins / "Mod").exists() == bool(expected)
+
+
+def _shared_folder_mod(store, tmp_path: Path, guid: str, version: str, files: dict[str, bytes]):
+    from sailwind_mod_sync.models import PinnedMod
+
+    source = tmp_path / "src" / guid / version / "Shared"
+    source.mkdir(parents=True)
+    for name, data in files.items():
+        (source / name).write_bytes(data)
+    store.ingest_plugin_paths(guid, version, [source], version_raw=version, repo="", source_url="")
+    return PinnedMod(guid=guid, version=version, plugin_folders=["Shared"])
+
+
+def test_path_two_mods_ship_stays_with_the_later_mod(paths, tmp_path):
+    from sailwind_mod_sync.library.store import LibraryStore
+    from sailwind_mod_sync.models import ModPack
+    from sailwind_mod_sync.packs.instance import sync_pack_plugins
+
+    store = LibraryStore(paths)
+    first = _shared_folder_mod(store, tmp_path, "a.first", "1.0.0", {
+        "Common.dll": b"MZ-first", "data.json": b'{"from": "first"}', "First.dll": b"MZ",
+    })
+    second = _shared_folder_mod(store, tmp_path, "b.second", "1.0.0", {
+        "Common.dll": b"MZ-second", "data.json": b'{"from": "second"}', "Second.dll": b"MZ",
+    })
+    pack = ModPack(id="p", name="p", mods=[first, second])
+    pack_dir = tmp_path / "pack"
+    shared = pack_dir / "plugins" / "Shared"
+
+    def launch() -> tuple[bytes, bytes]:
+        # A prompt about a file nobody edited would be wrong too.
+        sync_pack_plugins(pack, pack_dir / "plugins", store, pack_dir, lambda conflicts: pytest.fail(str(conflicts)))
+        return (shared / "Common.dll").read_bytes(), (shared / "data.json").read_bytes()
+
+    assert [launch() for _ in range(4)] == [(b"MZ-second", b'{"from": "second"}')] * 4
+    assert (shared / "First.dll").exists() and (shared / "Second.dll").exists()
+
+    # A new version of the earlier mod still leaves the shared files to the later one.
+    pack.mods[0] = _shared_folder_mod(store, tmp_path, "a.first", "1.1.0", {
+        "Common.dll": b"MZ-first-1.1", "data.json": b'{"from": "first 1.1"}', "First.dll": b"MZ-1.1",
+    })
+    assert [launch() for _ in range(2)] == [(b"MZ-second", b'{"from": "second"}')] * 2
+    assert (shared / "First.dll").read_bytes() == b"MZ-1.1"
+
+    # With the later mod disabled, the earlier mod's DLL is the one that loads.
+    second.enabled = False
+    assert [launch()[0] for _ in range(2)] == [b"MZ-first-1.1"] * 2
+    assert not (shared / "Second.dll").exists()
