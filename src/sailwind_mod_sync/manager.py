@@ -1325,7 +1325,14 @@ class Manager:
             self.resolve_pack_artifacts(pack_id, progress=progress)
             return preloader
 
-    def resolve_pack_artifacts(self, pack_id: str, progress: ProgressFn | None = None) -> None:
+    def resolve_pack_artifacts(
+        self,
+        pack_id: str,
+        progress: ProgressFn | None = None,
+        *,
+        sync_plugins: bool = True,
+    ) -> None:
+        """Cache the pack's mods in the library; with sync_plugins, also copy them into its instance."""
         self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
         recovery = self._artifact_recovery_paths()
@@ -1392,9 +1399,10 @@ class Manager:
             if meta and not pinned.plugin_folders:
                 pinned.plugin_folders = list(meta.plugin_folders)
         self.packs.save(pack)
-        plugins = self.packs.plugins_dir(pack_id)
-        plugins.mkdir(parents=True, exist_ok=True)
-        sync_pack_plugins(pack, plugins, self.library)
+        if sync_plugins:
+            plugins = self.packs.plugins_dir(pack_id)
+            plugins.mkdir(parents=True, exist_ok=True)
+            sync_pack_plugins(pack, plugins, self.library)
         log.info("Resolved pack %s: %s missing of %s", pack_id, missing, total)
 
     def play(self, pack_id: str, progress: ProgressFn | None = None):
@@ -1455,7 +1463,9 @@ class Manager:
             if pack.bepinex != bx_version:
                 pack.bepinex = bx_version
                 self.packs.save(pack)
-            self.resolve_pack_artifacts(pack_id, progress=progress)
+            # The bundle is built from the library, so leave the instance's plugins alone:
+            # a running game has DLLs there loaded, and Windows won't let them be replaced.
+            self.resolve_pack_artifacts(pack_id, progress=progress, sync_plugins=False)
             return self.packs.export_bundle(pack_id, dest, self.library, include_context=True, progress=progress)
         return self.packs.export_json(pack_id, dest)
 
