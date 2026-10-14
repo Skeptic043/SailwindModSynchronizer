@@ -11,6 +11,7 @@ from pathlib import Path
 from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION, DEFAULT_PACK_NAME
 from sailwind_mod_sync.http_util import ProgressFn
 from sailwind_mod_sync.models import ModPack, PinnedMod
+from sailwind_mod_sync.packs.plugin_files import drop_record, record_dir
 from sailwind_mod_sync.paths import AppPaths, sanitize_segment
 
 log = logging.getLogger(__name__)
@@ -122,6 +123,8 @@ class PackStore:
         dst_instance = self.instance_dir(copy.id)
         if src_instance.exists():
             _copy_instance(src_instance, dst_instance)
+            # The copied plugin folders came from the same installs.
+            _copy_record(record_dir(self.pack_dir(pack_id)), record_dir(self.pack_dir(copy.id)))
         return copy
 
     def set_mods(self, pack_id: str, mods: list[PinnedMod]) -> ModPack:
@@ -148,6 +151,7 @@ class PackStore:
             from sailwind_mod_sync.packs.instance import remove_plugin_folders
 
             remove_plugin_folders(self.plugins_dir(pack_id), target.plugin_folders)
+            drop_record(self.pack_dir(pack_id), guid)
         return pack
 
     def export_json(self, pack_id: str, dest: Path) -> Path:
@@ -351,3 +355,12 @@ def _copy_instance(src: Path, dst: Path) -> None:
         shutil.copytree(src, dst, ignore=_INSTANCE_IGNORE, dirs_exist_ok=True)
     except OSError as exc:
         log.warning("Could not copy pack instance %s -> %s: %s", src, dst, exc)
+
+
+def _copy_record(src: Path, dst: Path) -> None:
+    if not src.exists():
+        return
+    try:
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+    except OSError as exc:
+        log.warning("Could not copy install record %s -> %s: %s", src, dst, exc)

@@ -68,6 +68,16 @@ from sailwind_mod_sync.packs.instance import (
     sync_pack_plugins,
 )
 from sailwind_mod_sync.packs.modpack import BulkRollbackError, PackStore
+from sailwind_mod_sync.packs.plugin_files import (
+    ConflictResolver,
+    FilePlan,
+    ask_conflicts,
+    baseline_from_package,
+    load_baselines,
+    overlay_kept_files,
+    plan_mod_files,
+    save_records,
+)
 from sailwind_mod_sync.packs.share import encode_pack_share, parse_share_text
 from sailwind_mod_sync.paths import AppPaths
 
@@ -660,6 +670,8 @@ class Manager:
         version: str | None = None,
         version_raw: str | None = None,
         progress: ProgressFn | None = None,
+        *,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> PinnedMod:
         self.packs.check_recovery(pack_id)
         entry = find_entry(self.catalog, guid, repo or "")
@@ -690,6 +702,7 @@ class Manager:
             self.library.artifact_key(guid, meta.version, repo),
             repo=repo,
             progress=progress,
+            resolve_conflicts=resolve_conflicts,
         )
 
     def list_remote_mod_versions(
@@ -718,6 +731,7 @@ class Manager:
         *,
         repo: str = "",
         progress: ProgressFn | None = None,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
@@ -730,6 +744,7 @@ class Manager:
                 key,
                 repo=repo,
                 progress=progress,
+                resolve_conflicts=resolve_conflicts,
             )
         return self.install_mod(
             pack_id,
@@ -738,6 +753,7 @@ class Manager:
             version=version,
             version_raw=version_raw or version,
             progress=progress,
+            resolve_conflicts=resolve_conflicts,
         )
 
     def add_library_mod_to_pack(
@@ -748,6 +764,7 @@ class Manager:
         *,
         repo: str | None = None,
         progress: ProgressFn | None = None,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> PinnedMod:
         """Pin the library artifact ``key`` of ``guid`` on the pack and copy it into the pack's plugins.
 
@@ -771,7 +788,7 @@ class Manager:
         )
         self._change_pack_mod(
             pack_id, pinned, self.library.mod_extracted(guid, key),
-            install=pinned.enabled, require_artifact=True,
+            install=pinned.enabled, require_artifact=True, resolve_conflicts=resolve_conflicts,
         )
         return pinned
 
@@ -916,6 +933,7 @@ class Manager:
         progress: ProgressFn | None = None,
         *,
         guid: str | None = None,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> PinnedMod:
         self.packs.check_recovery(pack_id)
         path = Path(path)
@@ -978,10 +996,14 @@ class Manager:
                 pack_id, pinned, staging_library.mod_extracted(meta.guid, cache_key),
                 install=pinned.enabled, require_artifact=True,
                 cache_target=self.library.mod_dir(meta.guid, cache_key),
+                resolve_conflicts=resolve_conflicts,
             )
             return pinned
 
-    def update_mod(self, pack_id: str, guid: str, progress: ProgressFn | None = None) -> PinnedMod:
+    def update_mod(
+        self, pack_id: str, guid: str, progress: ProgressFn | None = None,
+        *, resolve_conflicts: ConflictResolver | None = None,
+    ) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
         entry = find_entry(self.catalog, guid, pinned.repo if pinned else "")
@@ -995,6 +1017,7 @@ class Manager:
             version=version,
             version_raw=version_raw,
             progress=progress,
+            resolve_conflicts=resolve_conflicts,
         )
 
     def update_mods(
@@ -1002,6 +1025,8 @@ class Manager:
         pack_id: str,
         guids: list[str],
         progress: ProgressFn | None = None,
+        *,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> tuple[list[PinnedMod], list[str]]:
         """Update each mod of ``guids`` in the pack, carrying on past mods that fail.
 
@@ -1013,28 +1038,34 @@ class Manager:
             if progress:
                 progress(f"Updating {guid} ({index}/{len(guids)})…")
             try:
-                updated.append(self.update_mod(pack_id, guid, progress=progress))
+                updated.append(self.update_mod(pack_id, guid, progress=progress, resolve_conflicts=resolve_conflicts))
             except Exception as exc:
                 log.warning("Could not update %s in pack %s: %s", guid, pack_id, exc)
                 failures.append(f"{guid}: {str(exc).strip() or type(exc).__name__}")
         return updated, failures
 
-    def set_mod_enabled(self, pack_id: str, guid: str, enabled: bool) -> ModPack:
+    def set_mod_enabled(
+        self, pack_id: str, guid: str, enabled: bool, *, resolve_conflicts: ConflictResolver | None = None,
+    ) -> ModPack:
         self.packs.check_recovery(pack_id)
-        self._set_bulk_mod_enabled(pack_id, guid, enabled)
+        self._set_bulk_mod_enabled(pack_id, guid, enabled, resolve_conflicts)
         return self.packs.get(pack_id)
 
     def set_all_mods_enabled(
         self, pack_id: str, enabled: bool, progress: ProgressFn | None = None,
         *, on_changed: Callable[[str, bool], None] | None = None,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> tuple[int, list[str]]:
         """Change only differing pins, committing each mod after its files succeed."""
-        return self.set_mods_enabled(pack_id, enabled, progress=progress, on_changed=on_changed)
+        return self.set_mods_enabled(
+            pack_id, enabled, progress=progress, on_changed=on_changed, resolve_conflicts=resolve_conflicts,
+        )
 
     def set_mods_enabled(
         self, pack_id: str, enabled: bool, *, guids: set[str] | None = None,
         progress: ProgressFn | None = None,
         on_changed: Callable[[str, bool], None] | None = None,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> tuple[int, list[str]]:
         self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
@@ -1047,7 +1078,7 @@ class Manager:
             if progress:
                 progress(f"{verb} mods: {index}/{len(pending)} — {pack.name}")
             try:
-                self._set_bulk_mod_enabled(pack_id, guid, enabled)
+                self._set_bulk_mod_enabled(pack_id, guid, enabled, resolve_conflicts)
                 changed += 1
                 if on_changed:
                     on_changed(guid, enabled)
@@ -1060,7 +1091,9 @@ class Manager:
                     break
         return changed, failures
 
-    def _set_bulk_mod_enabled(self, pack_id: str, guid: str, enabled: bool) -> None:
+    def _set_bulk_mod_enabled(
+        self, pack_id: str, guid: str, enabled: bool, resolve_conflicts: ConflictResolver | None = None,
+    ) -> None:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
         if pinned is None:
@@ -1072,13 +1105,17 @@ class Manager:
         # can be staged here; retain missing selections and their folder names.
         install = enabled and extracted.is_dir() and any(extracted.rglob("*.dll"))
         pinned.enabled = enabled
-        self._change_pack_mod(pack_id, pinned, extracted, install=install)
+        self._change_pack_mod(pack_id, pinned, extracted, install=install, resolve_conflicts=resolve_conflicts)
 
     def _change_pack_mod(
         self, pack_id: str, pinned: PinnedMod, extracted: Path, *,
         install: bool, require_artifact: bool = False, cache_target: Path | None = None,
+        resolve_conflicts: ConflictResolver | None = None,
     ) -> None:
-        """Stage files before replacing a pin, retaining backups if rollback fails."""
+        """Stage files before replacing a pin, retaining backups if rollback fails.
+
+        Files players and mods changed in the old folders are carried into the staged copy.
+        """
         self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
         previous = pack.find_mod(pinned.guid)
@@ -1145,13 +1182,23 @@ class Manager:
             # Copy before touching the profile. Large files stay off the UI thread.
             for name in folders:
                 shutil.copytree(extracted / name, staged / name)
+            files = self._plan_carried_files(pack_id, previous, pinned.guid, extracted if install else None,
+                                             folders, present)
+            overlay_kept_files(files, ask_conflicts([files], resolve_conflicts), staged)
+            # Kept files can also remain in a folder the new package dropped, or of a disabled mod.
+            # The pin keeps owning such a folder, so a later version or removal can still replace it.
+            kept_only = sorted(item.name for item in staged.iterdir() if item.name not in folders)
+            folders = [*folders, *kept_only]
             if folders:
                 plugins.mkdir(parents=True, exist_ok=True)
             manifest = work / "modpack.json"
             original_manifest = self.packs.manifest_path(pack_id).read_bytes()
             (work / "original-modpack.json").write_bytes(original_manifest)
             if install or require_artifact:
-                pinned.plugin_folders = artifact_folders
+                shipped = {name.casefold() for name in artifact_folders}
+                pinned.plugin_folders = [
+                    *artifact_folders, *(name for name in kept_only if name.casefold() not in shipped),
+                ]
             pack.mods = [mod for mod in pack.mods if mod.guid != pinned.guid] + [pinned]
             pack.mods.sort(key=lambda mod: mod.guid.lower())
             planned_manifest = (json.dumps(pack.to_dict(), indent=2) + "\n").encode("utf-8")
@@ -1270,6 +1317,23 @@ class Manager:
                     shutil.rmtree(work)
                 except OSError:
                     log.warning("Could not remove bulk staging folder %s", work, exc_info=True)
+        if install:
+            # A stale record only affects how files are classified next time.
+            save_records(pack_dir, [(files, self.library.pinned_key(pinned))], asked=resolve_conflicts is not None)
+
+    def _plan_carried_files(
+        self, pack_id: str, previous: PinnedMod | None, guid: str, extracted: Path | None,
+        folders: list[str], present: list[str],
+    ) -> FilePlan:
+        baseline = load_baselines(self.packs.pack_dir(pack_id)).get(guid)
+        if baseline is None and previous is not None:
+            # Packs prepared before the record existed match the previously pinned package.
+            key = self.library.pinned_key(previous)
+            if self.library.has_mod(previous.guid, key):
+                baseline = baseline_from_package(
+                    self.library.mod_extracted(previous.guid, key), previous.plugin_folders,
+                )
+        return plan_mod_files(guid, extracted, folders, self.packs.plugins_dir(pack_id), present, baseline)
 
     def bulk_recovery_path(self, pack_id: str) -> Path | None:
         return self.packs.recovery_path(pack_id)
@@ -1303,7 +1367,10 @@ class Manager:
             marker = recovery[artifact_dir]
             raise BulkRollbackError(f"This library artifact needs recovery before it can be used. See {marker}")
 
-    def prepare_pack(self, pack_id: str, progress: ProgressFn | None = None) -> Path:
+    def prepare_pack(
+        self, pack_id: str, progress: ProgressFn | None = None,
+        *, resolve_conflicts: ConflictResolver | None = None,
+    ) -> Path:
         self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
         with log_duration(log, f"prepare pack {pack_id} ({pack.name})"):
@@ -1322,15 +1389,12 @@ class Manager:
                 progress("Installing BepInEx into the pack…")
             instance = self.packs.instance_dir(pack_id)
             preloader = ensure_instance_bepinex(instance, bx_extracted)
-            self.resolve_pack_artifacts(pack_id, progress=progress)
+            self.resolve_pack_artifacts(pack_id, progress=progress, resolve_conflicts=resolve_conflicts)
             return preloader
 
     def resolve_pack_artifacts(
-        self,
-        pack_id: str,
-        progress: ProgressFn | None = None,
-        *,
-        sync_plugins: bool = True,
+        self, pack_id: str, progress: ProgressFn | None = None,
+        *, resolve_conflicts: ConflictResolver | None = None, sync_plugins: bool = True,
     ) -> None:
         """Cache the pack's mods in the library; with sync_plugins, also copy them into its instance."""
         self.packs.check_recovery(pack_id)
@@ -1402,15 +1466,18 @@ class Manager:
         if sync_plugins:
             plugins = self.packs.plugins_dir(pack_id)
             plugins.mkdir(parents=True, exist_ok=True)
-            sync_pack_plugins(pack, plugins, self.library)
+            sync_pack_plugins(pack, plugins, self.library, self.packs.pack_dir(pack_id), resolve_conflicts)
         log.info("Resolved pack %s: %s missing of %s", pack_id, missing, total)
 
-    def play(self, pack_id: str, progress: ProgressFn | None = None):
+    def play(
+        self, pack_id: str, progress: ProgressFn | None = None,
+        *, resolve_conflicts: ConflictResolver | None = None,
+    ):
         game_dir = self.game_dir()
         if game_dir is None:
             raise FileNotFoundError("Sailwind.exe not found. Set the game path in Settings.")
         log.info("Play pack %s from %s", pack_id, game_dir)
-        preloader = self.prepare_pack(pack_id, progress=progress)
+        preloader = self.prepare_pack(pack_id, progress=progress, resolve_conflicts=resolve_conflicts)
         pack = self.packs.get(pack_id)
         _, bx_extracted = ensure_bepinex(
             self.library,

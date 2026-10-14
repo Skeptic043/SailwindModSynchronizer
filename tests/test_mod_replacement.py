@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from shipdata_fixture import EDITED_SHIPDATA, GALLUS, SHIPDATA, ship_json
 
 from sailwind_mod_sync.config import AppConfig
 from sailwind_mod_sync.http_util import HttpClient
@@ -657,3 +658,115 @@ def test_install_works_when_the_data_folder_is_reached_through_a_symlink(tmp_pat
         assert (manager.packs.plugins_dir(pack.id) / "Mod" / "mod.dll").read_bytes() == b"MZ"
     finally:
         manager.close()
+
+
+@pytest.fixture
+def edited_files_case(paths, tmp_path):
+    """Version 1.0.0 of a mod installed in a pack, with the player's edit and a file the mod wrote."""
+    http = MagicMock(spec=HttpClient)
+    http.download.side_effect = AssertionError("Cached replacement must not download")
+    manager = Manager(paths=paths, config=AppConfig(game_path="missing"), http=http)
+    pack = manager.packs.create("Edited files")
+    guid = "com.example.betterdrag"
+    releases = {
+        "1.0.0": {"Drag/drag.dll": b"MZ 1", "Drag/ship.json": ship_json(SHIPDATA), "Drag/notes.txt": b"notes 1"},
+        "2.0.0": {"Drag/drag.dll": b"MZ 2", "Drag/notes.txt": b"notes 2",
+                  "Drag/ship.json": ship_json({**SHIPDATA, **GALLUS})},
+        # A rewrite that moved to another folder.
+        "3.0.0": {"Lite/drag.dll": b"MZ 3"},
+    }
+    for version, files in releases.items():
+        manager.library.ingest_mod_zip(
+            guid, version, zip_mod(tmp_path / f"drag-{version}.zip", files), version_raw=version,
+            repo="https://github.com/example/drag", source_url=f"https://example/drag-{version}.zip",
+        )
+    manager.add_library_mod_to_pack(pack.id, guid, "1.0.0")
+    plugins = manager.packs.plugins_dir(pack.id)
+    (plugins / "Drag/ship.json").write_bytes(ship_json(EDITED_SHIPDATA))
+    (plugins / "Drag/scramble_1.json").write_bytes(b"{}")
+    yield manager, pack.id, guid
+    manager.close()
+
+
+@pytest.mark.parametrize(("choice", "detour"), [
+    ("none", False), ("keep", False), ("new", False),
+    pytest.param("keep", True, id="keep-via-version-without-the-files"),
+])
+def test_version_change_carries_edited_files_and_adds_new_entries(edited_files_case, choice, detour):
+    import json
+
+    manager, pack_id, guid = edited_files_case
+    plugins = manager.packs.plugins_dir(pack_id)
+    # The player tuned one ship, deleted another and added their own.
+    mine = {"BOAT BRIG (10)": {"drag": 1.5}, "BOAT CUSTOM (1)": {"drag": 4.0}}
+    (plugins / "Drag/ship.json").write_bytes(ship_json(mine))
+    (plugins / "Drag/notes.txt").write_bytes(b"my notes")
+    asked = []
+
+    def resolver(conflicts):
+        asked.append(sorted(item.relpath for item in conflicts))
+        return set(conflicts) if choice == "new" else set()
+
+    if detour:
+        # A version that ships neither file keeps both, and still knows what they were based on.
+        manager.add_library_mod_to_pack(pack_id, guid, "3.0.0", resolve_conflicts=resolver)
+        manager.resolve_pack_artifacts(pack_id, resolve_conflicts=lambda _c: pytest.fail("Nothing to ask"))
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(mine)
+    manager.add_library_mod_to_pack(pack_id, guid, "2.0.0", resolve_conflicts=None if choice == "none" else resolver)
+    assert asked == ([] if choice == "none" else [["Drag/notes.txt"]])
+    # Without anyone to ask, the player's file was kept, and the question waits for the next launch.
+    manager.resolve_pack_artifacts(pack_id, resolve_conflicts=resolver)
+    assert asked == [["Drag/notes.txt"]]
+    for _ in range(2):
+        assert (plugins / "Drag/drag.dll").read_bytes() == b"MZ 2"
+        assert json.loads((plugins / "Drag/ship.json").read_bytes()) == {**mine, **GALLUS}
+        assert (plugins / "Drag/notes.txt").read_bytes() == (b"notes 2" if choice == "new" else b"my notes")
+        assert (plugins / "Drag/scramble_1.json").read_bytes() == b"{}"
+        # An answered question is not asked again, and launching does not reset the kept files.
+        manager.resolve_pack_artifacts(pack_id, resolve_conflicts=lambda _c: pytest.fail("Nothing to ask"))
+    assert manager.bulk_recovery_path(pack_id) is None
+
+
+def test_disable_enable_round_trip_keeps_edited_files_without_dlls(edited_files_case):
+    manager, pack_id, guid = edited_files_case
+    plugins = manager.packs.plugins_dir(pack_id)
+    for _ in range(2):
+        manager.set_mod_enabled(pack_id, guid, False)
+        manager.resolve_pack_artifacts(pack_id)
+        assert {path.name for path in (plugins / "Drag").iterdir()} == {"ship.json", "scramble_1.json"}
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(EDITED_SHIPDATA)
+        manager.set_mod_enabled(pack_id, guid, True)
+        assert (plugins / "Drag/drag.dll").read_bytes() == b"MZ 1"
+        assert (plugins / "Drag/notes.txt").read_bytes() == b"notes 1"
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(EDITED_SHIPDATA)
+        assert (plugins / "Drag/scramble_1.json").read_bytes() == b"{}"
+
+
+def test_folder_a_version_dropped_stays_with_the_mod(edited_files_case):
+    manager, pack_id, guid = edited_files_case
+    plugins = manager.packs.plugins_dir(pack_id)
+    manager.add_library_mod_to_pack(pack_id, guid, "3.0.0")
+    assert {path.name for path in (plugins / "Drag").iterdir()} == {"ship.json", "scramble_1.json"}
+    assert (plugins / "Lite/drag.dll").read_bytes() == b"MZ 3"
+
+    # The kept folder is still the mod's: a DLL put there does not stay loaded.
+    (plugins / "Drag/old.dll").write_bytes(b"MZ 1")
+    for _ in range(2):
+        manager.resolve_pack_artifacts(pack_id)
+        assert {path.name for path in (plugins / "Drag").iterdir()} == {"ship.json", "scramble_1.json"}
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(EDITED_SHIPDATA)
+    # Resetting the kept file to 1.0.0's default does not make it a leftover of the current version.
+    (plugins / "Drag/ship.json").write_bytes(ship_json(SHIPDATA))
+    for enabled in (True, True, False):
+        manager.set_mod_enabled(pack_id, guid, enabled)
+        manager.resolve_pack_artifacts(pack_id)
+        assert (plugins / "Drag/ship.json").read_bytes() == ship_json(SHIPDATA)
+    manager.set_mod_enabled(pack_id, guid, True)
+    # Going back reuses the kept folder instead of refusing it as another mod's.
+    manager.add_library_mod_to_pack(pack_id, guid, "1.0.0", resolve_conflicts=lambda _c: pytest.fail("Nothing to ask"))
+    assert not (plugins / "Lite").exists()
+    assert (plugins / "Drag/drag.dll").read_bytes() == b"MZ 1"
+    assert (plugins / "Drag/ship.json").read_bytes() == ship_json(SHIPDATA)
+    manager.add_library_mod_to_pack(pack_id, guid, "3.0.0")
+    manager.packs.remove_mod(pack_id, guid)
+    assert list(plugins.iterdir()) == []
