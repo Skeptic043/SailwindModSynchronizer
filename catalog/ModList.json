@@ -372,10 +372,10 @@
     "plugin_folders": ["HangingHammock"]
   },
   {
-    "guid": "glorianadinghy",
+    "guid": "oldchroniandinghy",
     "repo": "https://github.com/FluffyJesus/Gloriana-Dinghy",
-    "name": "Gloriana Dinghy",
-    "plugin_folders": ["GlorianaDinghy"]
+    "name": "Old Chronian Dinghy",
+    "plugin_folders": ["OldChronianDinghy"]
   },
   {
     "guid": "com.nandbrew.ChronianMugFix",

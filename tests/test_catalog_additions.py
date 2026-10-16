@@ -533,11 +533,11 @@ RELEASE_LAYOUTS = [
     ),
     (
         "FluffyJesus/Gloriana-Dinghy",
-        "glorianadinghy",
-        "1.0.1",
-        "GlorianaDinghy.zip",
+        "oldchroniandinghy",
+        "1.0",
+        "OldChronianDinghy.zip",
         (
-            "GlorianaDinghy.dll",
+            "OldChronianDinghy/OldChronianDinghy.dll",
         ),
     ),
     (
