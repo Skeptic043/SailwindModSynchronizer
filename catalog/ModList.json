@@ -1,11 +1,5 @@
 [
   {
-    "guid": "DogEggz.AlternativeEmeraldSea",
-    "repo": "https://github.com/DogEggz01/AlternativeEmeraldSea",
-    "name": "AlternativeEmeraldSea",
-    "plugin_folders": ["AlternativeEmeraldSea"]
-  },
-  {
     "guid": "com.winter.betterports",
     "repo": "https://github.com/winterspices/BetterPorts",
     "name": "Better Ports",
@@ -358,5 +352,35 @@
     "repo": "https://github.com/ExocetC3i/VirtualCrew_CaptainSetsWatches",
     "name": "Remove First Officer Requirement",
     "plugin_folders": ["RemoveFirstOfficerRequirement"]
+  },
+  {
+    "guid": "archie.Logbook",
+    "repo": "https://github.com/ns-emi12/Archie-Logbook-Release",
+    "name": "Archie's Logbook",
+    "plugin_folders": ["ArchieLogbook"]
+  },
+  {
+    "guid": "com.dizzy.sailwind.clothesline",
+    "repo": "https://github.com/foxyv/DizzyClothesline",
+    "name": "Dizzy Clothesline",
+    "plugin_folders": ["Dizzy.Clothesline"]
+  },
+  {
+    "guid": "fluffyjesus.sailwind.hanginghammock",
+    "repo": "https://github.com/FluffyJesus/Hanging-Hammocks",
+    "name": "Hanging Hammocks",
+    "plugin_folders": ["HangingHammock"]
+  },
+  {
+    "guid": "glorianadinghy",
+    "repo": "https://github.com/FluffyJesus/Gloriana-Dinghy",
+    "name": "Gloriana Dinghy",
+    "plugin_folders": ["GlorianaDinghy"]
+  },
+  {
+    "guid": "com.nandbrew.ChronianMugFix",
+    "repo": "https://github.com/NANDbrew/ChronianMugFix",
+    "name": "Chronian Mug Fix",
+    "plugin_folders": ["ChronianMugFix"]
   }
 ]

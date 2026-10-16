@@ -503,6 +503,52 @@ RELEASE_LAYOUTS = [
             "RemoveFirstOfficerRequirement/RemoveFirstOfficerRequirement.dll",
         ),
     ),
+    (
+        "ns-emi12/Archie-Logbook-Release",
+        "archie.Logbook",
+        "v1.1.0",
+        "ArchieLogbook.dll",
+        (
+            "ArchieLogbook.dll",
+        ),
+    ),
+    (
+        "foxyv/DizzyClothesline",
+        "com.dizzy.sailwind.clothesline",
+        "v0.2.0",
+        "Dizzy.Clothesline-0.2.0.zip",
+        (
+            "Dizzy.Clothesline/Dizzy.Clothesline.dll",
+            "Dizzy.Clothesline/LICENSE",
+        ),
+    ),
+    (
+        "FluffyJesus/Hanging-Hammocks",
+        "fluffyjesus.sailwind.hanginghammock",
+        "1.0.1",
+        "HangingHammock.zip",
+        (
+            "HangingHammock/HangingHammock.dll",
+        ),
+    ),
+    (
+        "FluffyJesus/Gloriana-Dinghy",
+        "glorianadinghy",
+        "1.0.1",
+        "GlorianaDinghy.zip",
+        (
+            "GlorianaDinghy.dll",
+        ),
+    ),
+    (
+        "NANDbrew/ChronianMugFix",
+        "com.nandbrew.ChronianMugFix",
+        "v0.0.1",
+        "ChronianMugFix.dll",
+        (
+            "ChronianMugFix.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
