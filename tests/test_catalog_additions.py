@@ -503,6 +503,70 @@ RELEASE_LAYOUTS = [
             "RemoveFirstOfficerRequirement/RemoveFirstOfficerRequirement.dll",
         ),
     ),
+    (
+        "ns-emi12/Archie-Logbook-Release",
+        "archie.Logbook",
+        "v1.1.0",
+        "ArchieLogbook.dll",
+        (
+            "ArchieLogbook.dll",
+        ),
+    ),
+    (
+        "foxyv/DizzyClothesline",
+        "com.dizzy.sailwind.clothesline",
+        "v0.2.0",
+        "Dizzy.Clothesline-0.2.0.zip",
+        (
+            "Dizzy.Clothesline/Dizzy.Clothesline.dll",
+            "Dizzy.Clothesline/LICENSE",
+        ),
+    ),
+    (
+        "FluffyJesus/Hanging-Hammocks",
+        "fluffyjesus.sailwind.hanginghammock",
+        "1.0.1",
+        "HangingHammock.zip",
+        (
+            "HangingHammock/HangingHammock.dll",
+        ),
+    ),
+    (
+        "FluffyJesus/Gloriana-Dinghy",
+        "oldchroniandinghy",
+        "1.0",
+        "OldChronianDinghy.zip",
+        (
+            "OldChronianDinghy/OldChronianDinghy.dll",
+        ),
+    ),
+    (
+        "NANDbrew/ChronianMugFix",
+        "com.nandbrew.ChronianMugFix",
+        "v0.0.1",
+        "ChronianMugFix.dll",
+        (
+            "ChronianMugFix.dll",
+        ),
+    ),
+    (
+        "DogEggz01/Tentandplank",
+        "DogEggz.TentandPlank",
+        "1.0.0",
+        "TentandPlank-1.0.0.zip",
+        (
+            "TentandPlank/TentandPlank.dll",
+        ),
+    ),
+    (
+        "DogEggz01/BetterTradeBook",
+        "DogEggz.BetterTradeBook",
+        "1.0.0",
+        "BetterTradeBook-1.0.0.zip",
+        (
+            "BetterTradeBook/BetterTradeBook.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
