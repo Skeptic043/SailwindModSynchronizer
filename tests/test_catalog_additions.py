@@ -549,6 +549,24 @@ RELEASE_LAYOUTS = [
             "ChronianMugFix.dll",
         ),
     ),
+    (
+        "DogEggz01/Tentandplank",
+        "DogEggz.TentandPlank",
+        "1.0.0",
+        "TentandPlank-1.0.0.zip",
+        (
+            "TentandPlank/TentandPlank.dll",
+        ),
+    ),
+    (
+        "DogEggz01/BetterTradeBook",
+        "DogEggz.BetterTradeBook",
+        "1.0.0",
+        "BetterTradeBook-1.0.0.zip",
+        (
+            "BetterTradeBook/BetterTradeBook.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {

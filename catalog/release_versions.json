@@ -318,5 +318,15 @@
     "guid": "com.nandbrew.ChronianMugFix",
     "repo": "https://github.com/NANDbrew/ChronianMugFix",
     "version": "v0.0.1"
+  },
+  {
+    "guid": "DogEggz.TentandPlank",
+    "repo": "https://github.com/DogEggz01/Tentandplank",
+    "version": "1.0.0"
+  },
+  {
+    "guid": "DogEggz.BetterTradeBook",
+    "repo": "https://github.com/DogEggz01/BetterTradeBook",
+    "version": "1.0.0"
   }
 ]
