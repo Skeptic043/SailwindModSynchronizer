@@ -48,6 +48,7 @@ from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
 from sailwind_mod_sync.library.download import ensure_bepinex, ensure_mod_artifact
 from sailwind_mod_sync.library.hashing import dir_size
+from sailwind_mod_sync.library.name_discovery import record_library_plugin_names
 from sailwind_mod_sync.library.special_mods import artifact_ready, coop_dll_search_path, known_repo_for
 from sailwind_mod_sync.library.store import LibraryStore, artifact_source, source_matches
 from sailwind_mod_sync.logutil import log_duration, setup_logging
@@ -228,8 +229,19 @@ class Manager:
         return self.catalog
 
     def fetch_catalog(self, progress: ProgressFn | None = None) -> list[CatalogEntry]:
-        """Download the shared catalogs into the cache and return the merged catalog without applying it."""
-        return refresh_catalog(self.paths, self.http, progress=progress)
+        """Download the shared catalogs into the cache, record the plugin names of library mods they leave unnamed,
+        and return the merged catalog without applying it."""
+        catalog = refresh_catalog(self.paths, self.http, progress=progress)
+        if self._record_library_plugin_names(catalog, progress):
+            catalog = load_cached_catalog(self.paths) or catalog
+        return catalog
+
+    def _record_library_plugin_names(self, catalog: list[CatalogEntry], progress: ProgressFn | None) -> bool:
+        try:
+            return record_library_plugin_names(self.paths, catalog, self.library.list_mods(), progress=progress)
+        except Exception as exc:
+            log.warning("Could not read plugin names from the library: %s", exc)
+            return False
 
     def _rebuild_catalog(self, custom: list[CatalogEntry]) -> None:
         self.catalog = build_catalog(self.paths, load_shared_catalog(self.paths), custom)

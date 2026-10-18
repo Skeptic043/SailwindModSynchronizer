@@ -42,8 +42,10 @@ Override with `SAILWIND_MOD_SYNC_HOME`.
 BepInEx is downloaded from Thunderstore **BepInExPack**. Mods are downloaded from GitHub/GitLab **release zip assets**. The catalog combines three lists:
 
 - [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker);
-- this repo's [`catalog/ModList.json`](catalog/ModList.json) (and [`catalog/release_versions.json`](catalog/release_versions.json)) on `master`, for mods that are not in ModVersionChecker;
+- this repo's [`catalog/ModList.json`](catalog/ModList.json) (and [`catalog/release_versions.json`](catalog/release_versions.json)) on `master`, for mods that are not in ModVersionChecker and for the names of those that are;
 - repositories you add with **Add GitHub repo** on the Catalog tab, including forks of mods that are already listed.
+
+ModVersionChecker lists no mod names. Its mods take the name this repo's catalog gives the same mod from the same repository, else the `[BepInPlugin]` name of a downloaded copy (read on the next catalog refresh), else the repository name.
 
 A mod listed from several repositories, such as an original and a fork, gets a row for each source; the **Source** column tells them apart. **Switch source** moves the selected pack to another source, and each pack keeps the source of each of its mods, so different packs can use different sources of the same mod. Downloads of the same version from different sources are stored separately in the library.
 

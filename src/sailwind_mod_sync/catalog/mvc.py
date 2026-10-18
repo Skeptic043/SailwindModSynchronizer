@@ -4,6 +4,7 @@ import json
 import logging
 
 from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, overlay_entries, same_repo
+from sailwind_mod_sync.catalog.plugin_names import PluginNames, load_plugin_names, name_entries
 from sailwind_mod_sync.catalog.scanned import apply_scanned_versions, load_scanned_versions
 from sailwind_mod_sync.constants import (
     GITHUB_RAW_APP_MODLIST,
@@ -45,7 +46,7 @@ def refresh_catalog(
         _fetch_json_list(http, JSDELIVR_APP_VERSIONS, GITHUB_RAW_APP_VERSIONS, optional=True),
     )
     extra = merge_catalog(extra_list, extra_versions)
-    return build_catalog(paths, overlay_entries(mvc, extra), load_custom_catalog(paths))
+    return build_catalog(paths, shared_catalog(mvc, extra, load_plugin_names(paths)), load_custom_catalog(paths))
 
 
 def build_catalog(paths: AppPaths, shared: list[CatalogEntry], custom: list[CatalogEntry]) -> list[CatalogEntry]:
@@ -65,7 +66,17 @@ def load_extra_entries(paths: AppPaths) -> list[CatalogEntry]:
 
 
 def load_shared_catalog(paths: AppPaths) -> list[CatalogEntry]:
-    return overlay_entries(load_mvc_entries(paths), load_extra_entries(paths))
+    return shared_catalog(load_mvc_entries(paths), load_extra_entries(paths), load_plugin_names(paths))
+
+
+def shared_catalog(
+    mvc: list[CatalogEntry],
+    supplemental: list[CatalogEntry],
+    names: PluginNames,
+) -> list[CatalogEntry]:
+    """Return the ``mvc`` entries plus the ``supplemental`` entries they do not cover, with names no catalog gives
+    taken from ``supplemental`` or from the mods' recorded plugin names."""
+    return overlay_entries(name_entries(mvc, supplemental, names), name_entries(supplemental, [], names))
 
 
 def load_cached_catalog(paths: AppPaths) -> list[CatalogEntry] | None:
@@ -147,6 +158,7 @@ def merge_catalog(mod_list: list, versions: list) -> list[CatalogEntry]:
                 latest_version=normalized,
                 available=available,
                 plugin_folders=list(bucket["plugin_folders"]),
+                derived_name=not bucket["name"],
             )
         )
     entries.sort(key=lambda entry: entry.name.lower())
