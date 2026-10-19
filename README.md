@@ -42,8 +42,16 @@ Override with `SAILWIND_MOD_SYNC_HOME`.
 BepInEx is downloaded from Thunderstore **BepInExPack**. Mods are downloaded from GitHub/GitLab **release zip assets**. The catalog combines three lists:
 
 - [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker);
-- this repo's [`catalog/ModList.json`](catalog/ModList.json) (and [`catalog/release_versions.json`](catalog/release_versions.json)) on `master`, for mods that are not in ModVersionChecker;
+- this repo's [`catalog/ModList.json`](catalog/ModList.json) (and [`catalog/release_versions.json`](catalog/release_versions.json)) on `master`, for mods that are not in ModVersionChecker and for the names of those that are;
 - repositories you add with **Add GitHub repo** on the Catalog tab, including forks of mods that are already listed.
+
+ModVersionChecker lists no mod names. Its mods take the name this repo's catalog gives the same mod from the same repository, else the `[BepInPlugin]` name of a downloaded copy (read on the next catalog refresh), else the repository name.
+
+`python scripts/update_catalog_from_mvc.py` adds the ModVersionChecker mods this repo's catalog does not name to it, named after the `[BepInPlugin]` attribute in their latest release, and takes the ModVersionChecker version of every mod both list when it is newer; `--dry-run` only reports the changes. It downloads one release per mod it names.
+
+`python scripts/update_catalog_versions.py` checks the latest release of every mod in this repo's catalog and records it when it is newer and its download still extracts to the mod's plugin folders with a plugin declaring the mod's GUID; other newer releases are reported and left out. `--dry-run` only reports the changes.
+
+Both scripts call the GitHub API, so set `GITHUB_TOKEN` or save a token in the app's settings first. A new version of a mod with a release layout in `tests/test_catalog_additions.py` needs that layout updated too; the version script prints the files of each new release for that.
 
 A mod listed from several repositories, such as an original and a fork, gets a row for each source; the **Source** column tells them apart. **Switch source** moves the selected pack to another source, and each pack keeps the source of each of its mods, so different packs can use different sources of the same mod. Downloads of the same version from different sources are stored separately in the library.
 

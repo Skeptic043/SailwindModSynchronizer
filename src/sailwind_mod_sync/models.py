@@ -88,6 +88,8 @@ class CatalogEntry:
     plugin_folders: list[str] = field(default_factory=list)
     alternate: bool = False
     """True when a higher-priority catalog already lists this mod from another repository."""
+    derived_name: bool = False
+    """True when no catalog names this mod and ``name`` comes from its plugin, repository or GUID."""
 
     @property
     def guid_label(self) -> str:
