@@ -394,5 +394,11 @@
     "repo": "https://github.com/DogEggz01/BetterTradeBook",
     "name": "Better Trade Book",
     "plugin_folders": ["BetterTradeBook"]
+  },
+  {
+    "guid": "com.roy.dangerouswaters",
+    "repo": "https://github.com/Dixiecapt/Dangerous-Waters",
+    "name": "Dangerous Waters",
+    "plugin_folders": ["DangerousWaters"]
   }
 ]

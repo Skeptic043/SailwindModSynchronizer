@@ -567,6 +567,20 @@ RELEASE_LAYOUTS = [
             "BetterTradeBook/BetterTradeBook.dll",
         ),
     ),
+    (
+        "Dixiecapt/Dangerous-Waters",
+        "com.roy.dangerouswaters",
+        "0.1.3",
+        "DangerousWaters-0.1.3.zip",
+        (
+            "DangerousWaters/DangerousWaters.dll",
+            "DangerousWaters/CaelanorHatchFix.dll",
+            "DangerousWaters/CaelanorMastPlatforms.dll",
+            "DangerousWaters/dwpirates",
+            "DangerousWaters/dwpirates.manifest",
+            "DangerousWaters/Sounds/cannon_1.wav",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {

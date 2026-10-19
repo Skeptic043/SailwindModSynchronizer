@@ -328,5 +328,10 @@
     "guid": "DogEggz.BetterTradeBook",
     "repo": "https://github.com/DogEggz01/BetterTradeBook",
     "version": "1.0.0"
+  },
+  {
+    "guid": "com.roy.dangerouswaters",
+    "repo": "https://github.com/Dixiecapt/Dangerous-Waters",
+    "version": "0.1.3"
   }
 ]
