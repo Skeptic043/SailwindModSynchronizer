@@ -608,5 +608,10 @@
     "guid": "com.nandbrew.Windicators",
     "repo": "https://github.com/NANDbrew/Windicators",
     "version": "v1.2.2"
+  },
+  {
+    "guid": "fluffyjesus.sailwind.topsailyards",
+    "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
+    "version": "1.0"
   }
 ]

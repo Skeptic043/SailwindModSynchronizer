@@ -730,5 +730,11 @@
     "repo": "https://github.com/NANDbrew/Windicators",
     "name": "Windicators",
     "plugin_folders": ["Windicators"]
+  },
+  {
+    "guid": "fluffyjesus.sailwind.topsailyards",
+    "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
+    "name": "Topsail Crossyards",
+    "plugin_folders": ["TopsailYards"]
   }
 ]

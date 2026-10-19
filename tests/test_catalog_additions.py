@@ -569,6 +569,17 @@ RELEASE_LAYOUTS = [
             "BetterTradeBook/BetterTradeBook.dll",
         ),
     ),
+    (
+        "FluffyJesus/Topsail-Crossyards",
+        "fluffyjesus.sailwind.topsailyards",
+        "1.0",
+        "TopsailCrossyards.zip",
+        (
+            "TopsailYards/TopsailYards.deps.json",
+            "TopsailYards/TopsailYards.dll",
+            "TopsailYards/TopsailYards.pdb",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
