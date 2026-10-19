@@ -581,6 +581,15 @@ RELEASE_LAYOUTS = [
             "DangerousWaters/Sounds/cannon_1.wav",
         ),
     ),
+    (
+        "Dixiecapt/Oasis-Trading-Company",
+        "com.dixiecapt.sailwind.oasishousefix",
+        "Oasis_Trading_Company_1.4.6",
+        "OasisTradingCompanyEstates-1.4.6.zip",
+        (
+            "OasisHouseFix/OasisHouseFix.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
