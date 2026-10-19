@@ -2,7 +2,7 @@
   {
     "guid": "com.winter.betterports",
     "repo": "https://github.com/winterspices/BetterPorts",
-    "version": "v1.1.0"
+    "version": "v1.1.1"
   },
   {
     "guid": "com.nandbrew.bettertables",
@@ -12,7 +12,7 @@
   {
     "guid": "com.winter.customislandapi",
     "repo": "https://github.com/winterspices/CustomIslandAPI",
-    "version": "v1.0.1"
+    "version": "v1.0.2"
   },
   {
     "guid": "com.Exocet.customitemspawner",
@@ -27,7 +27,7 @@
   {
     "guid": "com.dizzy.sailwind.nudge",
     "repo": "https://github.com/foxyv/HammerNudge",
-    "version": "v0.1.0"
+    "version": "v0.1.7"
   },
   {
     "guid": "Dizzy.WinchChooser",
@@ -42,7 +42,7 @@
   {
     "guid": "com.winter.leopard",
     "repo": "https://github.com/winterspices/HMSLeopard",
-    "version": "v1.5.3"
+    "version": "v1.6.3"
   },
   {
     "guid": "com.Aquilartz.OldChronian",
@@ -57,7 +57,7 @@
   {
     "guid": "com.sailwindcoop.mod",
     "repo": "https://github.com/DiamondMiner99/sailwind-coop",
-    "version": "v0.3.2"
+    "version": "v0.4.0"
   },
   {
     "guid": "com.app24.sailwindconsole",
@@ -67,7 +67,7 @@
   {
     "guid": "com.diamondminer99.richpresence",
     "repo": "https://github.com/DiamondMiner99/sailwind-richpresence",
-    "version": "v0.1.0"
+    "version": "v0.1.1"
   },
   {
     "guid": "com.sailwindrigbalance.mod",
@@ -137,12 +137,12 @@
   {
     "guid": "com.august.moresailwindsails",
     "repo": "https://github.com/sum-rock/MoreSailwindSails",
-    "version": "v0.2.2"
+    "version": "v0.3.0"
   },
   {
     "guid": "com.skeptic043.sailwind.newbeginnings",
     "repo": "https://github.com/Skeptic043/sailwind-new-beginnings",
-    "version": "v1.2.2"
+    "version": "v1.5.1"
   },
   {
     "guid": "DogEggz.JetPump",
@@ -162,7 +162,7 @@
   {
     "guid": "local.sailwind.radio",
     "repo": "https://github.com/Skeptic043/Sailwind-Radio",
-    "version": "v1.2.0"
+    "version": "v1.2.2"
   },
   {
     "guid": "skeptic043.sailwind.receiptalert",
@@ -177,7 +177,7 @@
   {
     "guid": "com.nandbrew.shipshape",
     "repo": "https://github.com/NANDbrew/ShipShape",
-    "version": "v1.3.1"
+    "version": "v1.4.0"
   },
   {
     "guid": "com.diamondminer99.threesheets",
@@ -242,7 +242,7 @@
   {
     "guid": "com.winter.ageofexploration",
     "repo": "https://github.com/winterspices/AgeOfExploration",
-    "version": "v0.1.2"
+    "version": "v0.2.3"
   },
   {
     "guid": "com.keevi.fixes",
@@ -307,7 +307,7 @@
   {
     "guid": "fluffyjesus.sailwind.hanginghammock",
     "repo": "https://github.com/FluffyJesus/Hanging-Hammocks",
-    "version": "1.0.1"
+    "version": "1.1"
   },
   {
     "guid": "oldchroniandinghy",
@@ -322,7 +322,7 @@
   {
     "guid": "DogEggz.TentandPlank",
     "repo": "https://github.com/DogEggz01/Tentandplank",
-    "version": "1.0.0"
+    "version": "1.0.1"
   },
   {
     "guid": "DogEggz.BetterTradeBook",

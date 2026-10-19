@@ -17,7 +17,7 @@ from sailwind_mod_sync.catalog.github import (
 )
 from sailwind_mod_sync.catalog.mvc import merge_catalog
 from sailwind_mod_sync.http_util import HttpError
-from sailwind_mod_sync.models import CatalogEntry, ReleaseAsset
+from sailwind_mod_sync.models import CatalogEntry, ReleaseAsset, parse_mod_version
 from sailwind_mod_sync.paths import AppPaths
 
 
@@ -56,8 +56,9 @@ def test_app_catalog_keeps_better_ports_and_custom_island_api_separate() -> None
     assert api.repo.endswith("/CustomIslandAPI")
     assert ports.name == "Better Ports"
     assert api.name == "Custom Island API"
-    assert ports.latest_version == "1.1.0"
-    assert api.latest_version == "1.0.1"
+    listed = {item["guid"]: parse_mod_version(item["version"]) for item in versions}
+    assert ports.latest_version == listed["com.winter.betterports"]
+    assert api.latest_version == listed["com.winter.customislandapi"]
 
 
 def test_merge_splits_distinct_mods_in_one_repo() -> None:

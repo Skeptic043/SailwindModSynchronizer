@@ -168,10 +168,10 @@ RELEASE_LAYOUTS = [
     (
         "NANDbrew/ShipShape",
         "com.nandbrew.shipshape",
-        "v1.3.1",
-        "ShipShape.dll",
+        "v1.4.0",
+        "com.nandbrew.shipshape-1.4.0.zip",
         (
-            "ShipShape.dll",
+            "ShipShape/ShipShape.dll",
         ),
     ),
     (
@@ -206,32 +206,34 @@ RELEASE_LAYOUTS = [
     (
         "Skeptic043/sailwind-new-beginnings",
         "com.skeptic043.sailwind.newbeginnings",
-        "v1.2.2",
-        "NewBeginnings-1.2.2.zip",
+        "v1.5.1",
+        "NewBeginnings-1.5.1.zip",
         (
-            "manifest.json",
-            "icon.png",
-            "README.md",
+            "BOAT_AUTHORS.md",
+            "BepInEx/plugins/NewBeginnings/NewBeginnings.dll",
             "CHANGELOG.md",
             "LICENSE",
-            "BepInEx/plugins/NewBeginnings/NewBeginnings.dll",
+            "PORT_AUTHORS.md",
+            "README.md",
+            "icon.png",
+            "manifest.json",
         ),
     ),
     (
         "Skeptic043/Sailwind-Radio",
         "local.sailwind.radio",
-        "v1.2.0",
-        "SailwindRadio-1.2.0.zip",
+        "v1.2.2",
+        "SailwindRadio-1.2.2.zip",
         (
-            "manifest.json",
-            "icon.png",
-            "README.md",
+            "BepInEx/plugins/SailwindRadio/NLayer.dll",
+            "BepInEx/plugins/SailwindRadio/SailwindRadio.dll",
             "CHANGELOG.md",
             "LICENSE",
+            "README.md",
             "THIRD_PARTY_NOTICES.md",
+            "icon.png",
             "licenses/NLayer.txt",
-            "BepInEx/plugins/SailwindRadio/SailwindRadio.dll",
-            "BepInEx/plugins/SailwindRadio/NLayer.dll",
+            "manifest.json",
         ),
     ),
     (
@@ -251,10 +253,10 @@ RELEASE_LAYOUTS = [
     (
         "sum-rock/MoreSailwindSails",
         "com.august.moresailwindsails",
-        "v0.2.2",
-        "MoreSailwindSails.dll",
+        "v0.3.0",
+        "com.august.moresailwindsails-0.3.0.zip",
         (
-            "MoreSailwindSails.dll",
+            "MoreSailwindSails/MoreSailwindSails.dll",
         ),
     ),
     (
@@ -385,7 +387,7 @@ RELEASE_LAYOUTS = [
     (
         "winterspices/AgeOfExploration",
         "com.winter.ageofexploration",
-        "v0.1.2",
+        "v0.2.3",
         "AgeOfExploration.zip",
         (
             "AgeOfExploration/exploration",
@@ -525,7 +527,7 @@ RELEASE_LAYOUTS = [
     (
         "FluffyJesus/Hanging-Hammocks",
         "fluffyjesus.sailwind.hanginghammock",
-        "1.0.1",
+        "1.1",
         "HangingHammock.zip",
         (
             "HangingHammock/HangingHammock.dll",
@@ -552,8 +554,8 @@ RELEASE_LAYOUTS = [
     (
         "DogEggz01/Tentandplank",
         "DogEggz.TentandPlank",
-        "1.0.0",
-        "TentandPlank-1.0.0.zip",
+        "1.0.1",
+        "TentandPlank-1.0.1.zip",
         (
             "TentandPlank/TentandPlank.dll",
         ),
