@@ -613,5 +613,10 @@
     "guid": "fluffyjesus.sailwind.topsailyards",
     "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
     "version": "1.0"
+  },
+  {
+    "guid": "com.roy.dangerouswaters",
+    "repo": "https://github.com/Dixiecapt/Dangerous-Waters",
+    "version": "0.1.3"
   }
 ]

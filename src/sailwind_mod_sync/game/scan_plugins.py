@@ -26,6 +26,7 @@ DLL_GUID_RE = re.compile(
 LOOSE_GUID_RE = re.compile(rb"[A-Za-z][A-Za-z0-9_]{1,40}(?:\.[A-Za-z0-9_]{1,40}){1,6}")
 DLL_VERSION_RE = re.compile(rb"(?:\d+\.){1,3}\d+")
 SKIP_DLL_HINTS = ("bridge", "facepunch", "scripthandler")
+_VERSION_SUFFIX = re.compile(r"[-_ ]v?\d+(?:\.\d+){0,3}$", re.IGNORECASE)
 AUTO_MATCH_SCORE = 60
 AUTO_MATCH_EXACT = 80
 AUTO_MATCH_MARGIN = 15
@@ -158,14 +159,14 @@ def _from_unit(
 ) -> DiscoveredPlugin | None:
     inspected = [(dll, read_plugin_metadata(dll)) for dll in dlls]
     declared = [plugin for _, result in inspected for plugin in result.plugins]
-    if len(declared) > 1:
-        identities = ", ".join(f"{plugin.name} ({plugin.guid})" for plugin in declared)
+    plugin = _primary_plugin(declared, name, hints)
+    if len(declared) > 1 and plugin is None:
+        identities = ", ".join(f"{item.name} ({item.guid})" for item in declared)
         raise AmbiguousPluginError(
             f"Multiple plugin identities found in {name}: {identities}. "
             "Import a package containing one plugin per file or folder."
         )
-    if declared:
-        plugin = declared[0]
+    if plugin is not None:
         # Catalog associates a download source, never changes declared identity.
         entry = find_entry(catalog, plugin.guid)
         return DiscoveredPlugin(
@@ -356,6 +357,42 @@ def _catalog_match_score(
                 token_score = max(token_score, 75)
             points = max(points, token_score)
     return points
+
+
+def _label_keys(label: str) -> set[str]:
+    text = (label or "").strip()
+    if not text:
+        return set()
+    keys = {_norm(text)}
+    stripped = _VERSION_SUFFIX.sub("", text).strip(" -_")
+    if stripped:
+        keys.add(_norm(stripped))
+    return {key for key in keys if key}
+
+
+def _plugin_keys(plugin) -> set[str]:
+    tail = plugin.guid.rsplit(".", 1)[-1]
+    return {key for key in (_norm(plugin.name), _norm(tail)) if key}
+
+
+def _primary_plugin(declared, name: str, hints: tuple[str, ...]):
+    """The plugin this folder is, when several plugins share one package.
+
+    A package such as Dangerous Waters ships companion plugins in the same folder.
+    The folder or archive name picks the mod those companions belong to. With no
+    single match, the package stays ambiguous.
+    """
+    if len(declared) == 1:
+        return declared[0]
+    if not declared:
+        return None
+    labels: set[str] = set()
+    for label in (name, *hints):
+        labels |= _label_keys(label)
+    matches = [plugin for plugin in declared if _plugin_keys(plugin) & labels]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _skip_dll(path: Path) -> bool:

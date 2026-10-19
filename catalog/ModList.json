@@ -736,5 +736,11 @@
     "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
     "name": "Topsail Crossyards",
     "plugin_folders": ["TopsailYards"]
+  },
+  {
+    "guid": "com.roy.dangerouswaters",
+    "repo": "https://github.com/Dixiecapt/Dangerous-Waters",
+    "name": "Dangerous Waters",
+    "plugin_folders": ["DangerousWaters"]
   }
 ]
