@@ -406,5 +406,11 @@
     "repo": "https://github.com/Dixiecapt/Oasis-Trading-Company",
     "name": "Oasis Trading Company Estates",
     "plugin_folders": ["OasisHouseFix"]
+  },
+  {
+    "guid": "fluffyjesus.sailwind.topsailyards",
+    "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
+    "name": "Topsail Yards",
+    "plugin_folders": ["TopsailYards"]
   }
 ]

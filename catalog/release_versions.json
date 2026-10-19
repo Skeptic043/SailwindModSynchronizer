@@ -338,5 +338,10 @@
     "guid": "com.dixiecapt.sailwind.oasishousefix",
     "repo": "https://github.com/Dixiecapt/Oasis-Trading-Company",
     "version": "Oasis_Trading_Company_1.4.6"
+  },
+  {
+    "guid": "fluffyjesus.sailwind.topsailyards",
+    "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
+    "version": "1.0"
   }
 ]

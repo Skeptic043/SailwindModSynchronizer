@@ -590,6 +590,16 @@ RELEASE_LAYOUTS = [
             "OasisHouseFix/OasisHouseFix.dll",
         ),
     ),
+    (
+        "FluffyJesus/Topsail-Crossyards",
+        "fluffyjesus.sailwind.topsailyards",
+        "1.0",
+        "TopsailCrossyards.zip",
+        (
+            "TopsailYards/TopsailYards.dll",
+            "TopsailYards/TopsailYards.deps.json",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
