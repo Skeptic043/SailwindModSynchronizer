@@ -1,11 +1,7 @@
-import importlib.util
 import io
-import json
-import sys
 import zipfile
-from pathlib import Path
 
-import pytest
+from catalog_scripts import load_script
 from plugin_metadata_fixture import managed_dll
 
 from sailwind_mod_sync.catalog.mvc import merge_catalog, shared_catalog
@@ -15,17 +11,7 @@ REPO = "https://github.com/bryon82/SailwindHooksHangMore"
 GUID = "com.raddude82.hookshangmore"
 
 
-def _load_script():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "update_catalog_from_mvc.py"
-    spec = importlib.util.spec_from_file_location("sailwind_mod_sync_update_catalog_from_mvc", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-script = _load_script()
+script = load_script("update_catalog_from_mvc")
 
 
 class _ReleaseHttp:
@@ -63,13 +49,6 @@ def _archive(plugins: tuple[tuple[str, str, str], ...] = ((GUID, "HooksHangMore"
 
 def _mvc(guid: str = GUID, repo: str = REPO) -> list:
     return merge_catalog([{"guid": guid, "repo": repo}], [{"guid": guid, "repo": repo, "version": "v2.2.3"}])
-
-
-@pytest.mark.parametrize("name", ["ModList.json", "release_versions.json"])
-def test_format_catalog_reproduces_the_catalog_files(name: str) -> None:
-    path = Path(__file__).resolve().parents[1] / "catalog" / name
-    text = path.read_bytes().replace(b"\r\n", b"\n").decode("utf-8")
-    assert script.format_catalog(json.loads(text)) == text
 
 
 def test_unnamed_mods_leaves_named_mods_alone() -> None:
@@ -178,16 +157,3 @@ def test_newer_versions_ignores_mvc_mod_from_another_repo() -> None:
     mvc = merge_catalog([{"guid": GUID, "repo": REPO}], [{"guid": GUID, "version": "v3.0.0"}])
     own = [{"guid": GUID, "repo": "https://github.com/someone/HooksFork", "version": "v2.2.3"}]
     assert script.newer_versions(mvc, own) == []
-
-
-def test_apply_version_updates_changes_only_the_updated_mods() -> None:
-    own = [
-        {"guid": GUID, "repo": REPO, "version": "v2.2.3"},
-        {"guid": "other.mod", "repo": "https://github.com/a/Other", "version": "v1.0.0"},
-    ]
-    updated = script.apply_version_updates(own, [script.VersionUpdate(GUID, REPO, "v2.2.3", "v2.3.0")])
-    assert updated == [
-        {"guid": GUID, "repo": REPO, "version": "v2.3.0"},
-        {"guid": "other.mod", "repo": "https://github.com/a/Other", "version": "v1.0.0"},
-    ]
-    assert own[0]["version"] == "v2.2.3"

@@ -15,32 +15,39 @@ settings raises the GitHub API rate limit.
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
 import tempfile
-import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from catalog_tools import (
+    MODLIST_FILE,
+    REPO_ROOT,
+    VERSIONS_FILE,
+    BlockedError,
+    ReleaseError,
+    VersionUpdate,
+    apply_version_updates,
+    declared_plugin,
+    describe_plugins,
+    download_release,
+    downloaded_plugins,
+    find_item,
+    github_token,
+    print_version_updates,
+    read_catalog_file,
+    write_catalog_file,
+)
 from sailwind_mod_sync.catalog.custom import same_repo
-from sailwind_mod_sync.catalog.github import GitHubDownloadError, parse_repo_url
+from sailwind_mod_sync.catalog.github import parse_repo_url
 from sailwind_mod_sync.catalog.mvc import merge_catalog
 from sailwind_mod_sync.catalog.plugin_names import name_entries
-from sailwind_mod_sync.config import load_config
 from sailwind_mod_sync.constants import GITHUB_RAW_MODLIST, GITHUB_RAW_VERSIONS, JSDELIVR_MODLIST, JSDELIVR_VERSIONS
-from sailwind_mod_sync.game.scan_plugins import scan_plugins_dir
 from sailwind_mod_sync.http_util import HttpClient, HttpError
-from sailwind_mod_sync.library.download import ensure_mod_artifact
 from sailwind_mod_sync.library.store import LibraryStore
-from sailwind_mod_sync.models import ArtifactMeta, CatalogEntry, is_newer
+from sailwind_mod_sync.models import CatalogEntry, is_newer
 from sailwind_mod_sync.paths import AppPaths
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-MODLIST_FILE = REPO_ROOT / "catalog" / "ModList.json"
-VERSIONS_FILE = REPO_ROOT / "catalog" / "release_versions.json"
-BLOCKING_STATUS_CODES = (401, 403, 429)
 
 
 @dataclass(frozen=True)
@@ -59,28 +66,12 @@ class SkippedMod:
     reason: str
 
 
-@dataclass(frozen=True)
-class VersionUpdate:
-    guid: str
-    repo: str
-    old: str
-    new: str
-
-
 @dataclass
 class NamingResult:
     named: list[NamedMod] = field(default_factory=list)
     skipped: list[SkippedMod] = field(default_factory=list)
     stopped: str = ""
     """Why reading stopped before every mod was read, or "" when it did not."""
-
-
-class BlockedError(RuntimeError):
-    """GitHub rejected the token or rate-limited the requests."""
-
-
-class SkipError(RuntimeError):
-    """The mod's latest release gives no name for it."""
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -115,15 +106,6 @@ def main(argv: list[str] | None = None) -> int:
         write_catalog_file(VERSIONS_FILE, apply_version_updates(versions, updates))
         print(f"Updated {MODLIST_FILE.relative_to(REPO_ROOT)} and {VERSIONS_FILE.relative_to(REPO_ROOT)}")
     return 1 if result.stopped else 0
-
-
-def github_token() -> str:
-    """Return the token from GITHUB_TOKEN, GH_TOKEN or the app's settings, or "" when none is set."""
-    for variable in ("GITHUB_TOKEN", "GH_TOKEN"):
-        token = os.environ.get(variable, "").strip()
-        if token:
-            return token
-    return load_config(AppPaths()).token()
 
 
 def fetch_list(http: HttpClient, primary: str, fallback: str) -> list:
@@ -195,7 +177,7 @@ def name_mods(
             except BlockedError as exc:
                 result.stopped = str(exc)
                 break
-            except SkipError as exc:
+            except ReleaseError as exc:
                 result.skipped.append(SkippedMod(entry.primary_guid, entry.repo, str(exc)))
     return result
 
@@ -205,18 +187,15 @@ def read_named_mod(store: LibraryStore, http: HttpClient, entry: CatalogEntry) -
 
     Raises:
         BlockedError: GitHub rejected the token or rate-limited the request.
-        SkipError: The release could not be downloaded or holds no readable plugin with a GUID of ``entry``.
+        ReleaseError: The release could not be downloaded or holds no readable plugin with a GUID of ``entry``.
     """
-    meta = _download_latest(store, http, entry)
-    extracted = store.mod_extracted(entry.primary_guid, store.artifact_key(entry.primary_guid, meta.version, entry.repo))
-    try:
-        plugins = scan_plugins_dir(extracted).discovered
-    except (OSError, ValueError) as exc:
-        raise SkipError(f"could not read the plugins: {exc}") from exc
-    own = next((plugin for plugin in plugins if plugin.declared_identity and plugin.guid in entry.guids), None)
+    meta = download_release(store, http, entry.primary_guid, entry.repo)
+    plugins = downloaded_plugins(store, meta, entry.repo)
+    own = declared_plugin(plugins, entry.guids)
     if own is None or not own.name.strip():
-        found = ", ".join(f"{plugin.name} ({plugin.guid})" for plugin in plugins) or "no BepInEx plugin"
-        raise SkipError(f"no plugin declares {' or '.join(entry.guids)} in {meta.filename}; found: {found}")
+        raise ReleaseError(
+            f"no plugin declares {' or '.join(entry.guids)} in {meta.filename}; found: {describe_plugins(plugins)}"
+        )
     return NamedMod(
         guid=own.guid,
         repo=entry.repo,
@@ -224,30 +203,6 @@ def read_named_mod(store: LibraryStore, http: HttpClient, entry: CatalogEntry) -
         plugin_folders=list(meta.plugin_folders),
         version=meta.version_raw or meta.version,
     )
-
-
-def _download_latest(store: LibraryStore, http: HttpClient, entry: CatalogEntry) -> ArtifactMeta:
-    try:
-        return ensure_mod_artifact(store, http, guid=entry.primary_guid, repo=entry.repo)
-    except HttpError as exc:
-        _raise_if_blocking(exc)
-        raise SkipError(f"could not check the latest release: {exc}") from exc
-    except GitHubDownloadError as exc:
-        if isinstance(exc.__cause__, HttpError):
-            _raise_if_blocking(exc.__cause__)
-        raise SkipError(f"could not download the release: {_first_line(exc.__cause__ or exc)}") from exc
-    except (FileNotFoundError, RuntimeError, ValueError, OSError, zipfile.BadZipFile) as exc:
-        raise SkipError(_first_line(exc)) from exc
-
-
-def _raise_if_blocking(exc: HttpError) -> None:
-    if exc.status_code in BLOCKING_STATUS_CODES:
-        raise BlockedError(f"GitHub stopped the requests: {exc}") from exc
-
-
-def _first_line(exc: BaseException) -> str:
-    text = str(exc).strip()
-    return text.splitlines()[0] if text else type(exc).__name__
 
 
 def add_named_mods(
@@ -263,13 +218,13 @@ def add_named_mods(
     mods = [dict(item) for item in own_mods]
     versions = [dict(item) for item in own_versions]
     for mod in sorted(named, key=lambda item: item.name.lower()):
-        existing = _find_item(mods, mod.guid, mod.repo)
+        existing = find_item(mods, mod.guid, mod.repo)
         if existing is None:
             mods.append(_mod_item(mod))
         else:
             existing["name"] = mod.name
             existing["plugin_folders"] = existing.get("plugin_folders") or list(mod.plugin_folders)
-        if _find_item(versions, mod.guid, mod.repo) is None:
+        if find_item(versions, mod.guid, mod.repo) is None:
             versions.append({"guid": mod.guid, "repo": mod.repo, "version": mod.version})
     return [_ordered(item) for item in mods], versions
 
@@ -288,23 +243,6 @@ def newer_versions(mvc: list[CatalogEntry], own_versions: list[dict]) -> list[Ve
     return updates
 
 
-def apply_version_updates(own_versions: list[dict], updates: list[VersionUpdate]) -> list[dict]:
-    """Return a copy of ``own_versions`` with the versions of ``updates``."""
-    versions = [dict(item) for item in own_versions]
-    for update in updates:
-        item = _find_item(versions, update.guid, update.repo)
-        if item is not None:
-            item["version"] = update.new
-    return versions
-
-
-def _find_item(items: list[dict], guid: str, repo: str) -> dict | None:
-    return next(
-        (item for item in items if item.get("guid") == guid and same_repo(str(item.get("repo") or ""), repo)),
-        None,
-    )
-
-
 def _mod_item(mod: NamedMod) -> dict:
     return {"guid": mod.guid, "repo": mod.repo, "name": mod.name, "plugin_folders": list(mod.plugin_folders)}
 
@@ -312,34 +250,6 @@ def _mod_item(mod: NamedMod) -> dict:
 def _ordered(item: dict) -> dict:
     keys = ["guid", "repo", "name", "plugin_folders"]
     return {key: item[key] for key in keys if key in item} | {key: value for key, value in item.items() if key not in keys}
-
-
-def read_catalog_file(path: Path) -> list[dict]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        raise ValueError(f"{path} is not a JSON list")
-    return data
-
-
-def format_catalog(items: list[dict]) -> str:
-    """Return ``items`` as JSON in the layout of the catalog files: one key per line and lists on one line."""
-    blocks = []
-    for item in items:
-        lines = [f"    {json.dumps(key)}: {_format_value(value)}" for key, value in item.items()]
-        blocks.append("  {\n" + ",\n".join(lines) + "\n  }")
-    return "[\n" + ",\n".join(blocks) + "\n]\n"
-
-
-def _format_value(value: object) -> str:
-    if isinstance(value, list):
-        return "[" + ", ".join(json.dumps(item, ensure_ascii=False) for item in value) + "]"
-    return json.dumps(value, ensure_ascii=False)
-
-
-def write_catalog_file(path: Path, items: list[dict]) -> None:
-    """Write ``items`` to ``path`` in the catalog layout, keeping the file's line endings."""
-    newline = "\r\n" if b"\r\n" in path.read_bytes() else "\n"
-    path.write_text(format_catalog(items), encoding="utf-8", newline=newline)
 
 
 def print_report(result: NamingResult, updates: list[VersionUpdate]) -> None:
@@ -350,10 +260,7 @@ def print_report(result: NamingResult, updates: list[VersionUpdate]) -> None:
         print(f"\nSkipped {len(result.skipped)} mod(s):")
         for mod in result.skipped:
             print(f"  {mod.guid}  {mod.repo}: {mod.reason}")
-    if updates:
-        print(f"\nUpdated {len(updates)} version(s):")
-        for update in updates:
-            print(f"  {update.guid}  {update.old} -> {update.new}")
+    print_version_updates(updates)
     if result.stopped:
         print(f"\nStopped early: {result.stopped}")
 
