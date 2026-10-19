@@ -47,6 +47,8 @@ BepInEx is downloaded from Thunderstore **BepInExPack**. Mods are downloaded fro
 
 ModVersionChecker lists no mod names. Its mods take the name this repo's catalog gives the same mod from the same repository, else the `[BepInPlugin]` name of a downloaded copy (read on the next catalog refresh), else the repository name.
 
+`python scripts/update_catalog_from_mvc.py` adds the ModVersionChecker mods this repo's catalog does not name to it, named after the `[BepInPlugin]` attribute in their latest release, and takes the ModVersionChecker version of every mod both list when it is newer; `--dry-run` only reports the changes. It downloads one release per mod it names, so set `GITHUB_TOKEN` or save a token in the app's settings first. A new version of a mod with a release layout in `tests/test_catalog_additions.py` needs that layout updated too.
+
 A mod listed from several repositories, such as an original and a fork, gets a row for each source; the **Source** column tells them apart. **Switch source** moves the selected pack to another source, and each pack keeps the source of each of its mods, so different packs can use different sources of the same mod. Downloads of the same version from different sources are stored separately in the library.
 
 The catalog refreshes in the background once a day, at startup and while the app stays open (turn it off in Settings with **Refresh the catalog once a day**); **Refresh catalog** refreshes it on demand. **Scan updates** checks the latest release of every repository. Its results are kept across restarts and win over a catalog that lists no version or an older one. **Update all** on the Pack tab updates every mod of the pack that has a newer version.
