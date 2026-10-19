@@ -88,8 +88,8 @@ RELEASE_LAYOUTS = [
     (
         "DogEggz01/Propeller",
         "DogEggz.JetPump",
-        "1.1.0",
-        "Propeller-1.1.0.zip",
+        "1.2.1",
+        "Propeller-1.2.1.zip",
         (
             "Propeller/assets/dogeggz.jetpump.assets",
             "Propeller/Propeller.dll",
@@ -260,8 +260,8 @@ RELEASE_LAYOUTS = [
     (
         "DogEggz01/EconomyOverhaul",
         "DogEggz.EconomyOverhaul",
-        "0.9.5",
-        "EconomyOverhaul-0.9.5.zip",
+        "0.10.1",
+        "EconomyOverhaul-0.10.1.zip",
         (
             "EconomyOverhaul/EconomyOverhaul.dll",
         ),
@@ -396,8 +396,8 @@ RELEASE_LAYOUTS = [
     (
         "KeeviDev/SailwindKeeviFixes",
         "com.keevi.fixes",
-        "v1.0.1",
-        "KeeviFixes-1.0.1.zip",
+        "v1.0.2",
+        "KeeviFixes-1.0.2.zip",
         (
             "KeeviFixes/KeeviFixes.dll",
         ),
@@ -419,8 +419,8 @@ RELEASE_LAYOUTS = [
     (
         "DogEggz01/WindTotem",
         "DogEggz.WindTotem",
-        "1.0.5",
-        "WindTotem-1.0.5.zip",
+        "1.0.6",
+        "WindTotem-1.0.6.zip",
         (
             "WindTotem/WindTotem.dll",
             "WindTotem/windtotem_assets",
