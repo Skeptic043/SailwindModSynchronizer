@@ -396,6 +396,348 @@
     "plugin_folders": ["BetterTradeBook"]
   },
   {
+    "guid": "NatoriusG.AllSailsAllShipyards",
+    "repo": "https://github.com/NANDbrew/AllSailsAllShipyards",
+    "name": "All Sails in All Shipyards",
+    "plugin_folders": ["AllSailsAllShipyards"]
+  },
+  {
+    "guid": "DogEggz.AlternativeEmeraldSea",
+    "repo": "https://github.com/DogEggz01/AlternativeOceanColor",
+    "name": "Alternative Ocean Color",
+    "plugin_folders": ["AlternativeOceanColor"]
+  },
+  {
+    "guid": "com.nandbrew.anchorimprovements",
+    "repo": "https://github.com/NANDbrew/AnchorImprovements",
+    "name": "Anchor Improvements",
+    "plugin_folders": ["AnchorImprovements"]
+  },
+  {
+    "guid": "com.raddude.betterlanternsandlights",
+    "repo": "https://github.com/bryon82/SailwindBetterLanternsAndLights",
+    "name": "Better Lanterns and Lights",
+    "plugin_folders": ["BetterLanternsAndLights"]
+  },
+  {
+    "guid": "DogEggz.BetterStorm",
+    "repo": "https://github.com/DogEggz01/BetterStorm",
+    "name": "Better Storm",
+    "plugin_folders": ["BetterStorm"]
+  },
+  {
+    "guid": "com.raddude.betterfishing",
+    "repo": "https://github.com/bryon82/SailwindBetterFishing",
+    "name": "BetterFishing",
+    "plugin_folders": ["BetterFishing"]
+  },
+  {
+    "guid": "com.raddude.bitsandbobsradredux",
+    "repo": "https://github.com/bryon82/SailwindBitsAndBobsRadRedux",
+    "name": "BitsAndBobsRadRedux",
+    "plugin_folders": ["BitsAndBobsRadRedux"]
+  },
+  {
+    "guid": "com.nandbrew.boatcolors",
+    "repo": "https://github.com/NANDbrew/BoatColors",
+    "name": "Boat Colors",
+    "plugin_folders": ["BoatColors"]
+  },
+  {
+    "guid": "com.DogEggz.BucketPourFurther",
+    "repo": "https://github.com/DogEggz01/BucketPourFurther",
+    "name": "BucketPourFurther",
+    "plugin_folders": ["BucketPourFurther"]
+  },
+  {
+    "guid": "com.jakeinaboat.cargocontroller",
+    "repo": "https://github.com/JakeInABoat/SailwindCargoController",
+    "name": "Cargo Controller",
+    "plugin_folders": ["CargoController"]
+  },
+  {
+    "guid": "com.pete.sailwind.windconfigurator",
+    "repo": "https://github.com/DogEggz01/ChaoticWind",
+    "name": "Chaotic Wind",
+    "plugin_folders": ["ChaoticWind"]
+  },
+  {
+    "guid": "com.raddude.climate",
+    "repo": "https://github.com/bryon82/SailwindClimate",
+    "name": "Climate",
+    "plugin_folders": ["Climate"]
+  },
+  {
+    "guid": "com.bepis.bepinex.configurationmanager",
+    "repo": "https://github.com/BepInEx/BepInEx.ConfigurationManager",
+    "name": "Configuration Manager",
+    "plugin_folders": ["ConfigurationManager"]
+  },
+  {
+    "guid": "pr0skynesis.cookedinfo",
+    "repo": "https://github.com/alesparise/CookedInfo-Sailwind-Mod",
+    "name": "Cooked Info",
+    "plugin_folders": ["CookedInfo"]
+  },
+  {
+    "guid": "pr0skynesis.dinghies",
+    "repo": "https://github.com/alesparise/Dinghies-Sailwind-Mod",
+    "name": "Dinghies",
+    "plugin_folders": ["Dinghies"]
+  },
+  {
+    "guid": "com.dizzy.sailwind.gamma",
+    "repo": "https://github.com/foxyv/dizzy_sailwind_mods",
+    "name": "Dizzy Gamma",
+    "plugin_folders": ["Dizzy.Gamma"]
+  },
+  {
+    "guid": "com.dizzy.sailwind.fixes",
+    "repo": "https://github.com/foxyv/dizzy_sailwind_fixes",
+    "name": "Dizzy Sailwind Fixes",
+    "plugin_folders": ["Dizzy.Fixes"]
+  },
+  {
+    "guid": "com.nandbrew.dynamiclights",
+    "repo": "https://github.com/NANDbrew/DynamicLights",
+    "name": "Dynamic Lights",
+    "plugin_folders": ["Dynamic Lights"]
+  },
+  {
+    "guid": "com.raddude.economicevents",
+    "repo": "https://github.com/bryon82/SailwindEconomicEvents",
+    "name": "EconomicEvents",
+    "plugin_folders": ["EconomicEvents"]
+  },
+  {
+    "guid": "com.DogEggz.sailwind.freecameraandcollision",
+    "repo": "https://github.com/DogEggz01/FreeCameraAndWaterCollision",
+    "name": "FreeCamera and Collision",
+    "plugin_folders": ["FreeCameraAndCollision"]
+  },
+  {
+    "guid": "com.nandbrew.furniturefix",
+    "repo": "https://github.com/NANDbrew/FurnitureFix",
+    "name": "Furniture Fix",
+    "plugin_folders": ["FurnitureFix"]
+  },
+  {
+    "guid": "com.raddude.hookshangmore",
+    "repo": "https://github.com/bryon82/SailwindHooksHangMore",
+    "name": "HooksHangMore",
+    "plugin_folders": ["HooksHangMore"]
+  },
+  {
+    "guid": "com.kemy.kemyfurniture",
+    "repo": "https://github.com/Kemylar/KemyFurnitureMod",
+    "name": "Kemy's Furniture",
+    "plugin_folders": ["KemyFurnitureMod"]
+  },
+  {
+    "guid": "com.nandbrew.missionrework",
+    "repo": "https://github.com/NANDbrew/MissionRework",
+    "name": "Mission Rework",
+    "plugin_folders": ["MissionRework"]
+  },
+  {
+    "guid": "com.raddude.modsavebackups",
+    "repo": "https://github.com/bryon82/SailwindModSaveBackups",
+    "name": "ModSaveBackups",
+    "plugin_folders": ["ModSaveBackups"]
+  },
+  {
+    "guid": "zzz.raddude.modversionchecker",
+    "repo": "https://github.com/bryon82/SailwindModVersionChecker",
+    "name": "ModVersionChecker",
+    "plugin_folders": ["ModVersionChecker"]
+  },
+  {
+    "guid": "com.nandbrew.nandfixes",
+    "repo": "https://github.com/NANDbrew/NANDFixes",
+    "name": "NAND Fixes",
+    "plugin_folders": ["NANDFixes"]
+  },
+  {
+    "guid": "com.nandbrew.nandcommand",
+    "repo": "https://github.com/NANDbrew/NANDCommand",
+    "name": "NANDCommand",
+    "plugin_folders": ["NANDCommand"]
+  },
+  {
+    "guid": "com.nandbrew.nandtweaks",
+    "repo": "https://github.com/NANDbrew/NANDTweaks",
+    "name": "NANDTweaks",
+    "plugin_folders": ["NANDTweaks"]
+  },
+  {
+    "guid": "pr0skynesis.passagedude",
+    "repo": "https://github.com/alesparise/PassageDude-Sailwind-Mod",
+    "name": "Passage Dude",
+    "plugin_folders": ["PassageDude"]
+  },
+  {
+    "guid": "com.nandbrew.PortableSaves",
+    "repo": "https://github.com/NANDbrew/PortableSaves",
+    "name": "Portable Saves",
+    "plugin_folders": ["PortableSaves"]
+  },
+  {
+    "guid": "com.DogEggz.postalexpansion",
+    "repo": "https://github.com/DogEggz01/PostalExpansion",
+    "name": "Postal Expansion",
+    "plugin_folders": ["PostalExpansion"]
+  },
+  {
+    "guid": "DogEggz.PowerfulOar",
+    "repo": "https://github.com/DogEggz01/PowerfulOar",
+    "name": "PowerfulOar",
+    "plugin_folders": ["PowerfulOar"]
+  },
+  {
+    "guid": "pr0skynesis.profitpercent",
+    "repo": "https://github.com/alesparise/Profit-Percent-Sailwind-Mod",
+    "name": "Profit Percent",
+    "plugin_folders": ["ProfitPercent"]
+  },
+  {
+    "guid": "com.raddude.radfixes",
+    "repo": "https://github.com/bryon82/SailwindRadFixes",
+    "name": "RadFixes",
+    "plugin_folders": ["RadFixes"]
+  },
+  {
+    "guid": "com.raddude.radrefinements",
+    "repo": "https://github.com/bryon82/SailwindRadRefinements",
+    "name": "RadRefinements",
+    "plugin_folders": ["RadRefinements"]
+  },
+  {
+    "guid": "com.raddude.randomencounters",
+    "repo": "https://github.com/bryon82/SailwindRandomEncounters",
+    "name": "RandomEncounters",
+    "plugin_folders": ["RandomEncounters"]
+  },
+  {
+    "guid": "com.nandbrew.sailcollisionfix",
+    "repo": "https://github.com/NANDbrew/SailCollisionFix",
+    "name": "Sail Collision Fix",
+    "plugin_folders": ["SailCollisionFix"]
+  },
+  {
+    "guid": "com.pro1p.sailwind.junkandgaffadjustment",
+    "repo": "https://github.com/DogEggz01/Sail-Rebalance",
+    "name": "Sail Rebalance",
+    "plugin_folders": ["SailRebalance"]
+  },
+  {
+    "guid": "com.raddude.sailadex",
+    "repo": "https://github.com/bryon82/SailwindSail-a-dex",
+    "name": "Sail-a-dex",
+    "plugin_folders": ["Sail-a-dex"]
+  },
+  {
+    "guid": "pr0skynesis.sailinfo",
+    "repo": "https://github.com/alesparise/SailInfo-Sailwind-Mod",
+    "name": "SailInfo",
+    "plugin_folders": ["SailInfo"]
+  },
+  {
+    "guid": "com.nandbrew.sailwinddifficulty",
+    "repo": "https://github.com/NANDbrew/SailwindDifficulty",
+    "name": "Sailwind Difficulty",
+    "plugin_folders": ["SailwindDifficulty"]
+  },
+  {
+    "guid": "com.zallek.sailwindregatta",
+    "repo": "https://github.com/zallek/sailwind-regatta",
+    "name": "Sailwind Regatta",
+    "plugin_folders": ["SailwindRegatta"]
+  },
+  {
+    "guid": "com.nandbrew.savecleaner",
+    "repo": "https://github.com/NANDbrew/SaveCleaner",
+    "name": "Save Cleaner",
+    "plugin_folders": ["SaveCleaner"]
+  },
+  {
+    "guid": "com.raddude.saveslotsplus",
+    "repo": "https://github.com/bryon82/SailwindSaveSlotsPlus",
+    "name": "SaveSlotsPlus",
+    "plugin_folders": ["SaveSlotsPlus"]
+  },
+  {
+    "guid": "com.nandbrew.shipyardexpansion",
+    "repo": "https://github.com/NANDbrew/ShipyardExpansion",
+    "name": "Shipyard Expansion",
+    "plugin_folders": ["ShipyardExpansion"]
+  },
+  {
+    "guid": "pr0skynesis.shipyardcodes",
+    "repo": "https://github.com/alesparise/ShipyardCodes-Sailwind-Mod",
+    "name": "ShipyardCodes",
+    "plugin_folders": ["ShipyardCodes"]
+  },
+  {
+    "guid": "com.nandbrew.simpletides",
+    "repo": "https://github.com/NANDbrew/SimpleTides",
+    "name": "Simple Tides",
+    "plugin_folders": ["SimpleTides"]
+  },
+  {
+    "guid": "com.Exocet.SoundEffectVolumeLimiter",
+    "repo": "https://github.com/ExocetC3i/Sailwind_SoundEffectVolumeLimiter",
+    "name": "Sound Effect Volume Limiter",
+    "plugin_folders": ["SoundEffectVolumeLimiter"]
+  },
+  {
+    "guid": "com.nandbrew.stickyfix",
+    "repo": "https://github.com/NANDbrew/StickyFix",
+    "name": "StickyFix",
+    "plugin_folders": ["StickyFix"]
+  },
+  {
+    "guid": "DogEggz",
+    "repo": "https://github.com/DogEggz01/SwappableStaysail",
+    "name": "Swappable Staysail",
+    "plugin_folders": ["SwappableStaysail"]
+  },
+  {
+    "guid": "com.nandbrew.SWTimeScale",
+    "repo": "https://github.com/NANDbrew/TimeScale",
+    "name": "TimeScale",
+    "plugin_folders": ["SWTimeScale"]
+  },
+  {
+    "guid": "com.nandbrew.towableboats",
+    "repo": "https://github.com/NANDbrew/TowableBoats",
+    "name": "Towable Boats",
+    "plugin_folders": ["TowableBoats"]
+  },
+  {
+    "guid": "DogEggz.unlimitedhammer",
+    "repo": "https://github.com/DogEggz01/UnlimitedHammer",
+    "name": "Unlimited hammer",
+    "plugin_folders": ["UnlimitedHammer"]
+  },
+  {
+    "guid": "dogeggz.unstayedjunksailmast",
+    "repo": "https://github.com/DogEggz01/UnstayedJunkSailMast",
+    "name": "Unstayed Junk Sail Mast",
+    "plugin_folders": ["UnstayedJunkSailMast"]
+  },
+  {
+    "guid": "com.nandbrew.Windicators",
+    "repo": "https://github.com/NANDbrew/Windicators",
+    "name": "Windicators",
+    "plugin_folders": ["Windicators"]
+  },
+  {
+    "guid": "fluffyjesus.sailwind.topsailyards",
+    "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
+    "name": "Topsail Crossyards",
+    "plugin_folders": ["TopsailYards"]
+  },
+  {
     "guid": "com.roy.dangerouswaters",
     "repo": "https://github.com/Dixiecapt/Dangerous-Waters",
     "name": "Dangerous Waters",
@@ -406,11 +748,5 @@
     "repo": "https://github.com/Dixiecapt/Oasis-Trading-Company",
     "name": "Oasis Trading Company Estates",
     "plugin_folders": ["OasisHouseFix"]
-  },
-  {
-    "guid": "fluffyjesus.sailwind.topsailyards",
-    "repo": "https://github.com/FluffyJesus/Topsail-Crossyards",
-    "name": "Topsail Yards",
-    "plugin_folders": ["TopsailYards"]
   }
 ]

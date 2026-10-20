@@ -363,6 +363,33 @@ def test_plugin_archive_preserves_support_paths_and_declared_version(tmp_path: P
     assert found[0].plugin_paths == [archive]
 
 
+def test_folder_of_companion_plugins_imports_as_the_named_mod(tmp_path: Path) -> None:
+    plugins = tmp_path / "plugins"
+    folder = plugins / "DangerousWaters"
+    folder.mkdir(parents=True)
+    (folder / "DangerousWaters.dll").write_bytes(
+        managed_dll((("com.roy.dangerouswaters", "Dangerous Waters", "0.1.3"),))
+    )
+    (folder / "CaelanorHatchFix.dll").write_bytes(
+        managed_dll((("com.dixiecapt.sailwind.caelanorhatchfix", "Caelanor Hatch Walk Collider Fix", "1.2.0"),))
+    )
+    (folder / "CaelanorMastPlatforms.dll").write_bytes(
+        managed_dll((("com.dixiecapt.sailwind.caelanormastplatforms", "Caelanor Mast Platforms", "3.0.1"),))
+    )
+    scan = scan_plugins_dir(plugins)
+    assert scan.skipped_plugins == ()
+    assert [(item.guid, item.version, item.name) for item in scan.discovered] == [
+        ("com.roy.dangerouswaters", "0.1.3", "Dangerous Waters"),
+    ]
+    archive = tmp_path / "DangerousWaters-0.1.3.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        for dll in folder.glob("*.dll"):
+            zf.write(dll, f"DangerousWaters/{dll.name}")
+    found = discover_local_file(archive)
+    assert [(item.guid, item.version) for item in found] == [("com.roy.dangerouswaters", "0.1.3")]
+    assert found[0].plugin_paths == [archive]
+
+
 def test_ambiguity_is_reported_for_import_and_does_not_abort_tree_scan(tmp_path: Path, caplog) -> None:
     plugins = tmp_path / "plugins"
     ambiguous = plugins / "Ambiguous"
