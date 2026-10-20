@@ -618,5 +618,10 @@
     "guid": "com.roy.dangerouswaters",
     "repo": "https://github.com/Dixiecapt/Dangerous-Waters",
     "version": "0.1.3"
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.oasishousefix",
+    "repo": "https://github.com/Dixiecapt/Oasis-Trading-Company",
+    "version": "Oasis_Trading_Company_1.4.6"
   }
 ]

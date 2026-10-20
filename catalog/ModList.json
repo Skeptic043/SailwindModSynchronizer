@@ -742,5 +742,11 @@
     "repo": "https://github.com/Dixiecapt/Dangerous-Waters",
     "name": "Dangerous Waters",
     "plugin_folders": ["DangerousWaters"]
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.oasishousefix",
+    "repo": "https://github.com/Dixiecapt/Oasis-Trading-Company",
+    "name": "Oasis Trading Company Estates",
+    "plugin_folders": ["OasisHouseFix"]
   }
 ]

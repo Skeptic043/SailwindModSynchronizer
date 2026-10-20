@@ -570,6 +570,29 @@ RELEASE_LAYOUTS = [
         ),
     ),
     (
+        "Dixiecapt/Dangerous-Waters",
+        "com.roy.dangerouswaters",
+        "0.1.3",
+        "DangerousWaters-0.1.3.zip",
+        (
+            "DangerousWaters/DangerousWaters.dll",
+            "DangerousWaters/CaelanorHatchFix.dll",
+            "DangerousWaters/CaelanorMastPlatforms.dll",
+            "DangerousWaters/dwpirates",
+            "DangerousWaters/dwpirates.manifest",
+            "DangerousWaters/Sounds/cannon_1.wav",
+        ),
+    ),
+    (
+        "Dixiecapt/Oasis-Trading-Company",
+        "com.dixiecapt.sailwind.oasishousefix",
+        "Oasis_Trading_Company_1.4.6",
+        "OasisTradingCompanyEstates-1.4.6.zip",
+        (
+            "OasisHouseFix/OasisHouseFix.dll",
+        ),
+    ),
+    (
         "FluffyJesus/Topsail-Crossyards",
         "fluffyjesus.sailwind.topsailyards",
         "1.0",
