@@ -603,6 +603,17 @@ RELEASE_LAYOUTS = [
             "TopsailYards/TopsailYards.pdb",
         ),
     ),
+    (
+        "FluffyJesus/Studding-Sails",
+        "fluffyjesus.sailwind.studdingsails",
+        "1.0.0",
+        "StuddingSails.zip",
+        (
+            "StuddingSails/StuddingSails.deps.json",
+            "StuddingSails/StuddingSails.dll",
+            "StuddingSails/StuddingSails.pdb",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
