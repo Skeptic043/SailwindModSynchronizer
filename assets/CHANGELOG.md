@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.7.1 (2026-10-19)
+
+- A package that ships companion plugins in the same folder, such as Dangerous Waters, imports as the mod named by that folder. The companion DLLs stay with it so they still load.
+- Mods the shared catalog leaves unnamed take their name from this app's catalog when it lists the same mod, or from the plugin name in a downloaded copy.
+- The catalog now lists 125 mods, up from 60, including Dangerous Waters, Oasis Trading Company Estates, and Topsail Crossyards. Sailwind Console tracks the BepInEx 1.1.1 release.
+
 ## 0.7.0 (2026-10-13)
 
 - **Play** no longer resets files inside a mod's plugin folder. Files you edit, such as Better Drag's ship overrides, and files mods create, such as Scrambled Seas' saves and map exports or sounds you add to Virtual Crew, are kept. Mod DLLs always follow the pack's version.
