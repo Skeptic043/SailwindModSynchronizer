@@ -754,5 +754,17 @@
     "repo": "https://github.com/FluffyJesus/Studding-Sails",
     "name": "Studding Sails",
     "plugin_folders": ["StuddingSails"]
+  },
+  {
+    "guid": "com.nandbrew.npctalker",
+    "repo": "https://github.com/NANDbrew/TalkativeNPCs",
+    "name": "Talkative NPCs",
+    "plugin_folders": ["TalkativeNPCs"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.alarmclock",
+    "repo": "https://github.com/Skeptic043/sailwind-alarm-clock",
+    "name": "Alarm Clock",
+    "plugin_folders": ["AlarmClock"]
   }
 ]

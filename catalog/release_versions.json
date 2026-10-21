@@ -628,5 +628,15 @@
     "guid": "fluffyjesus.sailwind.studdingsails",
     "repo": "https://github.com/FluffyJesus/Studding-Sails",
     "version": "1.0.0"
+  },
+  {
+    "guid": "com.nandbrew.npctalker",
+    "repo": "https://github.com/NANDbrew/TalkativeNPCs",
+    "version": "v1.0.0"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.alarmclock",
+    "repo": "https://github.com/Skeptic043/sailwind-alarm-clock",
+    "version": "v0.2.0"
   }
 ]

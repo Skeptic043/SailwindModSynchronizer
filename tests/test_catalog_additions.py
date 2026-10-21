@@ -614,6 +614,32 @@ RELEASE_LAYOUTS = [
             "StuddingSails/StuddingSails.pdb",
         ),
     ),
+    (
+        "NANDbrew/TalkativeNPCs",
+        "com.nandbrew.npctalker",
+        "v1.0.0",
+        "TalkativeNPCs.zip",
+        (
+            "TalkativeNPCs/MeanieBridge.dll",
+            "TalkativeNPCs/npctalker.assets",
+            "TalkativeNPCs/npctalker.manifest",
+            "TalkativeNPCs/TalkativeNPCs.dll",
+        ),
+    ),
+    (
+        "Skeptic043/sailwind-alarm-clock",
+        "com.skeptic043.sailwind.alarmclock",
+        "v0.2.0",
+        "AlarmClock-0.2.0.zip",
+        (
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "icon.png",
+            "BepInEx/plugins/AlarmClock/AlarmClock.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
