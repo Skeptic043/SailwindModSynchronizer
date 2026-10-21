@@ -766,5 +766,17 @@
     "repo": "https://github.com/Skeptic043/sailwind-alarm-clock",
     "name": "Alarm Clock",
     "plugin_folders": ["AlarmClock"]
+  },
+  {
+    "guid": "com.nandbrew.DynamicSailCenter",
+    "repo": "https://github.com/NANDbrew/DynamicSailCenter",
+    "name": "DynamicSailCenter",
+    "plugin_folders": ["DynamicSailCenter"]
+  },
+  {
+    "guid": "com.nandbrew.dockclippingpatch",
+    "repo": "https://github.com/NANDbrew/DockClippingPatch",
+    "name": "Dock Clipping Patch",
+    "plugin_folders": ["DockClippingPatch"]
   }
 ]

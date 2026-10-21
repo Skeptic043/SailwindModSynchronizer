@@ -640,6 +640,24 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/AlarmClock/AlarmClock.dll",
         ),
     ),
+    (
+        "NANDbrew/DynamicSailCenter",
+        "com.nandbrew.DynamicSailCenter",
+        "v0.0.2",
+        "DynamicSailCenter.dll",
+        (
+            "DynamicSailCenter.dll",
+        ),
+    ),
+    (
+        "NANDbrew/DockClippingPatch",
+        "com.nandbrew.dockclippingpatch",
+        "v0.0.1",
+        "DockClippingPatch.dll",
+        (
+            "DockClippingPatch.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {

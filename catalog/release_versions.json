@@ -638,5 +638,15 @@
     "guid": "com.skeptic043.sailwind.alarmclock",
     "repo": "https://github.com/Skeptic043/sailwind-alarm-clock",
     "version": "v0.2.0"
+  },
+  {
+    "guid": "com.nandbrew.DynamicSailCenter",
+    "repo": "https://github.com/NANDbrew/DynamicSailCenter",
+    "version": "v0.0.2"
+  },
+  {
+    "guid": "com.nandbrew.dockclippingpatch",
+    "repo": "https://github.com/NANDbrew/DockClippingPatch",
+    "version": "v0.0.1"
   }
 ]
