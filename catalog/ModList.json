@@ -778,5 +778,11 @@
     "repo": "https://github.com/NANDbrew/DockClippingPatch",
     "name": "Dock Clipping Patch",
     "plugin_folders": ["DockClippingPatch"]
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.tinystove",
+    "repo": "https://github.com/Dixiecapt/Tiny_Ship_Stove",
+    "name": "Tiny Stove",
+    "plugin_folders": ["TinyStove"]
   }
 ]

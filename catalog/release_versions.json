@@ -648,5 +648,10 @@
     "guid": "com.nandbrew.dockclippingpatch",
     "repo": "https://github.com/NANDbrew/DockClippingPatch",
     "version": "v0.0.1"
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.tinystove",
+    "repo": "https://github.com/Dixiecapt/Tiny_Ship_Stove",
+    "version": "0.2.0"
   }
 ]

@@ -658,16 +658,31 @@ RELEASE_LAYOUTS = [
             "DockClippingPatch.dll",
         ),
     ),
+    (
+        "Dixiecapt/Tiny_Ship_Stove",
+        "com.dixiecapt.sailwind.tinystove",
+        "0.2.0",
+        "TinyStove-0.2.0-thunderstore.zip",
+        (
+            "icon.png",
+            "manifest.json",
+            "README.md",
+            "tinystove",
+            "TinyStove.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
-    # The version is only in the release name. The literal tag is "release".
+    # These releases put the parseable version in the name and use non-versioned tags.
     "BryanP-JP19/SailwindSeaLifeMod": "release",
+    "Dixiecapt/Tiny_Ship_Stove": "Tiny_Ship_Stove",
 }
 
 FIXED_PLUGIN_FOLDERS = {
     "winterspices/AgeOfExploration": "AgeOfExploration",
     "TheOriginOfAllEvil/The-Gaff-Pack": "Crystal Isles Sail Pack",
+    "Dixiecapt/Tiny_Ship_Stove": "TinyStove",
 }
 
 
@@ -757,8 +772,10 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
     extracted_names = {path.name for path in extracted.rglob("*") if path.is_file()}
     # All runtime binaries and asset files must survive folder filtering.
     for name in files:
-        runtime_file = name.lower().endswith(".dll") or (
-            "/" in name and not name.startswith(("docs/", "licenses/", "Companion/"))
+        runtime_file = (
+            name.lower().endswith(".dll")
+            or ("/" in name and not name.startswith(("docs/", "licenses/", "Companion/")))
+            or (repo == "Dixiecapt/Tiny_Ship_Stove" and name == "tinystove")
         )
         if runtime_file:
             assert Path(name).name in extracted_names
@@ -768,7 +785,7 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
                 assert len(dlls) == 1
                 assert (dlls[0].parent / Path(name).name).is_file()
             if repo in FIXED_PLUGIN_FOLDERS:
-                # These load bundles from a hardcoded BepInEx/plugins/<folder> path.
+                # These load bundles from a fixed BepInEx/plugins/<folder> path.
                 folder = FIXED_PLUGIN_FOLDERS[repo]
                 assert entry.plugin_folders == [folder]
                 assert (extracted / folder / Path(name).name).is_file()
