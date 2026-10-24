@@ -784,5 +784,17 @@
     "repo": "https://github.com/Dixiecapt/Tiny_Ship_Stove",
     "name": "Tiny Stove",
     "plugin_folders": ["TinyStove"]
+  },
+  {
+    "guid": "yourname.hatchtarp",
+    "repo": "https://github.com/FluffyJesus/HatchTarp",
+    "name": "Hatch Tarp",
+    "plugin_folders": ["HatchTarp"]
+  },
+  {
+    "guid": "com.keevi.performancetweaks",
+    "repo": "https://github.com/KeeviDev/SailwindPerformanceTweaks",
+    "name": "Performance Tweaks",
+    "plugin_folders": ["PerformanceTweaks"]
   }
 ]

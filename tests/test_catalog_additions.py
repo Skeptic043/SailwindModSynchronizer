@@ -671,6 +671,24 @@ RELEASE_LAYOUTS = [
             "TinyStove.dll",
         ),
     ),
+    (
+        "FluffyJesus/HatchTarp",
+        "yourname.hatchtarp",
+        "1.0.0",
+        "HatchTarp.zip",
+        (
+            "HatchTarp/HatchTarp.dll",
+        ),
+    ),
+    (
+        "KeeviDev/SailwindPerformanceTweaks",
+        "com.keevi.performancetweaks",
+        "v1.0.0",
+        "PerformanceTweaks-1.0.0.zip",
+        (
+            "PerformanceTweaks/PerformanceTweaks.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {

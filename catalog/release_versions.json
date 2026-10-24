@@ -653,5 +653,15 @@
     "guid": "com.dixiecapt.sailwind.tinystove",
     "repo": "https://github.com/Dixiecapt/Tiny_Ship_Stove",
     "version": "0.2.0"
+  },
+  {
+    "guid": "yourname.hatchtarp",
+    "repo": "https://github.com/FluffyJesus/HatchTarp",
+    "version": "1.0.0"
+  },
+  {
+    "guid": "com.keevi.performancetweaks",
+    "repo": "https://github.com/KeeviDev/SailwindPerformanceTweaks",
+    "version": "v1.0.0"
   }
 ]
