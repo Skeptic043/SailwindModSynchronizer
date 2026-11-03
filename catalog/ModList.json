@@ -808,11 +808,5 @@
     "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
     "name": "Shipwright and Transport",
     "plugin_folders": ["ShipwrightAndTransport"]
-  },
-  {
-    "guid": "custom.baghlah.paint",
-    "repo": "https://github.com/Regnion/Custom-Baghlah-Paints",
-    "name": "Custom Baghlah Paint",
-    "plugin_folders": ["CustomBaghlahPaint"]
   }
 ]

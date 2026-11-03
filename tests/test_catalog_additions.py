@@ -714,25 +714,11 @@ RELEASE_LAYOUTS = [
             "ShipwrightAndTransport/assets/dogeggz.shipwrighttransport.assets",
         ),
     ),
-    (
-        "Regnion/Custom-Baghlah-Paints",
-        "custom.baghlah.paint",
-        "1.0",
-        "CustomBaghlahPaint.zip",
-        (
-            "CustomBaghlahPaint/CustomBaghlahPaint.dll",
-            "CustomBaghlahPaint/Common/dhow large_hull_exterior_paint_Albedo.png",
-            "CustomBaghlahPaint/Common/dhow large_hull_exterior_paint_Normal.png",
-            "CustomBaghlahPaint/Ebony/dhow large_hull_exterior_paint_Albedo.png",
-            "CustomBaghlahPaint/Ivory/dhow large_hull_exterior_paint_Albedo.png",
-        ),
-    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
     # These releases put the parseable version in the name and use non-versioned tags.
     "BryanP-JP19/SailwindSeaLifeMod": "release",
-    "Regnion/Custom-Baghlah-Paints": "textures",
 }
 
 FIXED_PLUGIN_FOLDERS = {
@@ -744,7 +730,6 @@ FIXED_PLUGIN_FOLDERS = {
 RUNTIME_LAYOUT_FOLDERS = {
     "Viking-D-Mike/MusicMod": "LaudMod",
     "DogEggz01/ShipwrightTransportation": "ShipwrightAndTransport",
-    "Regnion/Custom-Baghlah-Paints": "CustomBaghlahPaint",
 }
 
 

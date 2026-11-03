@@ -673,10 +673,5 @@
     "guid": "DogEggz.ShipwrightTransport",
     "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
     "version": "0.1.3"
-  },
-  {
-    "guid": "custom.baghlah.paint",
-    "repo": "https://github.com/Regnion/Custom-Baghlah-Paints",
-    "version": "1.0"
   }
 ]
