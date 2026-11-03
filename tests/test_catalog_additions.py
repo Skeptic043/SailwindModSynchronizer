@@ -694,6 +694,26 @@ RELEASE_LAYOUTS = [
             "PerformanceTweaks/PerformanceTweaks.dll",
         ),
     ),
+    (
+        "Viking-D-Mike/MusicMod",
+        "com.vikingdmike.musicmod",
+        "v1.1.0",
+        "MusicMod-1.1.0.zip",
+        (
+            "LaudMod.dll",
+            "laud_bundle",
+        ),
+    ),
+    (
+        "DogEggz01/ShipwrightTransportation",
+        "DogEggz.ShipwrightTransport",
+        "0.1.3",
+        "ShipwrightAndTransport-0.1.3.zip",
+        (
+            "ShipwrightAndTransport/ShipwrightAndTransport.dll",
+            "ShipwrightAndTransport/assets/dogeggz.shipwrighttransport.assets",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -705,6 +725,11 @@ FIXED_PLUGIN_FOLDERS = {
     "winterspices/AgeOfExploration": "AgeOfExploration",
     "TheOriginOfAllEvil/The-Gaff-Pack": "Crystal Isles Sail Pack",
     "Dixiecapt/Better-Stoves": "BetterStoves",
+}
+
+RUNTIME_LAYOUT_FOLDERS = {
+    "Viking-D-Mike/MusicMod": "LaudMod",
+    "DogEggz01/ShipwrightTransportation": "ShipwrightAndTransport",
 }
 
 
@@ -797,6 +822,7 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
         runtime_file = (
             name.lower().endswith(".dll")
             or ("/" in name and not name.startswith(("docs/", "licenses/", "Companion/")))
+            or (repo == "Viking-D-Mike/MusicMod" and name == "laud_bundle")
             or (
                 repo == "Dixiecapt/Better-Stoves"
                 and name in {"tinystove", "cabinstove", "galleyrange", "hearthstoves"}
@@ -814,6 +840,13 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
                 folder = FIXED_PLUGIN_FOLDERS[repo]
                 assert entry.plugin_folders == [folder]
                 assert (extracted / folder / Path(name).name).is_file()
+            if repo in RUNTIME_LAYOUT_FOLDERS:
+                folder = RUNTIME_LAYOUT_FOLDERS[repo]
+                relative = Path(name)
+                if not relative.parts or relative.parts[0] != folder:
+                    relative = Path(folder) / relative
+                assert entry.plugin_folders == [folder]
+                assert (extracted / relative).is_file()
 
 
 

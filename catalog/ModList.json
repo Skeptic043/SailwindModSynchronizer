@@ -796,5 +796,17 @@
     "repo": "https://github.com/KeeviDev/SailwindPerformanceTweaks",
     "name": "Performance Tweaks",
     "plugin_folders": ["PerformanceTweaks"]
+  },
+  {
+    "guid": "com.vikingdmike.musicmod",
+    "repo": "https://github.com/Viking-D-Mike/MusicMod",
+    "name": "MusicMod",
+    "plugin_folders": ["LaudMod"]
+  },
+  {
+    "guid": "DogEggz.ShipwrightTransport",
+    "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
+    "name": "Shipwright and Transport",
+    "plugin_folders": ["ShipwrightAndTransport"]
   }
 ]

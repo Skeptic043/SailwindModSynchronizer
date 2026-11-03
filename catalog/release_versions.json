@@ -663,5 +663,15 @@
     "guid": "com.keevi.performancetweaks",
     "repo": "https://github.com/KeeviDev/SailwindPerformanceTweaks",
     "version": "v1.0.0"
+  },
+  {
+    "guid": "com.vikingdmike.musicmod",
+    "repo": "https://github.com/Viking-D-Mike/MusicMod",
+    "version": "v1.1.0"
+  },
+  {
+    "guid": "DogEggz.ShipwrightTransport",
+    "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
+    "version": "0.1.3"
   }
 ]
