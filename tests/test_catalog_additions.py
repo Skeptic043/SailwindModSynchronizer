@@ -697,8 +697,8 @@ RELEASE_LAYOUTS = [
     (
         "Viking-D-Mike/MusicMod",
         "com.vikingdmike.musicmod",
-        "v1.1.0",
-        "MusicMod-1.1.0.zip",
+        "v1.1.1",
+        "MusicMod-1.1.1.zip",
         (
             "LaudMod.dll",
             "laud_bundle",
