@@ -170,6 +170,9 @@ def _copy_plugin_contents(source: Path, dest: Path) -> list[str]:
             elif item.is_dir() and any(item.rglob("*.dll")):
                 _copy_tree(item, dest / item.name)
                 folders.append(item.name)
+            elif item.is_dir():
+                # Asset-only folders (textures, bundles) stay beside the DLL that loads them.
+                _copy_tree(item, target / item.name)
         folders.insert(0, name)
         return _unique(folders)
 

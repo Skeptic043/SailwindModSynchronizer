@@ -74,6 +74,26 @@ def test_normalize_loose_dll(tmp_path: Path) -> None:
     assert (dest / "Widget" / "Widget.dll").exists()
 
 
+def test_normalize_loose_dll_keeps_asset_folders(tmp_path: Path) -> None:
+    """Root DLL + texture folders → textures stay inside the DLL's plugin folder."""
+    archive = _write_zip(
+        tmp_path / "paint.zip",
+        {
+            "CustomBrigPaint.dll": _dll_bytes(),
+            "Continental/Continental.png": b"png",
+            "Common/piece_map.png": b"png",
+        },
+    )
+    dest = tmp_path / "out"
+    folders = normalize_plugin_archive(archive, dest, keep_folders=["CustomBrigPaint"])
+    assert folders == ["CustomBrigPaint"]
+    plugin = dest / "CustomBrigPaint"
+    assert (plugin / "CustomBrigPaint.dll").exists()
+    assert (plugin / "Continental" / "Continental.png").exists()
+    assert (plugin / "Common" / "piece_map.png").exists()
+    assert not (dest / "Continental").exists()
+
+
 def test_normalize_rejects_empty_zip(tmp_path: Path) -> None:
     archive = _write_zip(tmp_path / "empty.zip", {"readme.txt": b"hi"})
     with pytest.raises(ExtractError):
