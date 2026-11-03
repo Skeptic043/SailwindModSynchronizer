@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.7.2 (2026-11-03)
+
+- Importing a zip with a plugin DLL at its root now keeps the folders that sit beside it, such as textures and asset bundles, inside that plugin's folder. Before, they were dropped.
+- The catalog now lists 135 mods, up from 125, including Studding Sails, Talkative NPCs, Alarm Clock, Better Stoves, Hatch Tarp, Performance Tweaks, MusicMod, and Shipwright and Transport.
+
 ## 0.7.1 (2026-10-19)
 
 - A package that ships companion plugins in the same folder, such as Dangerous Waters, imports as the mod named by that folder. The companion DLLs stay with it so they still load.
