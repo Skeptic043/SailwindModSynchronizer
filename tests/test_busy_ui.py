@@ -228,13 +228,17 @@ def test_catalog_context_menu_removes_custom_entry() -> None:
         builtin = view._menu_for_entry(_shown_entry(view, "com.example.mod"))
         assert builtin is not None
         assert [action.text() for action in builtin.actions() if not action.isSeparator()] == [
-            "Hide Mod From Catalog"
+            "Show Details", "Hide Mod From Catalog"
         ]
         menu = view._menu_for_entry(_shown_entry(view, "com.example.custom"))
         assert menu is not None
         items = [action.text() for action in menu.actions() if not action.isSeparator()]
-        assert items == ["Remove from Catalog"]
-        menu.actions()[0].trigger()
+        assert items == ["Show Details", "Remove from Catalog"]
+        details: list[tuple[str, str]] = []
+        view.details_requested.connect(lambda guid, repo: details.append((guid, repo)))
+        next(action for action in menu.actions() if action.text() == "Show Details").trigger()
+        assert details == [("com.example.custom", "https://github.com/example/custom")]
+        next(action for action in menu.actions() if action.text() == "Remove from Catalog").trigger()
         assert removed == [("com.example.custom", "https://github.com/example/custom")]
     finally:
         view.deleteLater()

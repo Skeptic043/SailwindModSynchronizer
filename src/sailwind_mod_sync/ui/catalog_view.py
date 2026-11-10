@@ -253,6 +253,12 @@ class CatalogView(QWidget):
 
     def _menu_for_entry(self, entry: CatalogEntry) -> QMenu:
         menu = QMenu(self)
+        details = menu.addAction("Show Details")
+        details.setToolTip("Open this mod's details, as double-clicking it does")
+        details.triggered.connect(
+            lambda _=False, value=entry: self.details_requested.emit(value.primary_guid, value.repo)
+        )
+        menu.addSeparator()
         if entry.custom:
             remove = menu.addAction("Remove from Catalog")
             remove.setToolTip("Remove this repository from your catalog")
