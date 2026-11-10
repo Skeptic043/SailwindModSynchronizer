@@ -826,5 +826,17 @@
     "repo": "https://github.com/DiamondMiner99/sailwind-hideui",
     "name": "Sailwind Hide UI",
     "plugin_folders": ["SailwindHideUI"]
+  },
+  {
+    "guid": "local.customshippaint",
+    "repo": "https://github.com/Regnion/Custom-Ship-Paints",
+    "name": "Custom Ship Paints",
+    "plugin_folders": ["CustomShipPaint"]
+  },
+  {
+    "guid": "local.customaelasylpaint",
+    "repo": "https://github.com/Regnion/Custom-Aelasyl-Paints",
+    "name": "Custom Aelasyl Paints",
+    "plugin_folders": ["CustomAelasylPaint"]
   }
 ]

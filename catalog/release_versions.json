@@ -688,5 +688,15 @@
     "guid": "com.diamondminer99.hideui",
     "repo": "https://github.com/DiamondMiner99/sailwind-hideui",
     "version": "v0.1.1"
+  },
+  {
+    "guid": "local.customshippaint",
+    "repo": "https://github.com/Regnion/Custom-Ship-Paints",
+    "version": "textures"
+  },
+  {
+    "guid": "local.customaelasylpaint",
+    "repo": "https://github.com/Regnion/Custom-Aelasyl-Paints",
+    "version": "textures"
   }
 ]
