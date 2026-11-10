@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
 
+from sailwind_mod_sync.game.plugin_metadata import read_plugin_metadata
 from sailwind_mod_sync.library.main_dll import is_generic_folder_name, pick_main_dll
 from sailwind_mod_sync.library.special_mods import COOP_PLUGIN_FOLDER, STEAM_API_DLL
 
 JUNK_NAMES = {".ds_store", "thumbs.db"}
 JUNK_DIRS = {"__macosx"}
+
+# The temporary folder an archive is extracted into; its name says nothing about the mod.
+_EXTRACT_ROOT = "extracted"
+
+log = logging.getLogger(__name__)
 
 
 class ExtractError(ValueError):
@@ -25,7 +32,7 @@ def normalize_plugin_archive(
     dest.mkdir(parents=True, exist_ok=True)
     _clear_dir(dest)
     with tempfile.TemporaryDirectory(prefix="sms-mod-") as tmp:
-        root = Path(tmp) / "extracted"
+        root = Path(tmp) / _EXTRACT_ROOT
         root.mkdir()
         _safe_extract(archive, root)
         _strip_junk(root)
@@ -34,7 +41,8 @@ def normalize_plugin_archive(
         plugins = _find_bepinex_plugins(overlay_root)
         if plugins is not None:
             source = plugins
-        folders = _copy_plugin_contents(source, dest)
+            _log_left_out(archive, overlay_root, plugins)
+        folders = _copy_plugin_contents(source, dest, archive)
         folders = _rename_generic_folders(dest, folders, keep_folders)
         _copy_overlay_steam_api(overlay_root, dest, folders)
         return _retain_folders(dest, folders, keep_folders)
@@ -108,6 +116,18 @@ def _find_bepinex_plugins(root: Path) -> Path | None:
     return None
 
 
+def _log_left_out(archive: Path, overlay_root: Path, plugins: Path) -> None:
+    """Log files of a BepInEx overlay that are outside ``BepInEx/plugins`` and so are not installed."""
+    installed_steam_api = _find_overlay_steam_api(overlay_root)
+    left = sorted(
+        path.relative_to(overlay_root).as_posix()
+        for path in overlay_root.rglob("*")
+        if path.is_file() and plugins not in path.parents and path != installed_steam_api
+    )
+    if left:
+        log.warning("Not installed from %s (outside BepInEx/plugins): %s", archive.name, ", ".join(left))
+
+
 def _find_bepinex_root(root: Path) -> Path:
     for dll in root.rglob("winhttp.dll"):
         if (dll.parent / "BepInEx").is_dir():
@@ -146,7 +166,20 @@ def _rename_generic_folders(dest: Path, folders: list[str], ready_names: list[st
     return result
 
 
-def _copy_plugin_contents(source: Path, dest: Path) -> list[str]:
+def _loose_folder_name(source: Path, dlls: list[Path], archive: Path, taken: set[str]) -> str:
+    """Name the folder for several loose DLLs: their wrapper, or for an archive root the plugin they declare."""
+    if source.name != _EXTRACT_ROOT:
+        return source.name
+    declared = [dll for dll in dlls if read_plugin_metadata(dll).plugins]
+    main = declared[0] if len(declared) == 1 else pick_main_dll(declared or dlls, hints=(archive.stem,))
+    for name in (main.stem if main else "", archive.stem):
+        # A folder of the archive with that name is copied separately and would replace these files.
+        if name and name.casefold() not in taken:
+            return name
+    return source.name
+
+
+def _copy_plugin_contents(source: Path, dest: Path, archive: Path) -> list[str]:
     folders: list[str] = []
     dirs = [p for p in _visible_children(source) if p.is_dir()]
     files = [p for p in _visible_children(source) if p.is_file()]
@@ -157,11 +190,17 @@ def _copy_plugin_contents(source: Path, dest: Path) -> list[str]:
         for folder in plugin_dirs:
             _copy_tree(folder, dest / folder.name)
             folders.append(folder.name)
+        left = [item.name for item in _visible_children(source) if item not in plugin_dirs]
+        if left:
+            log.info("Left out of %s beside its plugin folders: %s", archive.name, ", ".join(sorted(left)))
         if folders:
             return folders
 
     if dll_files:
-        name = dll_files[0].stem if len(dll_files) == 1 else source.name
+        if len(dll_files) == 1:
+            name = dll_files[0].stem
+        else:
+            name = _loose_folder_name(source, dll_files, archive, {item.name.casefold() for item in dirs})
         target = dest / name
         target.mkdir(parents=True, exist_ok=True)
         for item in _visible_children(source):
@@ -177,7 +216,7 @@ def _copy_plugin_contents(source: Path, dest: Path) -> list[str]:
         return _unique(folders)
 
     if any(source.rglob("*.dll")):
-        name = source.name if source.name != "extracted" else "plugin"
+        name = source.name if source.name != _EXTRACT_ROOT else "plugin"
         _copy_tree(source, dest / name)
         return [name]
 
@@ -240,6 +279,9 @@ def _retain_folders(dest: Path, folders: list[str], keep_folders: list[str] | No
     kept = [name for name in folders if name.lower() in wanted]
     if not kept:
         return folders
+    dropped = sorted(child.name for child in dest.iterdir() if child.name.lower() not in wanted)
+    if dropped:
+        log.warning("Keeping only %s; left out %s", ", ".join(kept), ", ".join(dropped))
     for child in list(dest.iterdir()):
         if child.name.lower() in wanted:
             continue
