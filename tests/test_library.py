@@ -128,3 +128,48 @@ def test_imported_artifact_serves_any_source(paths: AppPaths, tmp_path: Path) ->
     )
 
     assert store.artifact_key("com.example.mod", "1.2.0", FORK) == "1.2.0"
+
+
+def test_artifact_saved_before_suffix_support_is_still_found(paths) -> None:
+    import json
+
+    from sailwind_mod_sync.library.store import LibraryStore
+    from sailwind_mod_sync.models import parse_mod_version
+
+    store = LibraryStore(paths)
+    legacy = store.mod_dir("com.kingcam16.realisticskies", "2.3.0")
+    (legacy / "extracted" / "RealisticSkies").mkdir(parents=True)
+    (legacy / "extracted" / "RealisticSkies" / "RealisticSkies.dll").write_bytes(b"MZ")
+    (legacy / "metadata.json").write_text(json.dumps(
+        {"guid": "com.kingcam16.realisticskies", "version": "2.3.0", "version_raw": "2.3.0F-4.1"}), encoding="utf-8")
+
+    assert store.artifact_key("com.kingcam16.realisticskies", parse_mod_version("2.3.0F-4.1")) == "2.3.0"
+    # Another build of 2.3.0 gets its own folder instead of reusing that one.
+    other = parse_mod_version("2.3.0F-4")
+    assert store.artifact_key("com.kingcam16.realisticskies", other) == other
+
+
+def test_second_source_artifact_saved_before_suffix_support_is_still_found(paths) -> None:
+    import json
+
+    from sailwind_mod_sync.library.store import LibraryStore
+    from sailwind_mod_sync.models import parse_mod_version
+
+    guid = "com.kingcam16.realisticskies"
+    store = LibraryStore(paths)
+
+    def legacy(key: str, raw: str, repo: str) -> None:
+        folder = store.mod_dir(guid, key)
+        (folder / "extracted" / "RealisticSkies").mkdir(parents=True)
+        (folder / "extracted" / "RealisticSkies" / "RealisticSkies.dll").write_bytes(b"MZ")
+        (folder / "metadata.json").write_text(json.dumps({
+            "guid": guid, "version": "2.3.0", "version_raw": raw, "repo": repo,
+            "source_url": f"{repo}/releases/download/{raw}/RealisticSkies.zip",
+        }), encoding="utf-8")
+
+    legacy("2.3.0", "V2.3.0", "https://github.com/KingCam77/Realistic-Skies")
+    legacy("2.3.0@fluffyjesus.realistic-skies", "2.3.0F-4.1", "https://github.com/FluffyJesus/Realistic-Skies")
+
+    fork = "https://github.com/FluffyJesus/Realistic-Skies"
+    assert store.artifact_key(guid, parse_mod_version("2.3.0F-4.1"), fork) == "2.3.0@fluffyjesus.realistic-skies"
+    assert store.artifact_key(guid, "2.3.0", "https://github.com/KingCam77/Realistic-Skies") == "2.3.0"

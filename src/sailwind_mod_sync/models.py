@@ -4,32 +4,112 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from packaging.version import InvalidVersion, Version
+# A numeric core plus an optional suffix such as "F-4.1", "-beta.11" or "b2".
+VERSION_RE = re.compile(r"(\d+(?:\.\d+){0,3})((?:[-_.]?[A-Za-z]+(?:[-_.]?\d+)*)?)")
+_SUFFIX_PARTS = re.compile(r"[A-Za-z]+|\d+")
+_FILE_EXTENSIONS = frozenset({"dll", "zip", "exe", "json", "txt", "pdb", "tar", "gz", "rar"})
+# Words that mark a release before the plain version; any other suffix marks one after it.
+PRERELEASE_ORDER = {"dev": 0, "alpha": 1, "beta": 2, "pre": 3, "preview": 3, "rc": 3}
+_OPAQUE_UNSAFE = re.compile(r"[^a-z0-9._-]+")
 
-VERSION_RE = re.compile(r"\d+(?:\.\d+){0,3}")
+
+@dataclass(frozen=True)
+class VersionParts:
+    core: tuple[int, ...]
+    label: str = ""
+    numbers: tuple[int, ...] = ()
+
+    @property
+    def prerelease(self) -> bool:
+        return self.label in PRERELEASE_ORDER
 
 
-def parse_mod_version(raw: str | None) -> str | None:
-    if raw is None:
-        return None
-    text = str(raw).strip()
-    if not text or text.lower() == "none":
-        return None
+def _clean(raw: str | None) -> str:
+    text = "" if raw is None else str(raw).strip()
+    return "" if text.lower() == "none" else text
+
+
+def _match(text: str) -> re.Match[str] | None:
     match = VERSION_RE.search(text)
+    if match is None:
+        return None
+    label = "".join(part for part in _SUFFIX_PARTS.findall(match.group(2)) if part.isalpha()).lower()
+    if label in _FILE_EXTENSIONS:
+        return VERSION_RE.match(text, match.start(), match.end(1))
+    return match
+
+
+def version_text(raw: str | None) -> str | None:
+    """Return the version exactly as written in ``raw`` ("2.3.0F-4.1" from "Realistic Skies 2.3.0F-4.1")."""
+    match = _match(_clean(raw))
     return match.group(0) if match else None
 
 
-def version_key(raw: str | None) -> Version:
-    normalized = parse_mod_version(raw)
-    if not normalized:
-        return Version("0")
-    try:
-        return Version(normalized)
-    except InvalidVersion:
-        return Version("0")
+def version_parts(raw: str | None) -> VersionParts | None:
+    match = _match(_clean(raw))
+    if match is None:
+        return None
+    core = tuple(int(part) for part in match.group(1).split("."))
+    parts = _SUFFIX_PARTS.findall(match.group(2) or "")
+    label = "".join(part for part in parts if part.isalpha()).lower()
+    numbers = tuple(int(part) for part in parts if part.isdigit())
+    return VersionParts(core, label, numbers)
+
+
+def parse_mod_version(raw: str | None) -> str | None:
+    """Return the canonical version in ``raw``, keeping its suffix: ``2.3.0F-2`` and ``2.3.0-F2`` -> ``2.3.0-f2``."""
+    parts = version_parts(raw)
+    if parts is None:
+        return None
+    core = ".".join(str(part) for part in parts.core)
+    if not parts.label:
+        return core
+    return f"{core}-{parts.label}{'.'.join(str(part) for part in parts.numbers)}"
+
+
+def tag_version(raw: str | None) -> str | None:
+    """Return the version of a release tag: its canonical version, or the tag itself when it has no number."""
+    parsed = parse_mod_version(raw)
+    if parsed:
+        return parsed
+    opaque = _OPAQUE_UNSAFE.sub("-", _clean(raw).lower()).strip("-.")
+    return opaque[:64] or None
+
+
+def pinned_version(version: str, version_raw: str) -> str:
+    """Return the canonical version of a stored pin, recovering a suffix that older releases stored only in ``version_raw``."""
+    exact = tag_version(version_raw)
+    if not exact:
+        return version
+    stored = version_parts(version)
+    recovered = version_parts(exact)
+    if not version or (stored is not None and recovered is not None and stored.core == recovered.core):
+        return exact
+    return version
+
+
+def version_key(raw: str | None) -> tuple:
+    """Sort key: numbered versions above tags without one, prereleases below their plain release."""
+    parts = version_parts(raw)
+    if parts is None:
+        return (0, tag_version(raw) or "")
+    core = parts.core + (0,) * (4 - len(parts.core))
+    if not parts.label:
+        rank = (1, 0, "")
+    elif parts.prerelease:
+        rank = (0, PRERELEASE_ORDER[parts.label], parts.label)
+    else:
+        rank = (2, 0, parts.label)
+    return (1, core, rank, parts.numbers)
 
 
 def is_newer(latest_raw: str | None, current_raw: str | None) -> bool:
+    latest = tag_version(latest_raw)
+    if not latest:
+        return False
+    if version_parts(latest_raw) is None or version_parts(current_raw) is None:
+        # Without a number neither tag can be ordered; a different latest release is the update.
+        return latest != tag_version(current_raw)
     return version_key(latest_raw) > version_key(current_raw)
 
 
@@ -122,13 +202,15 @@ class PinnedMod:
         folders = data.get("plugin_folders") or []
         if not isinstance(folders, list):
             folders = []
+        version = str(data.get("version") or "")
+        version_raw = str(data.get("version_raw") or version)
         return cls(
             guid=str(data.get("guid") or ""),
-            version=str(data.get("version") or ""),
+            version=pinned_version(version, version_raw),
             repo=str(data.get("repo") or ""),
             enabled=bool(data.get("enabled", True)),
             plugin_folders=[str(item) for item in folders],
-            version_raw=str(data.get("version_raw") or data.get("version") or ""),
+            version_raw=version_raw,
         )
 
 
@@ -201,10 +283,12 @@ class ArtifactMeta:
         folders = data.get("plugin_folders") or []
         if not isinstance(folders, list):
             folders = []
+        version = str(data.get("version") or "")
+        version_raw = str(data.get("version_raw") or "")
         return cls(
             guid=str(data.get("guid") or ""),
-            version=str(data.get("version") or ""),
-            version_raw=str(data.get("version_raw") or ""),
+            version=pinned_version(version, version_raw),
+            version_raw=version_raw,
             repo=str(data.get("repo") or ""),
             source_url=str(data.get("source_url") or ""),
             sha256=str(data.get("sha256") or ""),

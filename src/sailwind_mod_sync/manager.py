@@ -27,6 +27,7 @@ from sailwind_mod_sync.catalog.github import (
     list_releases,
     parse_repo_url,
     release_version,
+    release_version_text,
 )
 from sailwind_mod_sync.catalog.mvc import build_catalog, find_entry, load_cached_catalog, load_shared_catalog, refresh_catalog
 from sailwind_mod_sync.catalog.scanned import store_scanned_versions
@@ -61,7 +62,7 @@ from sailwind_mod_sync.models import (
     RemoteModInfo,
     catalog_mod_name,
     display_mod_name,
-    parse_mod_version,
+    tag_version,
     version_key,
 )
 from sailwind_mod_sync.packs.instance import (
@@ -272,7 +273,7 @@ class Manager:
                 for guid in entry.guids:
                     latest[guid] = raw
                 entry.latest_raw = raw
-                entry.latest_version = parse_mod_version(raw)
+                entry.latest_version = tag_version(raw)
                 entry.available = bool(entry.latest_version)
                 updated.append(entry)
         finally:
@@ -303,7 +304,7 @@ class Manager:
         except Exception as exc:
             log.warning("Live update check failed for %s: %s", entry.repo, exc)
             return ""
-        return release.tag if parse_mod_version(release.tag) else release_version(release) or release.tag
+        return release_version_text(release)
 
     def add_catalog_repo(self, repo_url: str, progress: ProgressFn | None = None) -> list[CatalogEntry]:
         repo = canonicalize_repo_url(repo_url)
@@ -311,8 +312,8 @@ class Manager:
         if progress:
             progress(f"Checking {ref.full_path}…")
         release = fetch_release(self.http, repo, tag=None, paths=self.paths, progress=progress)
-        version_raw = release.tag if parse_mod_version(release.tag) else release_version(release) or release.tag
-        version = parse_mod_version(version_raw)
+        version_raw = release_version_text(release)
+        version = tag_version(version_raw)
         assets = [
             asset
             for asset in release.assets
@@ -504,7 +505,7 @@ class Manager:
         if not folders and meta:
             folders = list(meta.plugin_folders)
         raw = (pinned.version_raw or pinned.version or "").strip() or None
-        version = parse_mod_version(raw)
+        version = tag_version(raw)
         name = folders[0] if folders else catalog_mod_name(pinned.guid)
         return CatalogEntry(
             repo=repo,
@@ -658,7 +659,7 @@ class Manager:
         try:
             releases = list_releases(self.http, repo, limit=12, progress=progress)
             tags = [
-                item.tag if parse_mod_version(item.tag) else (item.name or item.tag)
+                release_version_text(item)
                 for item in releases
                 if item.tag or item.name
             ]
@@ -694,7 +695,7 @@ class Manager:
             version = entry.latest_version
             version_raw = version_raw or entry.latest_raw
         if not version and version_raw:
-            version = parse_mod_version(version_raw)
+            version = tag_version(version_raw)
         if progress:
             progress(f"Fetching {guid} from {repo}…")
         folders = list(entry.plugin_folders) if entry and entry.plugin_folders else None
@@ -730,7 +731,7 @@ class Manager:
             if not version or version in seen:
                 continue
             seen.add(version)
-            raw = item.tag if parse_mod_version(item.tag) else (item.name or item.tag)
+            raw = release_version_text(item)
             rows.append((version, raw))
         return rows
 

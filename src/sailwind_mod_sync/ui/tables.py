@@ -30,13 +30,8 @@ def sortable_item(text: str, key: object | None = None) -> SortableItem:
     return item
 
 
-def version_sort_key(raw: str | None) -> tuple[int, ...]:
-    version = version_key(raw)
-    parts = [int(part) for part in version.release]
-    while len(parts) < 4:
-        parts.append(0)
-    parts.append(1 if version.pre is None else 0)
-    return tuple(parts[:5])
+def version_sort_key(raw: str | None) -> tuple:
+    return version_key(raw)
 
 
 def enable_column_resize(table: QTableWidget, widths: list[int] | None = None) -> None:

@@ -33,6 +33,10 @@ def format_size(size: int) -> str:
     return f"{value:.1f} GB"
 
 
+# The library folder key of a row, which can differ from the exact version it shows.
+LIBRARY_KEY_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
 class LibraryView(QWidget):
     add_to_pack_requested = Signal(str, str)
     find_repo_requested = Signal(str, str)
@@ -82,18 +86,25 @@ class LibraryView(QWidget):
         keys = pinned_keys or {}
         self._entries = list(entries)
         pack_name = pack.name if pack else ""
+        # Within a mod, newest first.
+        newest_first = {
+            key: rank for rank, key in enumerate(sorted(
+                {version_sort_key(entry.meta.version or entry.version) for entry in self._entries}, reverse=True,
+            ))
+        }
         with sorting_paused(self.table):
             self.table.setRowCount(len(self._entries))
             for index, entry in enumerate(self._entries):
                 name = labels.get(entry.guid) or _fallback_name(entry)
-                name_item = sortable_item(
-                    name,
-                    (name.casefold(), entry.guid.casefold(), tuple(-part for part in version_sort_key(entry.version))),
-                )
+                version_key = version_sort_key(entry.meta.version or entry.version)
+                name_item = sortable_item(name, (name.casefold(), entry.guid.casefold(), newest_first[version_key]))
                 name_item.setToolTip(entry.guid)
                 self.table.setItem(index, 0, name_item)
                 self.table.setItem(index, 1, sortable_item(entry.guid))
-                self.table.setItem(index, 2, sortable_item(entry.version, version_sort_key(entry.version)))
+                shown = entry.meta.version_raw or entry.meta.version or entry.version
+                version_item = sortable_item(shown, version_key)
+                version_item.setData(LIBRARY_KEY_ROLE, entry.version)
+                self.table.setItem(index, 2, version_item)
                 self.table.setItem(index, 3, sortable_item(format_size(entry.size_bytes), entry.size_bytes))
                 self.table.setItem(
                     index,
@@ -146,7 +157,7 @@ class LibraryView(QWidget):
         version_item = self.table.item(row, 2)
         if guid_item is None or version_item is None:
             return
-        self.details_requested.emit(guid_item.text(), version_item.text())
+        self.details_requested.emit(guid_item.text(), version_item.data(LIBRARY_KEY_ROLE) or version_item.text())
 
     def _show_context_menu(self, pos) -> None:
         row = self.table.indexAt(pos).row()

@@ -14,7 +14,7 @@ from sailwind_mod_sync.library.main_dll import (
     pick_main_dll,
     _tokens,
 )
-from sailwind_mod_sync.models import CatalogEntry, parse_mod_version
+from sailwind_mod_sync.models import CatalogEntry, parse_mod_version, version_parts, version_text
 
 log = logging.getLogger(__name__)
 
@@ -463,11 +463,20 @@ def _refine_local_identity(unit: DiscoveredPlugin, path: Path) -> None:
         dll_version = _version_from_dll(dll, unit.guid)
         if dll_version:
             break
-    file_version = parse_mod_version(path.stem) or parse_mod_version(path.name)
-    chosen = dll_version or file_version
-    if chosen:
-        unit.version = chosen
-        unit.version_raw = chosen
+    file_text = version_text(path.stem)
+    file_parts = version_parts(file_text)
+    if file_parts is not None and not file_parts.prerelease:
+        # Filenames carry other words too ("-thunderstore", "-test"); only prerelease labels are versions.
+        file_text = ".".join(str(part) for part in file_parts.core)
+    dll_parts = version_parts(dll_version)
+    if file_parts is not None and file_parts.prerelease and (dll_parts is None or dll_parts.core == file_parts.core):
+        # BepInPlugin versions are numbers only; the filename can say which prerelease this is.
+        chosen_text = file_text
+    else:
+        chosen_text = dll_version or file_text
+    if chosen_text:
+        unit.version = parse_mod_version(chosen_text) or chosen_text
+        unit.version_raw = chosen_text
 
 
 def _loose_guids(data: bytes) -> list[str]:

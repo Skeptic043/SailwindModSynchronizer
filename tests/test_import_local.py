@@ -81,3 +81,30 @@ def test_import_local_fills_missing_pin(paths: AppPaths, tmp_path: Path) -> None
     assert pinned.version == "1.1.1"
     assert not manager.missing_mods(manager.packs.get(pack.id))
     manager.close()
+
+
+def test_local_zip_keeps_prerelease_from_file_name(tmp_path: Path) -> None:
+    archive = tmp_path / "BetterDrag-1.4.1-beta.11.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("BetterDrag/BetterDrag.dll", _dll_bytes("com.AugSphere.BetterDrag", "1.4.1"))
+    found = discover_local_file(archive)
+    assert found[0].version_raw == "1.4.1-beta.11"
+
+
+def test_local_zip_ignores_non_version_words_in_file_name(tmp_path: Path) -> None:
+    archive = tmp_path / "CustomPaintings-0.1.0-thunderstore-20261106-164336521.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("CustomPaintings/CustomPaintings.dll", _dll_bytes("com.example.paintings", "0.1.0"))
+    found = discover_local_file(archive)
+    assert found[0].version == "0.1.0"
+
+
+def test_import_summary_names_replaced_version() -> None:
+    from sailwind_mod_sync.ui.main_window import import_summary
+
+    pinned = PinnedMod(guid="com.AugSphere.BetterDrag", version="1.4.1-beta11", version_raw="1.4.1-beta.11")
+    assert import_summary(pinned, None) == "Added com.AugSphere.BetterDrag 1.4.1-beta.11"
+    assert import_summary(pinned, "1.4.1-beta.11") == "Reinstalled com.AugSphere.BetterDrag 1.4.1-beta.11"
+    assert import_summary(pinned, "1.4.1-beta.10") == (
+        "Replaced com.AugSphere.BetterDrag 1.4.1-beta.10 with 1.4.1-beta.11"
+    )

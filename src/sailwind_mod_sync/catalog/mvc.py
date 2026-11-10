@@ -18,7 +18,7 @@ from sailwind_mod_sync.constants import (
 )
 from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
-from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, parse_mod_version
+from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, tag_version
 from sailwind_mod_sync.paths import AppPaths
 
 log = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ def merge_catalog(mod_list: list, versions: list) -> list[CatalogEntry]:
         guids: list[str] = bucket["guids"]
         primary = _pick_primary_guid(guids)
         raw = bucket["raw"]
-        normalized = parse_mod_version(raw)
+        normalized = tag_version(raw)
         available = bool(normalized) and not bucket["unavailable"]
         split_repo = len(families_for_repo.get(repo, ())) > 1
         name = bucket["name"] or (
