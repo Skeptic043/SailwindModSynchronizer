@@ -678,5 +678,15 @@
     "guid": "com.roy.furstmate",
     "repo": "https://github.com/Dixiecapt/FurstMate",
     "version": "v0.9.6-beta1"
+  },
+  {
+    "guid": "kap.saildamage",
+    "repo": "https://github.com/FluffyJesus/Sail-Damage",
+    "version": "1.0.5"
+  },
+  {
+    "guid": "com.diamondminer99.hideui",
+    "repo": "https://github.com/DiamondMiner99/sailwind-hideui",
+    "version": "v0.1.1"
   }
 ]

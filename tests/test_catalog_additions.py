@@ -775,6 +775,25 @@ RELEASE_LAYOUTS = [
             "Sounds/yelps.wav",
         ),
     ),
+    (
+        "FluffyJesus/Sail-Damage",
+        "kap.saildamage",
+        "1.0.5",
+        "SailDamage-1.0.5.zip",
+        (
+            "BepInEx/plugins/SailDamage/SailDamage.dll",
+            "BepInEx/plugins/SailDamage/ship-bell.wav",
+        ),
+    ),
+    (
+        "DiamondMiner99/sailwind-hideui",
+        "com.diamondminer99.hideui",
+        "v0.1.1",
+        "SailwindHideUI-v0.1.1.zip",
+        (
+            "BepInEx/plugins/SailwindHideUI/SailwindHideUI.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -792,6 +811,8 @@ RUNTIME_LAYOUT_FOLDERS = {
     "Viking-D-Mike/MusicMod": "LaudMod",
     "DogEggz01/ShipwrightTransportation": "ShipwrightAndTransport",
     "Dixiecapt/FurstMate": "FurstMate",
+    "FluffyJesus/Sail-Damage": "SailDamage",
+    "DiamondMiner99/sailwind-hideui": "SailwindHideUI",
 }
 
 
@@ -916,6 +937,8 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
             if repo in RUNTIME_LAYOUT_FOLDERS:
                 folder = RUNTIME_LAYOUT_FOLDERS[repo]
                 relative = Path(name)
+                if relative.parts[:2] == ("BepInEx", "plugins"):
+                    relative = Path(*relative.parts[2:])
                 if not relative.parts or relative.parts[0] != folder:
                     relative = Path(folder) / relative
                 assert entry.plugin_folders == [folder]
