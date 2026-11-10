@@ -60,3 +60,5 @@ THUNDERSTORE_DOWNLOAD = (
 
 CONFIG_FILENAME = "config.json"
 DEFAULT_PACK_NAME = "Default"
+# A profile's folder for plugin folders that were in the way of an install and that no mod owned.
+REPLACED_FOLDERS_DIR = "replaced-folders"

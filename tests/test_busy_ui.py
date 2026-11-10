@@ -1123,6 +1123,37 @@ def test_associate_dialog_records_catalog_choice() -> None:
     app.processEvents()
 
 
+def test_associate_dialog_needs_a_deliberate_pick_for_a_weak_match() -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    app = QApplication.instance() or QApplication([])
+    entry = CatalogEntry(
+        repo="https://github.com/winterspices/AgeOfExploration",
+        guids=["com.winter.ageofexploration"],
+        primary_guid="com.winter.ageofexploration",
+        name="Age of Exploration",
+        latest_raw="v0.2.6",
+        latest_version="0.2.6",
+        available=True,
+    )
+    dialog = AssociateCatalogDialog(
+        [AssociateTarget(guid="com.example.flightspeed", version="1.0.2", name="FlightSpeed")],
+        [entry],
+    )
+    try:
+        dialog.show()
+        assert dialog.catalog_list.currentRow() == -1
+        assert not dialog.associate_btn.isEnabled()
+        QTest.keyClick(dialog, Qt.Key.Key_Return)
+        assert dialog.choices() == []
+        assert dialog.result() == dialog.DialogCode.Accepted and not dialog.isVisible()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+    app.processEvents()
+
+
 def _library_entry(guid: str, version: str, size: int, name: str | None = None) -> LibraryEntry:
     return LibraryEntry(
         guid=guid,

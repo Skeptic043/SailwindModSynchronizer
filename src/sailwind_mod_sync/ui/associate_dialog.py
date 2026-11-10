@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sailwind_mod_sync.game.scan_plugins import rank_catalog_matches
+from sailwind_mod_sync.game.scan_plugins import clear_catalog_match, rank_catalog_matches
 from sailwind_mod_sync.models import CatalogEntry
 from sailwind_mod_sync.ui.repo_dialog import RepoUrlDialog
 
@@ -61,6 +61,7 @@ class AssociateCatalogDialog(QDialog):
         self.catalog_list = QListWidget()
         self.catalog_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.catalog_list.itemDoubleClicked.connect(lambda _item: self._associate())
+        self.catalog_list.currentRowChanged.connect(lambda _row: self._update_associate_enabled())
 
         self.skip_btn = QPushButton("Skip")
         self.skip_btn.clicked.connect(self._skip)
@@ -69,7 +70,11 @@ class AssociateCatalogDialog(QDialog):
         buttons = QDialogButtonBox()
         self.associate_btn = buttons.addButton("Associate", QDialogButtonBox.ButtonRole.ActionRole)
         self.done_btn = buttons.addButton("Done", QDialogButtonBox.ButtonRole.ActionRole)
-        self.associate_btn.setDefault(True)
+        # Enter skips: linking the wrong entry renames the mod, so it takes a deliberate pick.
+        self.associate_btn.setAutoDefault(False)
+        self.done_btn.setAutoDefault(False)
+        self.url_btn.setAutoDefault(False)
+        self.skip_btn.setDefault(True)
         self.associate_btn.clicked.connect(self._associate)
         self.done_btn.clicked.connect(self.accept)
 
@@ -108,7 +113,6 @@ class AssociateCatalogDialog(QDialog):
         )
         self.filter.setText("")
         self._refresh_catalog()
-        self.skip_btn.setVisible(len(self._targets) > 1)
         self.done_btn.setText("Skip remaining" if remaining > 1 else "Cancel")
 
     def _refresh_catalog(self) -> None:
@@ -119,6 +123,7 @@ class AssociateCatalogDialog(QDialog):
             return
         query = self.filter.text().strip().lower()
         ranked = rank_catalog_matches(target.name, target.guid, self._catalog)
+        clear = clear_catalog_match(ranked)
         seen: set[str] = set()
         ordered: list[CatalogEntry] = []
         for _score, entry in ranked:
@@ -137,9 +142,15 @@ class AssociateCatalogDialog(QDialog):
             item.setToolTip(entry.repo)
             self.catalog_list.addItem(item)
             self._rows.append(entry)
-        if self.catalog_list.count():
+        # Preselect only a clear match, which leads the list while it is unfiltered.
+        if clear is not None and not query:
             self.catalog_list.setCurrentRow(0)
-        self.associate_btn.setEnabled(bool(self._rows))
+        else:
+            self.catalog_list.setCurrentRow(-1)
+        self._update_associate_enabled()
+
+    def _update_associate_enabled(self) -> None:
+        self.associate_btn.setEnabled(self._selected_entry() is not None)
 
     def _selected_entry(self) -> CatalogEntry | None:
         row = self.catalog_list.currentRow()
