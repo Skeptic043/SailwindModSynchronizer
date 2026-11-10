@@ -1,22 +1,47 @@
 # Sailwind Mod Synchronizer
 
-A Qt (PySide6) mod manager for [Sailwind](https://store.steampowered.com/app/1764530/Sailwind/). It catalogs mods from [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker), caches versioned zips in a Maven-like local library, and launches isolated ModPacks through UnityDoorstop so the Steam game folder stays vanilla.
+A mod manager for [Sailwind](https://store.steampowered.com/app/1764530/Sailwind/). Mod Sync keeps sets of mods as separate **ModPacks**, downloads and updates them from GitHub and GitLab, and starts the game with the pack you pick. Your Steam game folder stays vanilla: each pack runs from its own folder through UnityDoorstop.
+
+Mods come from [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker), from this repository's own catalog, and from any repository you add. Every downloaded version is kept in a local library, so switching versions or packs does not download it again.
 
 ## Download
 
-Grab `SailwindModSynchronizer-<version>-windows.zip` from the [latest release](https://github.com/foxyv/SailwindModSynchronizer/releases/latest), extract it anywhere, and run `SailwindModSynchronizer.exe`. Later versions install themselves through **Help → Check for updates**.
+**Windows:** download `SailwindModSynchronizer-<version>-windows.zip` from the [latest release](https://github.com/foxyv/SailwindModSynchronizer/releases/latest), extract it anywhere, and run `SailwindModSynchronizer.exe`. The app checks for new versions at startup and installs them when you agree, or on demand through **Help → Check for updates**.
 
-The exe is signed, but not yet with a publicly trusted certificate, so the first time you run it Windows SmartScreen may show **Windows protected your PC**. Click **More info**, then **Run anyway**.
+**Linux and Steam Deck:** download `SailwindModSynchronizer-<version>-linux-x86_64.tar.gz`. See the [Linux and Steam Deck guide](docs/linux.md) for setup, getting mods to load through Proton, and Game Mode.
 
-**Linux and Steam Deck:** grab `SailwindModSynchronizer-<version>-linux-x86_64.tar.gz` instead. See the [Linux and Steam Deck guide](docs/linux.md) for setup, getting mods to load through Proton, and Game Mode.
+## Managing mods
 
-## Requirements
+- Pick or create a ModPack on the left, then add mods to it with **Add to pack** on the **Catalog** tab. Right-click a mod and choose **Show Details** for more about it.
+- On the **Pack** tab, the check box beside a mod turns it on or off, and the version column allows you to choose a different version to use.
+- **Import Mod DLL/ZIP** adds a mod from a file, for mods that are not on GitHub or GitLab.
+- **Copy** and **Paste** share a ModPack as text.
+- **Export** and **Import** share a ModPack as a file.
+- **Launch Vanilla** starts the game without mods.
 
-- Python 3.11+
-- Windows, or Linux with Sailwind running through Proton (see the [Linux guide](docs/linux.md))
-- A Sailwind install (Steam appid `1764530`)
+### Catalog and updates
 
-## Install and run
+The catalog refreshes in the background once a day (this can be disabled in the Settings menu) and can be refreshed manually with **Refresh catalog**. **Tools → Check for mod updates** checks every mod in the catalog for updates. **Add GitHub repo** adds a repository that is not in the catalog, including a fork of a listed mod. A mod listed from several repositories gets a row for each **Source**, and **Switch source** moves the selected pack to another one.
+
+### Files and cache
+
+Settings, the mod library and ModPack folders live in `%LOCALAPPDATA%\SailwindModSynchronizer` on Windows, or `~/.local/share/SailwindModSynchronizer` (`$XDG_DATA_HOME`) on Linux. Set `SAILWIND_MOD_SYNC_HOME` to use another folder.
+
+**Tools → Clear cache…** deletes what the app can download again: catalogs, update checks, downloaded mods, BepInEx packs and app updates. Packs, their mod settings, your own catalog entries and backups are kept, and so are mods imported from files unless you tick **Also delete mods imported from files**. Packs download their mods again on the next **Play**.
+
+## Troubleshooting
+
+- **Windows protected your PC:** the exe is signed, but not yet with a publicly trusted certificate. Click **More info**, then **Run anyway**.
+- **Mods do not load:** **Tools → Open Latest Log** opens the selected pack's BepInEx log, and **Tools → Open Plugins Folder** shows what the pack installed. On Linux, see the [Linux and Steam Deck guide](docs/linux.md).
+- **Reporting a problem:** **Tools → Export Logs…** saves the selected pack's logs as a ZIP, with personal details removed, to attach to an issue.
+
+## How it works
+
+BepInEx comes from Thunderstore **BepInExPack**, and mods from GitHub and GitLab **release zip assets**. **Play** copies `winhttp.dll` into the game folder and launches `Sailwind.exe` with `--doorstop-target-assembly` pointed at the selected pack, so BepInEx and the pack's mods load from the pack's folder.
+
+## Running from source
+
+The app is written in Python with Qt (PySide6). It needs Python 3.11+ and a Sailwind install (Steam appid `1764530`), on Windows or on Linux through Proton.
 
 ```powershell
 py -3 -m venv .venv
@@ -25,75 +50,35 @@ pip install -e ".[dev]"
 sailwind-mod-sync
 ```
 
-Or: `python -m sailwind_mod_sync`
+Run the tests with `pytest`.
 
-## Data
+### Windows executable
 
-Config, catalog cache, artifact library, and ModPack instances live under:
-
-`%LOCALAPPDATA%\SailwindModSynchronizer` on Windows, or `~/.local/share/SailwindModSynchronizer` (`$XDG_DATA_HOME`) on Linux.
-
-Override with `SAILWIND_MOD_SYNC_HOME`.
-
-**Tools → Clear cache…** deletes everything the app can download again: cached catalogs, update check results, downloaded mods, BepInEx packs and staged app updates. Packs and their mod settings, your own catalog entries and backups are kept. Mods imported from files are kept too, unless you tick **Also delete mods imported from files**, as some of them may not be downloadable. Packs download their mods again on the next **Play**, or one by one with **Download** on the Pack tab.
-
-## Catalog
-
-BepInEx is downloaded from Thunderstore **BepInExPack**. Mods are downloaded from GitHub/GitLab **release zip assets**. The catalog combines three lists:
-
-- [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker);
-- this repo's [`catalog/ModList.json`](catalog/ModList.json) (and [`catalog/release_versions.json`](catalog/release_versions.json)) on `master`, for mods that are not in ModVersionChecker and for the names of those that are;
-- repositories you add with **Add GitHub repo** on the Catalog tab, including forks of mods that are already listed.
-
-ModVersionChecker lists no mod names. Its mods take the name this repo's catalog gives the same mod from the same repository, else the `[BepInPlugin]` name of a downloaded copy (read on the next catalog refresh), else the repository name.
-
-`python scripts/update_catalog_from_mvc.py` adds the ModVersionChecker mods this repo's catalog does not name to it, named after the `[BepInPlugin]` attribute in their latest release, and takes the ModVersionChecker version of every mod both list when it is newer; `--dry-run` only reports the changes. It downloads one release per mod it names.
-
-`python scripts/update_catalog_versions.py` checks the latest release of every mod in this repo's catalog and records it when it is newer and its download still extracts to the mod's plugin folders with a plugin declaring the mod's GUID; other newer releases are reported and left out. `--dry-run` only reports the changes.
-
-Both scripts call the GitHub API, so set `GITHUB_TOKEN` or save a token in the app's settings first. A new version of a mod with a release layout in `tests/test_catalog_additions.py` needs that layout updated too; the version script prints the files of each new release for that.
-
-A mod listed from several repositories, such as an original and a fork, gets a row for each source; the **Source** column tells them apart. **Switch source** moves the selected pack to another source, and each pack keeps the source of each of its mods, so different packs can use different sources of the same mod. Downloads of the same version from different sources are stored separately in the library.
-
-The catalog refreshes in the background once a day, at startup and while the app stays open (turn it off in Settings with **Refresh the catalog once a day**); **Refresh catalog** refreshes it on demand. **Check for mod updates** (Tools menu) checks the latest release of every repository. Its results are kept across restarts and win over a catalog that lists no version or an older one. **Update all** on the Pack tab updates every mod of the pack that has a newer version.
-
-Play copies `winhttp.dll` into the game folder and launches `Sailwind.exe` with `--doorstop-target-assembly` pointed at the selected pack. Mods the pack needs that are not downloaded yet are downloaded first.
-
-## Tests
-
-```powershell
-pytest
-```
-
-## Windows executable
-
-From the repo root, with the venv active:
+With the venv active:
 
 ```powershell
 pip install -e ".[dev,build]"
 .\scripts\build.ps1
 ```
 
-Or: `python scripts/build.py`
+That is an **incremental** freeze for development: it reuses the PyInstaller cache, skips UPX, and does not write a release zip.
 
-That is an **incremental** freeze: it reuses the PyInstaller cache, skips UPX, and does not write a GitHub zip. Use it while iterating on the app.
+For a GitHub release zip, run `az login`, then `.\scripts\build.ps1 -Release`. That does a clean freeze, **Authenticode-signs** it with Azure Artifact Signing, and writes `dist\SailwindModSynchronizer-<version>-windows.zip`; upload that zip to the GitHub release so the app can update itself.
 
-For a GitHub release zip:
+Signing reads `%USERPROFILE%\sms-signing\metadata.json` (copy [scripts/signing.metadata.example.json](scripts/signing.metadata.example.json) and fill in your Artifact Signing account, certificate profile, and regional endpoint), or the path in `SMS_SIGNING_METADATA`. It needs [Azure CLI](https://aka.ms/installazurecliwindows), [Artifact Signing Client Tools](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations) (`winget install -e --id Microsoft.Azure.ArtifactSigningClientTools`), and the **Artifact Signing Certificate Profile Signer** role on your Azure user.
 
-```powershell
-az login
-.\scripts\build.ps1 -Release
-```
+`-SkipSign` (`--skip-sign`) makes an unsigned release zip, `--sign` signs an incremental build, and `-SkipShortcut` (`--skip-shortcut`) skips the Desktop shortcut both modes create. `python scripts/build.py` takes the same options.
 
-Or: `python scripts/build.py --release`
+## Maintaining the catalog
 
-That does a clean freeze, **Authenticode-signs** the freeze output with Azure Artifact Signing, and writes `dist\SailwindModSynchronizer-<version>-windows.zip`. Upload that zip to the GitHub release so the app can auto-update.
+The catalog combines [ModVersionChecker](https://github.com/bryon82/SailwindModVersionChecker), this repository's [`catalog/ModList.json`](catalog/ModList.json) and [`catalog/release_versions.json`](catalog/release_versions.json) on `master`, and repositories players add themselves.
 
-Signing reads `%USERPROFILE%\sms-signing\metadata.json` (copy [scripts/signing.metadata.example.json](scripts/signing.metadata.example.json) and fill in your Artifact Signing account, certificate profile, and regional endpoint). Override the path with `SMS_SIGNING_METADATA`. Install [Azure CLI](https://aka.ms/installazurecliwindows) and [Artifact Signing Client Tools](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations) (`winget install -e --id Microsoft.Azure.ArtifactSigningClientTools`). Your Azure user needs the **Artifact Signing Certificate Profile Signer** role.
+To add a mod, give it an entry in both catalog files (BepInEx GUID, repository, name, plugin folder and current release) and add its release layout to `tests/test_catalog_additions.py`.
 
-Pass `--skip-sign` / `-SkipSign` for an unsigned zip. Incremental builds do not sign unless you pass `--sign`.
+- `python scripts/update_catalog_from_mvc.py` names the ModVersionChecker mods this catalog does not, after the `[BepInPlugin]` attribute in their latest release, and takes ModVersionChecker's version where it is newer.
+- `python scripts/update_catalog_versions.py` records each mod's newer release when it still extracts to the mod's plugin folders with a plugin declaring its GUID, and reports the rest. It prints each new release's files for updating its layout in the tests.
 
-Both modes compile `dist\SailwindModSynchronizer\SailwindModSynchronizer.exe`, embed `assets/icon.png` as the application icon, and create a **Sailwind Mod Synchronizer** shortcut on the Desktop unless you pass `-SkipShortcut` / `--skip-shortcut`.
+Both take `--dry-run` and call the GitHub API, so set `GITHUB_TOKEN` or save a token in the app's settings first.
 
 ## License
 
