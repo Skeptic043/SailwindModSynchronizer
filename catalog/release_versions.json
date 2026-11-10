@@ -673,5 +673,15 @@
     "guid": "DogEggz.ShipwrightTransport",
     "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
     "version": "0.1.3"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.easysweeper",
+    "repo": "https://github.com/Skeptic043/Sailwind-Easy-Sweeper",
+    "version": "v0.1.0"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.custompaintings",
+    "repo": "https://github.com/Skeptic043/sailwind-custom-paintings",
+    "version": "v0.1.7"
   }
 ]

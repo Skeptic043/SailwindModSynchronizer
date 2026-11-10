@@ -808,5 +808,17 @@
     "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
     "name": "Shipwright and Transport",
     "plugin_folders": ["ShipwrightAndTransport"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.easysweeper",
+    "repo": "https://github.com/Skeptic043/Sailwind-Easy-Sweeper",
+    "name": "Easy Sweeper",
+    "plugin_folders": ["EasySweeper"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.custompaintings",
+    "repo": "https://github.com/Skeptic043/sailwind-custom-paintings",
+    "name": "Custom Paintings",
+    "plugin_folders": ["CustomPaintings"]
   }
 ]

@@ -714,6 +714,34 @@ RELEASE_LAYOUTS = [
             "ShipwrightAndTransport/assets/dogeggz.shipwrighttransport.assets",
         ),
     ),
+    (
+        "Skeptic043/Sailwind-Easy-Sweeper",
+        "com.skeptic043.sailwind.easysweeper",
+        "v0.1.0",
+        "EasySweeper-0.1.0.zip",
+        (
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "icon.png",
+            "BepInEx/plugins/EasySweeper/EasySweeper.dll",
+        ),
+    ),
+    (
+        "Skeptic043/sailwind-custom-paintings",
+        "com.skeptic043.sailwind.custompaintings",
+        "v0.1.7",
+        "CustomPaintings-0.1.7.zip",
+        (
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "icon.png",
+            "BepInEx/plugins/CustomPaintings/CustomPaintings.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
