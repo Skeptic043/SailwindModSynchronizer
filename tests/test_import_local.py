@@ -91,6 +91,26 @@ def test_local_zip_keeps_prerelease_from_file_name(tmp_path: Path) -> None:
     assert found[0].version_raw == "1.4.1-beta.11"
 
 
+def test_declared_plugin_keeps_prerelease_from_file_name(tmp_path: Path) -> None:
+    from plugin_metadata_fixture import managed_dll
+
+    # Real plugins declare their version in BepInPlugin metadata, which takes a different path.
+    archive = tmp_path / "BetterDrag-1.4.1-beta.11.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("BetterDrag/BetterDrag.dll", managed_dll((("com.AugSphere.BetterDrag", "BetterDrag", "1.4.1.0"),)))
+    found = discover_local_file(archive)
+    assert (found[0].guid, found[0].version_raw) == ("com.AugSphere.BetterDrag", "1.4.1-beta.11")
+
+
+def test_declared_plugin_keeps_its_version_when_the_file_name_differs(tmp_path: Path) -> None:
+    from plugin_metadata_fixture import managed_dll
+
+    archive = tmp_path / "BetterDrag-1.5.0-beta.1.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("BetterDrag/BetterDrag.dll", managed_dll((("com.AugSphere.BetterDrag", "BetterDrag", "1.4.1"),)))
+    assert discover_local_file(archive)[0].version_raw == "1.4.1"
+
+
 def test_local_zip_ignores_non_version_words_in_file_name(tmp_path: Path) -> None:
     archive = tmp_path / "CustomPaintings-0.1.0-thunderstore-20261106-164336521.zip"
     with zipfile.ZipFile(archive, "w") as zf:

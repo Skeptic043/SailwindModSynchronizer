@@ -450,33 +450,44 @@ def _discover_zip(
 
 
 def _refine_local_identity(unit: DiscoveredPlugin, path: Path) -> None:
-    if unit.declared_identity:
-        return
-    dlls: list[Path] = []
-    for item in unit.plugin_paths:
-        if item.is_file() and item.suffix.lower() == ".dll":
-            dlls.append(item)
-        elif item.is_dir():
-            dlls.extend(item.rglob("*.dll"))
-    dll_version = None
-    for dll in dlls:
-        dll_version = _version_from_dll(dll, unit.guid)
-        if dll_version:
-            break
     file_text = version_text(path.stem)
     file_parts = version_parts(file_text)
     if file_parts is not None and not file_parts.prerelease:
         # Filenames carry other words too ("-thunderstore", "-test"); only prerelease labels are versions.
         file_text = ".".join(str(part) for part in file_parts.core)
+    if unit.declared_identity:
+        dll_version = unit.version
+    else:
+        dlls: list[Path] = []
+        for item in unit.plugin_paths:
+            if item.is_file() and item.suffix.lower() == ".dll":
+                dlls.append(item)
+            elif item.is_dir():
+                dlls.extend(item.rglob("*.dll"))
+        dll_version = None
+        for dll in dlls:
+            dll_version = _version_from_dll(dll, unit.guid)
+            if dll_version:
+                break
     dll_parts = version_parts(dll_version)
-    if file_parts is not None and file_parts.prerelease and (dll_parts is None or dll_parts.core == file_parts.core):
+    if file_parts is not None and file_parts.prerelease and (
+        dll_parts is None or _same_core(dll_parts.core, file_parts.core)
+    ):
         # BepInPlugin versions are numbers only; the filename can say which prerelease this is.
         chosen_text = file_text
+    elif unit.declared_identity:
+        return
     else:
         chosen_text = dll_version or file_text
     if chosen_text:
         unit.version = parse_mod_version(chosen_text) or chosen_text
         unit.version_raw = chosen_text
+
+
+def _same_core(left: tuple[int, ...], right: tuple[int, ...]) -> bool:
+    """Compare version numbers as equal when only trailing zeros differ (1.4.1 and 1.4.1.0)."""
+    width = max(len(left), len(right))
+    return left + (0,) * (width - len(left)) == right + (0,) * (width - len(right))
 
 
 def _loose_guids(data: bytes) -> list[str]:
