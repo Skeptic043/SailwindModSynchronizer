@@ -246,12 +246,6 @@
     "plugin_folders": ["HeadBonker"]
   },
   {
-    "guid": "DogEggz.Moorlinefix",
-    "repo": "https://github.com/DogEggz01/MooringLineFix",
-    "name": "MooringLineFix",
-    "plugin_folders": ["MooringLineFix"]
-  },
-  {
     "guid": "com.DogEggz.HerculesThrow",
     "repo": "https://github.com/DogEggz01/Hercules-Throw",
     "name": "Hercules Throw",
@@ -352,12 +346,6 @@
     "repo": "https://github.com/ExocetC3i/VirtualCrew_CaptainSetsWatches",
     "name": "Remove First Officer Requirement",
     "plugin_folders": ["RemoveFirstOfficerRequirement"]
-  },
-  {
-    "guid": "archie.Logbook",
-    "repo": "https://github.com/ns-emi12/Archie-Logbook-Release",
-    "name": "Archie's Logbook",
-    "plugin_folders": ["ArchieLogbook"]
   },
   {
     "guid": "com.dizzy.sailwind.clothesline",
@@ -808,5 +796,35 @@
     "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
     "name": "Shipwright and Transport",
     "plugin_folders": ["ShipwrightAndTransport"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.easysweeper",
+    "repo": "https://github.com/Skeptic043/Sailwind-Easy-Sweeper",
+    "name": "Easy Sweeper",
+    "plugin_folders": ["EasySweeper"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.custompaintings",
+    "repo": "https://github.com/Skeptic043/sailwind-custom-paintings",
+    "name": "Custom Paintings",
+    "plugin_folders": ["CustomPaintings"]
+  },
+  {
+    "guid": "com.roy.furstmate",
+    "repo": "https://github.com/Dixiecapt/FurstMate",
+    "name": "FurstMate",
+    "plugin_folders": ["FurstMate"]
+  },
+  {
+    "guid": "kap.saildamage",
+    "repo": "https://github.com/FluffyJesus/Sail-Damage",
+    "name": "Sail Damage",
+    "plugin_folders": ["SailDamage"]
+  },
+  {
+    "guid": "com.diamondminer99.hideui",
+    "repo": "https://github.com/DiamondMiner99/sailwind-hideui",
+    "name": "Sailwind Hide UI",
+    "plugin_folders": ["SailwindHideUI"]
   }
 ]
