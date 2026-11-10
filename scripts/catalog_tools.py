@@ -9,13 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sailwind_mod_sync.catalog.custom import same_repo
-from sailwind_mod_sync.catalog.github import GitHubDownloadError, release_version
+from sailwind_mod_sync.catalog.github import GitHubDownloadError, release_version_text
 from sailwind_mod_sync.config import load_config
 from sailwind_mod_sync.game.scan_plugins import DiscoveredPlugin, scan_plugins_dir
 from sailwind_mod_sync.http_util import HttpClient, HttpError
 from sailwind_mod_sync.library.download import ensure_mod_artifact
 from sailwind_mod_sync.library.store import LibraryStore
-from sailwind_mod_sync.models import ArtifactMeta, RemoteRelease, parse_mod_version
+from sailwind_mod_sync.models import ArtifactMeta, RemoteRelease, version_id
 from sailwind_mod_sync.paths import AppPaths
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -66,7 +66,7 @@ def first_line(exc: BaseException) -> str:
 
 def release_version_raw(release: RemoteRelease) -> str:
     """Return the version the app records for ``release``: its tag, or the version in its name when the tag has none."""
-    return release.tag if parse_mod_version(release.tag) else release_version(release) or release.tag
+    return release_version_text(release)
 
 
 def download_release(
@@ -91,7 +91,7 @@ def download_release(
             http,
             guid=guid,
             repo=repo,
-            version=parse_mod_version(version_raw) if version_raw else None,
+            version=version_id(version_raw) if version_raw else None,
             version_raw=version_raw,
             plugin_folders=plugin_folders or None,
         )

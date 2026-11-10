@@ -48,7 +48,7 @@ from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.log_export import export_logs
 from sailwind_mod_sync.manager import Manager
-from sailwind_mod_sync.models import PinnedMod, parse_mod_version
+from sailwind_mod_sync.models import PinnedMod, version_id
 from sailwind_mod_sync.packs.modpack import BulkRollbackError
 from sailwind_mod_sync.packs.plugin_files import FileConflict
 from sailwind_mod_sync.packs.share import DISCORD_MESSAGE_LIMIT, parse_share_text
@@ -136,6 +136,16 @@ QLabel {
     margin-bottom: 1px;
 }
 """
+
+
+def _import_summary(pinned: PinnedMod, previous: str | None) -> str:
+    """Say what an import did to the pack, with the exact versions."""
+    name = f"{pinned.guid} {pinned.version_raw or pinned.version}"
+    if previous is None:
+        return f"Added {name}"
+    if version_id(previous) == pinned.version:
+        return f"Reinstalled {name}"
+    return f"Replaced {pinned.guid} {previous} with {pinned.version_raw or pinned.version}"
 
 
 def _unless_bulk_running(method):
@@ -1434,8 +1444,8 @@ class MainWindow(QMainWindow):
             return
         pack = self.manager.packs.get(pack_id)
         pinned = pack.find_mod(guid) if pack else None
-        current = parse_mod_version(pinned.version) if pinned else None
-        chosen = parse_mod_version(version) or version
+        current = version_id(pinned.version) if pinned else None
+        chosen = version_id(version) or version
         library = self.manager.library
         same_source = pinned is not None and (not repo or not pinned.repo or same_repo(repo, pinned.repo))
         if same_source and current == chosen and library.has_mod(guid, library.pinned_key(pinned)):
@@ -1735,7 +1745,8 @@ class MainWindow(QMainWindow):
                 ))
             return imported
 
-        self._run(work, self._local_mods_imported, f"Importing {files[0].name}…")
+        before = self._pinned_versions(pack_id)
+        self._run(work, lambda imported: self._local_mods_imported(imported, before), f"Importing {files[0].name}…")
 
     @_unless_bulk_running
     def _import_missing_mod(self, guid: str) -> None:
@@ -1758,14 +1769,19 @@ class MainWindow(QMainWindow):
                 file_path, pack_id, progress=progress, guid=guid, resolve_conflicts=self._resolve_file_conflicts,
             )]
 
-        self._run(work, self._local_mods_imported, f"Importing {file_path.name}…")
+        before = self._pinned_versions(pack_id)
+        self._run(work, lambda imported: self._local_mods_imported(imported, before), f"Importing {file_path.name}…")
 
-    def _local_mods_imported(self, imported) -> None:
+    def _pinned_versions(self, pack_id: str) -> dict[str, str]:
+        pack = self.manager.packs.get(pack_id)
+        return {mod.guid: mod.version_raw or mod.version for mod in pack.mods} if pack else {}
+
+    def _local_mods_imported(self, imported, before: dict[str, str] | None = None) -> None:
         self._reload_views()
         if not imported:
             return
-        names = ", ".join(f"{item.guid} {item.version}" for item in imported)
-        self.statusBar().showMessage(f"Imported {names}")
+        previous = before or {}
+        self.statusBar().showMessage("; ".join(_import_summary(item, previous.get(item.guid)) for item in imported))
         self._offer_catalog_association(list(imported), pack_id=self.current_pack_id())
 
     @_unless_bulk_running

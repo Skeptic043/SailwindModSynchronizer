@@ -120,3 +120,52 @@ def test_display_mod_name_uses_plugin_folder_when_catalog_is_shared() -> None:
         )
         == "Dizzy.Gamma"
     )
+
+
+# Tags published by FluffyJesus/Realistic-Skies, oldest first; one uses "-F2" instead of "F-2".
+REALISTIC_SKIES_FORK_TAGS = [
+    "2.3.0F", "2.3.0F-1", "2.3.0-F2", "2.3.0F-2.1", "2.3.0F-3", "2.3.0F-3.1", "2.3.0F-4", "2.3.0F-4.1",
+]
+
+
+def test_suffixed_releases_stay_distinct_and_ordered() -> None:
+    versions = [parse_mod_version(tag) for tag in REALISTIC_SKIES_FORK_TAGS]
+    assert len(set(versions)) == len(versions)
+    assert parse_mod_version("2.3.0-F2") == parse_mod_version("2.3.0F-2")
+    keys = [version_key(tag) for tag in ["V2.3.0", *REALISTIC_SKIES_FORK_TAGS]]
+    assert keys == sorted(keys)
+    assert is_newer("2.3.0F-4.1", "2.3.0F-4")
+    assert not is_newer("2.3.0F-4", "2.3.0F-4.1")
+
+
+def test_prerelease_sorts_before_its_release() -> None:
+    assert is_newer("v0.9.6", "v0.9.6-beta1")
+    assert not is_newer("v0.9.6-beta1", "v0.9.6")
+    assert is_newer("1.4.1-beta.11", "1.4.1-beta.10")
+    assert is_newer("1.4.1-rc1", "1.4.1-beta.11")
+
+
+def test_tag_without_number_is_a_version() -> None:
+    from sailwind_mod_sync.models import version_id
+
+    assert version_id("textures") == "textures"
+    assert version_id("none") is None
+    assert is_newer("textures", None)
+    assert not is_newer("textures", "textures")
+    # Unnumbered tags can't be ordered, so any different latest release is the update.
+    assert is_newer("textures", "1.0.0")
+    assert is_newer("v1.0.0", "textures")
+
+
+def test_version_in_file_name_ignores_extension() -> None:
+    from sailwind_mod_sync.models import version_text
+
+    assert parse_mod_version("SaveCleaner-1.1.1.dll") == "1.1.1"
+    assert version_text("Realistic Skies 2.3.0F-4.1") == "2.3.0F-4.1"
+
+
+def test_pin_saved_before_suffix_support_recovers_exact_version() -> None:
+    pinned = PinnedMod.from_dict({"guid": "g", "version": "2.3.0", "version_raw": "2.3.0F-4.1"})
+    assert pinned.version == parse_mod_version("2.3.0F-4.1")
+    unrelated = PinnedMod.from_dict({"guid": "g", "version": "1.2", "version_raw": "latest"})
+    assert unrelated.version == "1.2"

@@ -10,7 +10,7 @@ from sailwind_mod_sync.catalog.custom import same_repo
 from sailwind_mod_sync.catalog.github import repo_short_name
 from sailwind_mod_sync.library.extract import extract_bepinex_pack, normalize_plugin_archive
 from sailwind_mod_sync.library.hashing import dir_size, sha256_file
-from sailwind_mod_sync.models import ArtifactMeta, LibraryEntry, PinnedMod
+from sailwind_mod_sync.models import ArtifactMeta, LibraryEntry, PinnedMod, version_parts
 from sailwind_mod_sync.paths import AppPaths
 
 SOURCE_SEPARATOR = "@"
@@ -53,6 +53,7 @@ class LibraryStore:
 
     def artifact_key(self, guid: str, version: str, repo: str = "") -> str:
         """Return the key that holds, or will hold, ``guid`` ``version`` downloaded from ``repo``."""
+        version = self._legacy_folder(guid, version, repo) or version
         if not repo:
             return version
         variant = _source_variant_key(version, repo)
@@ -62,6 +63,24 @@ class LibraryStore:
         if meta is None or source_matches(meta, repo):
             return version
         return variant
+
+    def _legacy_folder(self, guid: str, version: str, repo: str = "") -> str | None:
+        """Return the key an older release stored ``version`` under, by its numbers alone, if one holds it.
+
+        Releases before suffix support stored "2.3.0F-4.1" in "2.3.0", or "2.3.0@owner.repo" for a second
+        source. Such a folder stands for the version only when its own release text has that exact version.
+        """
+        parts = version_parts(version)
+        if parts is None or parts.core_text == version or self.mod_dir(guid, version).is_dir():
+            return None
+        keys = [parts.core_text]
+        if repo:
+            keys.append(_source_variant_key(parts.core_text, repo))
+        for key in keys:
+            meta = self.read_mod_meta(guid, key)
+            if meta is not None and meta.version == version:
+                return key
+        return None
 
     def pinned_key(self, pinned: PinnedMod) -> str:
         return self.artifact_key(pinned.guid, pinned.version, pinned.repo)

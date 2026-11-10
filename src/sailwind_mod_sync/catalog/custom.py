@@ -7,7 +7,7 @@ from functools import lru_cache
 
 from sailwind_mod_sync.catalog.github import canonicalize_repo_url
 from sailwind_mod_sync.fileutil import atomic_write_json
-from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, parse_mod_version
+from sailwind_mod_sync.models import CatalogEntry, catalog_mod_name, guid_family, version_id
 from sailwind_mod_sync.paths import AppPaths
 
 log = logging.getLogger(__name__)
@@ -156,7 +156,7 @@ def _entry_from_dict(data: object) -> CatalogEntry | None:
         guids.insert(0, primary)
     raw = data.get("latest_raw")
     raw_text = None if raw is None else str(raw).strip()
-    version = parse_mod_version(str(data.get("latest_version") or raw_text or ""))
+    version = version_id(raw_text or str(data.get("latest_version") or ""))
     name = (
         str(data.get("name") or "").strip()
         or repo.rstrip("/").split("/")[-1]
