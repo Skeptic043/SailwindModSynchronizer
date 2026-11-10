@@ -120,11 +120,11 @@ def test_local_zip_ignores_non_version_words_in_file_name(tmp_path: Path) -> Non
 
 
 def test_import_summary_names_replaced_version() -> None:
-    from sailwind_mod_sync.ui.main_window import import_summary
+    from sailwind_mod_sync.ui.main_window import _import_summary
 
     pinned = PinnedMod(guid="com.AugSphere.BetterDrag", version="1.4.1-beta11", version_raw="1.4.1-beta.11")
-    assert import_summary(pinned, None) == "Added com.AugSphere.BetterDrag 1.4.1-beta.11"
-    assert import_summary(pinned, "1.4.1-beta.11") == "Reinstalled com.AugSphere.BetterDrag 1.4.1-beta.11"
-    assert import_summary(pinned, "1.4.1-beta.10") == (
+    assert _import_summary(pinned, None) == "Added com.AugSphere.BetterDrag 1.4.1-beta.11"
+    assert _import_summary(pinned, "1.4.1-beta.11") == "Reinstalled com.AugSphere.BetterDrag 1.4.1-beta.11"
+    assert _import_summary(pinned, "1.4.1-beta.10") == (
         "Replaced com.AugSphere.BetterDrag 1.4.1-beta.10 with 1.4.1-beta.11"
     )

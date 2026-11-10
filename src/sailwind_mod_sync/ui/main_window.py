@@ -138,7 +138,7 @@ QLabel {
 """
 
 
-def import_summary(pinned: PinnedMod, previous: str | None) -> str:
+def _import_summary(pinned: PinnedMod, previous: str | None) -> str:
     """Say what an import did to the pack, with the exact versions."""
     name = f"{pinned.guid} {pinned.version_raw or pinned.version}"
     if previous is None:
@@ -1806,7 +1806,8 @@ class MainWindow(QMainWindow):
         self._reload_views()
         if not imported:
             return
-        self.statusBar().showMessage("; ".join(import_summary(item, (before or {}).get(item.guid)) for item in imported))
+        previous = before or {}
+        self.statusBar().showMessage("; ".join(_import_summary(item, previous.get(item.guid)) for item in imported))
         self._offer_catalog_association(list(imported), pack_id=self.current_pack_id())
 
     @_unless_bulk_running
