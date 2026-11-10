@@ -321,7 +321,7 @@ class MainWindow(QMainWindow):
         manage_downloads.triggered.connect(self._open_downloads)
         import_mod_action = downloads_menu.addAction("Import mod file…")
         import_mod_action.triggered.connect(self._import_local_mod)
-        scan_action = downloads_menu.addAction("Scan updates")
+        scan_action = downloads_menu.addAction("Check for mod updates")
         scan_action.setStatusTip("Check GitHub and GitLab for newer catalog versions")
         scan_action.triggered.connect(self._scan_updates)
         downloads_menu.addSeparator()

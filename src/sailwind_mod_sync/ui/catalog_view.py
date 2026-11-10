@@ -47,6 +47,7 @@ class CatalogView(QWidget):
         self._syncing_table = False
         self._filter = QLineEdit()
         self._filter.setPlaceholderText("Filter catalog…")
+        self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
         self.hide_in_pack = QCheckBox("Hide mods in current pack")
         self.hide_in_pack.setToolTip("Hide catalog rows that are already pinned on the selected pack")

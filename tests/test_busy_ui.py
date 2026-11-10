@@ -860,7 +860,7 @@ def test_help_menu_has_check_for_updates(paths: AppPaths) -> None:
         assert download_items == [
             "Manage downloads…",
             "Import mod file…",
-            "Scan updates",
+            "Check for mod updates",
             "",
             "Open AppData",
             "Open Plugins Folder",
@@ -877,7 +877,7 @@ def test_help_menu_has_check_for_updates(paths: AppPaths) -> None:
         assert "Copy" in labels
         assert "Paste" in labels
         top_level = [action.text().replace("&", "") for action in window.menuBar().actions()]
-        assert "Scan updates" not in top_level
+        assert "Check for mod updates" not in top_level
         assert window._downloads.windowTitle() == "Download Management"
         assert not window._downloads.isVisible()
         window._open_downloads()
