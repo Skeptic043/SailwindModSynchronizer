@@ -15,7 +15,7 @@ from sailwind_mod_sync.game.scan_plugins import DiscoveredPlugin, scan_plugins_d
 from sailwind_mod_sync.http_util import HttpClient, HttpError
 from sailwind_mod_sync.library.download import ensure_mod_artifact
 from sailwind_mod_sync.library.store import LibraryStore
-from sailwind_mod_sync.models import ArtifactMeta, RemoteRelease, tag_version
+from sailwind_mod_sync.models import ArtifactMeta, RemoteRelease, version_id
 from sailwind_mod_sync.paths import AppPaths
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -91,7 +91,7 @@ def download_release(
             http,
             guid=guid,
             repo=repo,
-            version=tag_version(version_raw) if version_raw else None,
+            version=version_id(version_raw) if version_raw else None,
             version_raw=version_raw,
             plugin_folders=plugin_folders or None,
         )

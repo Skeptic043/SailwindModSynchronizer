@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
-from sailwind_mod_sync.models import ReleaseAsset, RemoteRelease, parse_mod_version, tag_version, version_text
+from sailwind_mod_sync.models import ReleaseAsset, RemoteRelease, parse_mod_version, version_id, version_text
 from sailwind_mod_sync.paths import AppPaths
 
 log = logging.getLogger(__name__)
@@ -424,7 +424,7 @@ def _parse_gitlab_payload(data: dict) -> RemoteRelease:
 
 
 def release_version(release: RemoteRelease) -> str | None:
-    return parse_mod_version(release.tag) or parse_mod_version(release.name) or tag_version(release.tag)
+    return parse_mod_version(release.tag) or parse_mod_version(release.name) or version_id(release.tag)
 
 
 def release_version_text(release: RemoteRelease) -> str:

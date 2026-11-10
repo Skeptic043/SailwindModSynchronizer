@@ -23,19 +23,30 @@ class VersionParts:
     def prerelease(self) -> bool:
         return self.label in PRERELEASE_ORDER
 
+    @property
+    def core_text(self) -> str:
+        return ".".join(str(part) for part in self.core)
+
+    def same_core(self, other: VersionParts) -> bool:
+        """Return whether both have the same numbers, counting 1.4.1 and 1.4.1.0 as the same."""
+        width = max(len(self.core), len(other.core))
+        return self.core + (0,) * (width - len(self.core)) == other.core + (0,) * (width - len(other.core))
+
 
 def _clean(raw: str | None) -> str:
     text = "" if raw is None else str(raw).strip()
     return "" if text.lower() == "none" else text
 
 
+def _suffix_label(suffix: str) -> str:
+    return "".join(part for part in _SUFFIX_PARTS.findall(suffix) if part.isalpha()).lower()
+
+
 def _match(text: str) -> re.Match[str] | None:
+    """Find the first version in ``text``; a file extension after it, as in "Mod-1.2.3.dll", is not a suffix."""
     match = VERSION_RE.search(text)
-    if match is None:
-        return None
-    label = "".join(part for part in _SUFFIX_PARTS.findall(match.group(2)) if part.isalpha()).lower()
-    if label in _FILE_EXTENSIONS:
-        return VERSION_RE.match(text, match.start(), match.end(1))
+    if match is not None and _suffix_label(match.group(2)) in _FILE_EXTENSIONS:
+        return VERSION_RE.match(match.group(1))
     return match
 
 
@@ -50,10 +61,8 @@ def version_parts(raw: str | None) -> VersionParts | None:
     if match is None:
         return None
     core = tuple(int(part) for part in match.group(1).split("."))
-    parts = _SUFFIX_PARTS.findall(match.group(2) or "")
-    label = "".join(part for part in parts if part.isalpha()).lower()
-    numbers = tuple(int(part) for part in parts if part.isdigit())
-    return VersionParts(core, label, numbers)
+    numbers = tuple(int(part) for part in _SUFFIX_PARTS.findall(match.group(2)) if part.isdigit())
+    return VersionParts(core, _suffix_label(match.group(2)), numbers)
 
 
 def parse_mod_version(raw: str | None) -> str | None:
@@ -61,14 +70,13 @@ def parse_mod_version(raw: str | None) -> str | None:
     parts = version_parts(raw)
     if parts is None:
         return None
-    core = ".".join(str(part) for part in parts.core)
     if not parts.label:
-        return core
-    return f"{core}-{parts.label}{'.'.join(str(part) for part in parts.numbers)}"
+        return parts.core_text
+    return f"{parts.core_text}-{parts.label}{'.'.join(str(part) for part in parts.numbers)}"
 
 
-def tag_version(raw: str | None) -> str | None:
-    """Return the version of a release tag: its canonical version, or the tag itself when it has no number."""
+def version_id(raw: str | None) -> str | None:
+    """Return the canonical version in ``raw``, or for text without one, such as the release tag "textures", the text."""
     parsed = parse_mod_version(raw)
     if parsed:
         return parsed
@@ -76,14 +84,14 @@ def tag_version(raw: str | None) -> str | None:
     return opaque[:64] or None
 
 
-def pinned_version(version: str, version_raw: str) -> str:
-    """Return the canonical version of a stored pin, recovering a suffix that older releases stored only in ``version_raw``."""
-    exact = tag_version(version_raw)
+def stored_version(version: str, version_raw: str) -> str:
+    """Return the canonical version of a saved pin or download, recovering a suffix older releases kept only in ``version_raw``."""
+    exact = version_id(version_raw)
     if not exact:
         return version
     stored = version_parts(version)
     recovered = version_parts(exact)
-    if not version or (stored is not None and recovered is not None and stored.core == recovered.core):
+    if not version or (stored is not None and recovered is not None and stored.same_core(recovered)):
         return exact
     return version
 
@@ -92,7 +100,7 @@ def version_key(raw: str | None) -> tuple:
     """Sort key: numbered versions above tags without one, prereleases below their plain release."""
     parts = version_parts(raw)
     if parts is None:
-        return (0, tag_version(raw) or "")
+        return (0, version_id(raw) or "")
     core = parts.core + (0,) * (4 - len(parts.core))
     if not parts.label:
         rank = (1, 0, "")
@@ -104,12 +112,12 @@ def version_key(raw: str | None) -> tuple:
 
 
 def is_newer(latest_raw: str | None, current_raw: str | None) -> bool:
-    latest = tag_version(latest_raw)
+    latest = version_id(latest_raw)
     if not latest:
         return False
     if version_parts(latest_raw) is None or version_parts(current_raw) is None:
         # Without a number neither tag can be ordered; a different latest release is the update.
-        return latest != tag_version(current_raw)
+        return latest != version_id(current_raw)
     return version_key(latest_raw) > version_key(current_raw)
 
 
@@ -206,7 +214,7 @@ class PinnedMod:
         version_raw = str(data.get("version_raw") or version)
         return cls(
             guid=str(data.get("guid") or ""),
-            version=pinned_version(version, version_raw),
+            version=stored_version(version, version_raw),
             repo=str(data.get("repo") or ""),
             enabled=bool(data.get("enabled", True)),
             plugin_folders=[str(item) for item in folders],
@@ -287,7 +295,7 @@ class ArtifactMeta:
         version_raw = str(data.get("version_raw") or "")
         return cls(
             guid=str(data.get("guid") or ""),
-            version=pinned_version(version, version_raw),
+            version=stored_version(version, version_raw),
             version_raw=version_raw,
             repo=str(data.get("repo") or ""),
             source_url=str(data.get("source_url") or ""),

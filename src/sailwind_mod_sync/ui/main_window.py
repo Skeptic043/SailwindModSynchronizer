@@ -48,7 +48,7 @@ from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.log_export import export_logs
 from sailwind_mod_sync.manager import REPLACED_FOLDERS_DIR, Manager
-from sailwind_mod_sync.models import PinnedMod, tag_version
+from sailwind_mod_sync.models import PinnedMod, version_id
 from sailwind_mod_sync.packs.modpack import BulkRollbackError
 from sailwind_mod_sync.packs.plugin_files import FileConflict
 from sailwind_mod_sync.packs.share import DISCORD_MESSAGE_LIMIT, parse_share_text
@@ -143,7 +143,7 @@ def import_summary(pinned: PinnedMod, previous: str | None) -> str:
     name = f"{pinned.guid} {pinned.version_raw or pinned.version}"
     if previous is None:
         return f"Added {name}"
-    if tag_version(previous) == pinned.version:
+    if version_id(previous) == pinned.version:
         return f"Reinstalled {name}"
     return f"Replaced {pinned.guid} {previous} with {pinned.version_raw or pinned.version}"
 
@@ -1467,8 +1467,8 @@ class MainWindow(QMainWindow):
             return
         pack = self.manager.packs.get(pack_id)
         pinned = pack.find_mod(guid) if pack else None
-        current = tag_version(pinned.version) if pinned else None
-        chosen = tag_version(version) or version
+        current = version_id(pinned.version) if pinned else None
+        chosen = version_id(version) or version
         library = self.manager.library
         same_source = pinned is not None and (not repo or not pinned.repo or same_repo(repo, pinned.repo))
         if same_source and current == chosen and library.has_mod(guid, library.pinned_key(pinned)):

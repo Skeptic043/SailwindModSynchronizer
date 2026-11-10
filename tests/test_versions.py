@@ -146,10 +146,10 @@ def test_prerelease_sorts_before_its_release() -> None:
 
 
 def test_tag_without_number_is_a_version() -> None:
-    from sailwind_mod_sync.models import tag_version
+    from sailwind_mod_sync.models import version_id
 
-    assert tag_version("textures") == "textures"
-    assert tag_version("none") is None
+    assert version_id("textures") == "textures"
+    assert version_id("none") is None
     assert is_newer("textures", None)
     assert not is_newer("textures", "textures")
     # Unnumbered tags can't be ordered, so any different latest release is the update.

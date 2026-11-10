@@ -63,7 +63,7 @@ from sailwind_mod_sync.models import (
     RemoteModInfo,
     catalog_mod_name,
     display_mod_name,
-    tag_version,
+    version_id,
     version_key,
 )
 from sailwind_mod_sync.packs.instance import (
@@ -281,7 +281,7 @@ class Manager:
                 for guid in entry.guids:
                     latest[guid] = raw
                 entry.latest_raw = raw
-                entry.latest_version = tag_version(raw)
+                entry.latest_version = version_id(raw)
                 entry.available = bool(entry.latest_version)
                 updated.append(entry)
         finally:
@@ -321,7 +321,7 @@ class Manager:
             progress(f"Checking {ref.full_path}…")
         release = fetch_release(self.http, repo, tag=None, paths=self.paths, progress=progress)
         version_raw = release_version_text(release)
-        version = tag_version(version_raw)
+        version = version_id(version_raw)
         assets = [
             asset
             for asset in release.assets
@@ -513,7 +513,7 @@ class Manager:
         if not folders and meta:
             folders = list(meta.plugin_folders)
         raw = (pinned.version_raw or pinned.version or "").strip() or None
-        version = tag_version(raw)
+        version = version_id(raw)
         name = folders[0] if folders else catalog_mod_name(pinned.guid)
         return CatalogEntry(
             repo=repo,
@@ -704,7 +704,7 @@ class Manager:
             version = entry.latest_version
             version_raw = version_raw or entry.latest_raw
         if not version and version_raw:
-            version = tag_version(version_raw)
+            version = version_id(version_raw)
         if progress:
             progress(f"Fetching {guid} from {repo}…")
         folders = list(entry.plugin_folders) if entry and entry.plugin_folders else None

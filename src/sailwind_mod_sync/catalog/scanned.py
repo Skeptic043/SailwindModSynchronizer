@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from sailwind_mod_sync.catalog.custom import repo_key
 from sailwind_mod_sync.fileutil import atomic_write_json
-from sailwind_mod_sync.models import CatalogEntry, is_newer, tag_version
+from sailwind_mod_sync.models import CatalogEntry, is_newer, version_id
 from sailwind_mod_sync.paths import AppPaths
 
 ScannedVersions = dict[tuple[str, str], str]
@@ -55,5 +55,5 @@ def _with_scanned_version(entry: CatalogEntry, scanned: ScannedVersions) -> Cata
         return entry
     if entry.available and entry.latest_raw and not is_newer(raw, entry.latest_raw):
         return entry
-    version = tag_version(raw)
+    version = version_id(raw)
     return replace(entry, latest_raw=raw, latest_version=version, available=bool(version))

@@ -53,7 +53,7 @@ class LibraryStore:
 
     def artifact_key(self, guid: str, version: str, repo: str = "") -> str:
         """Return the key that holds, or will hold, ``guid`` ``version`` downloaded from ``repo``."""
-        version = self._legacy_key(guid, version, repo)
+        version = self._legacy_folder(guid, version, repo) or version
         if not repo:
             return version
         variant = _source_variant_key(version, repo)
@@ -64,21 +64,23 @@ class LibraryStore:
             return version
         return variant
 
-    def _legacy_key(self, guid: str, version: str, repo: str = "") -> str:
-        """Return the folder an older release stored ``version`` in, keyed by its numbers alone, or ``version``.
+    def _legacy_folder(self, guid: str, version: str, repo: str = "") -> str | None:
+        """Return the key an older release stored ``version`` under, by its numbers alone, if one holds it.
 
         Releases before suffix support stored "2.3.0F-4.1" in "2.3.0", or "2.3.0@owner.repo" for a second
         source. Such a folder stands for the version only when its own release text has that exact version.
         """
-        legacy = ".".join(str(part) for part in parts.core) if (parts := version_parts(version)) else ""
-        if not legacy or legacy == version or self.mod_dir(guid, version).is_dir():
-            return version
-        for key in (legacy, _source_variant_key(legacy, repo) if repo else ""):
-            meta = self.read_mod_meta(guid, key) if key else None
+        parts = version_parts(version)
+        if parts is None or parts.core_text == version or self.mod_dir(guid, version).is_dir():
+            return None
+        keys = [parts.core_text]
+        if repo:
+            keys.append(_source_variant_key(parts.core_text, repo))
+        for key in keys:
+            meta = self.read_mod_meta(guid, key)
             if meta is not None and meta.version == version:
-                # The caller still picks this source's variant of a plain key, as for any version.
                 return key
-        return version
+        return None
 
     def pinned_key(self, pinned: PinnedMod) -> str:
         return self.artifact_key(pinned.guid, pinned.version, pinned.repo)
