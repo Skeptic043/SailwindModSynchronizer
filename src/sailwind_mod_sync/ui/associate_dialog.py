@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sailwind_mod_sync.game.scan_plugins import AUTO_MATCH_EXACT, AUTO_MATCH_MARGIN, rank_catalog_matches
+from sailwind_mod_sync.game.scan_plugins import clear_catalog_match, rank_catalog_matches
 from sailwind_mod_sync.models import CatalogEntry
 from sailwind_mod_sync.ui.repo_dialog import RepoUrlDialog
 
@@ -124,9 +124,7 @@ class AssociateCatalogDialog(QDialog):
             return
         query = self.filter.text().strip().lower()
         ranked = rank_catalog_matches(target.name, target.guid, self._catalog)
-        confident = bool(ranked) and ranked[0][0] >= AUTO_MATCH_EXACT and (
-            len(ranked) == 1 or ranked[0][0] - ranked[1][0] >= AUTO_MATCH_MARGIN
-        )
+        clear = clear_catalog_match(ranked)
         seen: set[str] = set()
         ordered: list[CatalogEntry] = []
         for _score, entry in ranked:
@@ -145,8 +143,8 @@ class AssociateCatalogDialog(QDialog):
             item.setToolTip(entry.repo)
             self.catalog_list.addItem(item)
             self._rows.append(entry)
-        # Preselect only a clear match, and only while the list is unfiltered and starts with it.
-        if confident and not query and self._rows and self._rows[0] is ranked[0][1]:
+        # Preselect only a clear match, which leads the list while it is unfiltered.
+        if clear is not None and not query:
             self.catalog_list.setCurrentRow(0)
         else:
             self.catalog_list.setCurrentRow(-1)

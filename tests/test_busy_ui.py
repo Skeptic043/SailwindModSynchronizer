@@ -1142,7 +1142,7 @@ def test_associate_dialog_needs_a_deliberate_pick_for_a_weak_match() -> None:
         available=True,
     )
     dialog = AssociateCatalogDialog(
-        [AssociateTarget(guid="skeptic043.sailwind.flightandspeed", version="1.0.2", name="SailwindFlightSpeed")],
+        [AssociateTarget(guid="com.example.flightspeed", version="1.0.2", name="FlightSpeed")],
         [entry],
     )
     try:

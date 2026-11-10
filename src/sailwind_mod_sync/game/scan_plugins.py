@@ -30,6 +30,8 @@ _VERSION_SUFFIX = re.compile(r"[-_ ]v?\d+(?:\.\d+){0,3}$", re.IGNORECASE)
 AUTO_MATCH_SCORE = 60
 AUTO_MATCH_EXACT = 80
 AUTO_MATCH_MARGIN = 15
+# Discovery names plugins whose DLL declares no GUID with this prefix.
+GUESSED_GUID_PREFIX = "local."
 SUGGEST_SCORE = 12
 
 
@@ -221,11 +223,8 @@ def _pick_guid(
     if log_guid:
         return log_guid
     if not candidates:
-        ranked = rank_catalog_matches(name, "", catalog)
-        if ranked and ranked[0][0] >= AUTO_MATCH_EXACT:
-            if len(ranked) == 1 or ranked[0][0] - ranked[1][0] >= AUTO_MATCH_MARGIN:
-                return ranked[0][1].primary_guid
-        return ""
+        clear = clear_catalog_match(rank_catalog_matches(name, "", catalog))
+        return clear.primary_guid if clear else ""
 
     def score(guid: str) -> int:
         guid_key = _norm(guid)
@@ -291,7 +290,7 @@ def apply_catalog_identity(
     second = ranked[1][0] if len(ranked) > 1 else 0
     if second and score - second < AUTO_MATCH_MARGIN:
         return guid, None
-    local = guid.lower().startswith("local.")
+    local = is_guessed_guid(guid)
     if score >= AUTO_MATCH_EXACT or (local and score >= AUTO_MATCH_SCORE):
         if guid in matched.guids or guid == matched.primary_guid:
             return guid, matched
@@ -299,6 +298,30 @@ def apply_catalog_identity(
             return matched.primary_guid, matched
         return guid, None
     return guid, None
+
+
+def is_guessed_guid(guid: str) -> bool:
+    return guid.lower().startswith(GUESSED_GUID_PREFIX)
+
+
+def declares_guid(folder: Path, guid: str) -> bool:
+    """Return whether a DLL in ``folder`` declares ``guid`` in its BepInPlugin metadata.
+
+    Without DLLs to read, a GUID counts as declared unless discovery guessed it.
+    """
+    dlls = list(folder.rglob("*.dll")) if folder.is_dir() else []
+    if not dlls:
+        return not is_guessed_guid(guid)
+    return any(plugin.guid == guid for dll in dlls for plugin in read_plugin_metadata(dll).plugins)
+
+
+def clear_catalog_match(ranked: list[tuple[int, CatalogEntry]]) -> CatalogEntry | None:
+    """Return the top entry of ``rank_catalog_matches`` when it is an exact match well ahead of the next one."""
+    if not ranked or ranked[0][0] < AUTO_MATCH_EXACT:
+        return None
+    if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < AUTO_MATCH_MARGIN:
+        return None
+    return ranked[0][1]
 
 
 def rank_catalog_matches(

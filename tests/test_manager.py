@@ -1521,10 +1521,10 @@ _AGE_OF_EXPLORATION = CatalogEntry(
 
 
 def _pack_with_flight_speed_and_age_of_exploration(manager: Manager, tmp_path: Path, flight_guid: str, dll: bytes):
-    """Replays the 2026-11-04 report: a local plugin imported into a pack that also has Age of Exploration."""
+    """A local plugin imported into a pack that also has Age of Exploration."""
     for guid, version, folder, payload in (
         ("com.winter.ageofexploration", "0.2.6", "AgeOfExploration", b"MZ"),
-        (flight_guid, "1.0.2", "SailwindFlightSpeed", dll),
+        (flight_guid, "1.0.2", "FlightSpeed", dll),
     ):
         archive = _zip_with(tmp_path / f"{folder}.zip", {f"{folder}/{folder}.dll": payload})
         manager.library.ingest_mod_zip(guid, version, archive, version_raw=version, repo="", source_url="local")
@@ -1539,7 +1539,7 @@ def test_associate_refuses_to_turn_a_declared_plugin_into_another_mod(paths: App
     from plugin_metadata_fixture import managed_dll
 
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
-    guid = "skeptic043.sailwind.flightandspeed"
+    guid = "com.example.flightspeed"
     dll = managed_dll(((guid, "Flight and Speed", "1.0.2"),))
     pack_id, before = _pack_with_flight_speed_and_age_of_exploration(manager, tmp_path, guid, dll)
 
@@ -1554,7 +1554,7 @@ def test_associate_refuses_to_turn_a_declared_plugin_into_another_mod(paths: App
 
 def test_associate_refuses_to_replace_a_mod_already_in_the_pack(paths: AppPaths, tmp_path: Path) -> None:
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
-    guid = "local.sailwindflightspeed"
+    guid = "local.flightspeed"
     pack_id, before = _pack_with_flight_speed_and_age_of_exploration(manager, tmp_path, guid, b"MZ")
 
     with pytest.raises(ValueError, match="would replace that mod"):
@@ -1567,14 +1567,14 @@ def test_associate_refuses_to_replace_a_mod_already_in_the_pack(paths: AppPaths,
 def test_folder_error_names_the_mod_that_owns_it(paths: AppPaths, tmp_path: Path) -> None:
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
     pack_id, _ = _pack_with_flight_speed_and_age_of_exploration(
-        manager, tmp_path, "skeptic043.sailwind.flightandspeed", b"MZ",
+        manager, tmp_path, "com.example.flightspeed", b"MZ",
     )
     pack = manager.packs.get(pack_id)
-    pack.find_mod("com.winter.ageofexploration").plugin_folders = ["SailwindFlightSpeed"]
+    pack.find_mod("com.winter.ageofexploration").plugin_folders = ["FlightSpeed"]
     manager.packs.save(pack)
 
-    with pytest.raises(ValueError, match=r"SailwindFlightSpeed belongs to .*\(com\.winter\.ageofexploration\)"):
-        manager.add_library_mod_to_pack(pack_id, "skeptic043.sailwind.flightandspeed", "1.0.2")
+    with pytest.raises(ValueError, match=r"FlightSpeed belongs to .*\(com\.winter\.ageofexploration\)"):
+        manager.add_library_mod_to_pack(pack_id, "com.example.flightspeed", "1.0.2")
     manager.close()
 
 
@@ -1582,7 +1582,7 @@ def test_pasted_repository_links_a_declared_plugin_without_renaming_it(paths: Ap
     from plugin_metadata_fixture import managed_dll
 
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
-    guid = "skeptic043.sailwind.flightandspeed"
+    guid = "com.example.flightspeed"
     pack_id, _ = _pack_with_flight_speed_and_age_of_exploration(
         manager, tmp_path, guid, managed_dll(((guid, "Flight and Speed", "1.0.2"),)),
     )
@@ -1591,6 +1591,6 @@ def test_pasted_repository_links_a_declared_plugin_without_renaming_it(paths: Ap
 
     assert result == guid
     pack = manager.packs.get(pack_id)
-    assert pack.find_mod(guid).plugin_folders == ["SailwindFlightSpeed"]
+    assert pack.find_mod(guid).plugin_folders == ["FlightSpeed"]
     assert pack.find_mod("com.winter.ageofexploration").plugin_folders == ["AgeOfExploration"]
     manager.close()

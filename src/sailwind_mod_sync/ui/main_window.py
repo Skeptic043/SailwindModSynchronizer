@@ -1351,7 +1351,8 @@ class MainWindow(QMainWindow):
         self._run(
             lambda progress: self.manager.set_pack_mod_version(
                 pack_id, guid, pinned.version, version_raw, progress=progress,
-                resolve_conflicts=self._resolve_file_conflicts, replace_unowned=self._confirm_replace_unowned,
+                resolve_conflicts=self._resolve_file_conflicts,
+                resolve_unowned_folders=self._resolve_unowned_folders,
             ),
             lambda _r: self._reload_views(),
             f"Downloading {guid} {version_raw}…",
@@ -1391,11 +1392,11 @@ class MainWindow(QMainWindow):
         """Ask on the GUI thread which version to keep of files both the player and a mod update changed."""
         return self._gui_call(self._ask_file_conflicts, conflicts) or set()
 
-    def _confirm_replace_unowned(self, guid: str, folders: list[str]) -> bool:
+    def _resolve_unowned_folders(self, guid: str, folders: list[str]) -> bool:
         """Ask on the GUI thread whether to move plugin folders no mod owns out of the way of ``guid``."""
-        return bool(self._gui_call(self._ask_replace_unowned, guid, folders))
+        return bool(self._gui_call(self._ask_unowned_folders, guid, folders))
 
-    def _ask_replace_unowned(self, guid: str, folders: list[str]) -> bool:
+    def _ask_unowned_folders(self, guid: str, folders: list[str]) -> bool:
         name = self.manager.mod_display_name(guid)
         listed = "\n".join(f"• {folder}" for folder in folders)
         waiting = self._progress_timer.isActive()
@@ -1477,7 +1478,8 @@ class MainWindow(QMainWindow):
             try:
                 pinned = self.manager.set_pack_mod_version(
                     pack_id, guid, version, version_raw or version, repo=repo,
-                    resolve_conflicts=self._resolve_file_conflicts, replace_unowned=self._confirm_replace_unowned,
+                    resolve_conflicts=self._resolve_file_conflicts,
+                    resolve_unowned_folders=self._resolve_unowned_folders,
                 )
             except Exception as exc:
                 QMessageBox.warning(self, "Could not change version", str(exc))
@@ -1495,7 +1497,7 @@ class MainWindow(QMainWindow):
                 repo=repo,
                 progress=progress,
                 resolve_conflicts=self._resolve_file_conflicts,
-                replace_unowned=self._confirm_replace_unowned,
+                resolve_unowned_folders=self._resolve_unowned_folders,
             ),
             lambda _r: QTimer.singleShot(0, self._reload_views),
             f"Downloading {guid} {version_raw or version}…",
@@ -1766,7 +1768,7 @@ class MainWindow(QMainWindow):
             for path in files:
                 imported.append(self.manager.import_local_mod(
                     path, pack_id, progress=progress, resolve_conflicts=self._resolve_file_conflicts,
-                    replace_unowned=self._confirm_replace_unowned,
+                    resolve_unowned_folders=self._resolve_unowned_folders,
                 ))
             return imported
 
@@ -1792,7 +1794,7 @@ class MainWindow(QMainWindow):
         def work(progress):
             return [self.manager.import_local_mod(
                 file_path, pack_id, progress=progress, guid=guid, resolve_conflicts=self._resolve_file_conflicts,
-                replace_unowned=self._confirm_replace_unowned,
+                resolve_unowned_folders=self._resolve_unowned_folders,
             )]
 
         before = self._pinned_versions(pack_id)
