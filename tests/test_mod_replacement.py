@@ -469,7 +469,7 @@ def test_untracked_destination_is_preserved_instead_of_overwritten(replacement_c
     (plugins / "ZNew").mkdir()
     foreign = plugins / "ZNew" / "foreign.dll"
     foreign.write_bytes(b"untracked files")
-    with pytest.raises(ValueError, match="not owned by this mod"):
+    with pytest.raises(ValueError, match="not owned by any mod in this pack"):
         replace_mod(replacement_case, "cached")
     assert foreign.read_bytes() == b"untracked files"
     assert (plugins / "Old/mod.dll").read_bytes() == b"old-a"
@@ -770,3 +770,60 @@ def test_folder_a_version_dropped_stays_with_the_mod(edited_files_case):
     manager.add_library_mod_to_pack(pack_id, guid, "3.0.0")
     manager.packs.remove_mod(pack_id, guid)
     assert list(plugins.iterdir()) == []
+
+
+def test_untracked_destination_moves_aside_when_the_player_agrees(replacement_case):
+    manager, pack_id, guid, key, _, _ = replacement_case
+    plugins = manager.packs.plugins_dir(pack_id)
+    (plugins / "ZNew").mkdir()
+    (plugins / "ZNew" / "foreign.dll").write_bytes(b"untracked files")
+    asked = []
+
+    def agree(asking_guid, folders):
+        asked.append((asking_guid, folders))
+        return True
+
+    manager.add_library_mod_to_pack(pack_id, guid, key, replace_unowned=agree)
+
+    assert asked == [(guid, ["ZNew"])]
+    kept = list((manager.packs.pack_dir(pack_id) / "replaced-folders").glob("*/ZNew/foreign.dll"))
+    assert [path.read_bytes() for path in kept] == [b"untracked files"]
+    assert (plugins / "ZNew" / "mod.dll").is_file()
+    assert not (plugins / "ZNew" / "foreign.dll").exists()
+
+
+def test_untracked_destination_comes_back_when_the_change_fails(replacement_case, monkeypatch):
+    manager, pack_id, guid, key, _, before = replacement_case
+    plugins = manager.packs.plugins_dir(pack_id)
+    (plugins / "ZNew").mkdir()
+    (plugins / "ZNew" / "foreign.dll").write_bytes(b"untracked files")
+    real_replace = Path.replace
+
+    def fail_manifest(self, target):
+        if Path(target).name == "modpack.json":
+            raise OSError("disk full")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_manifest)
+    with pytest.raises(OSError, match="disk full"):
+        manager.add_library_mod_to_pack(pack_id, guid, key, replace_unowned=lambda _guid, _folders: True)
+    monkeypatch.undo()
+
+    assert (plugins / "ZNew" / "foreign.dll").read_bytes() == b"untracked files"
+    assert not (plugins / "ZNew" / "mod.dll").exists()
+    assert not (manager.packs.pack_dir(pack_id) / "replaced-folders").exists()
+    assert manager.packs.manifest_path(pack_id).read_bytes() == before
+
+
+def test_untracked_destination_stays_when_the_player_declines(replacement_case):
+    manager, pack_id, guid, key, _, before = replacement_case
+    plugins = manager.packs.plugins_dir(pack_id)
+    (plugins / "ZNew").mkdir()
+    (plugins / "ZNew" / "foreign.dll").write_bytes(b"untracked files")
+
+    with pytest.raises(ValueError, match="not owned by any mod in this pack"):
+        manager.add_library_mod_to_pack(pack_id, guid, key, replace_unowned=lambda _guid, _folders: False)
+
+    assert (plugins / "ZNew" / "foreign.dll").read_bytes() == b"untracked files"
+    assert not (manager.packs.pack_dir(pack_id) / "replaced-folders").exists()
+    assert manager.packs.manifest_path(pack_id).read_bytes() == before

@@ -34,6 +34,7 @@ from sailwind_mod_sync.catalog.scanned import store_scanned_versions
 from sailwind_mod_sync.config import AppConfig, load_config, save_config
 from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION
 from sailwind_mod_sync.game.backup import BackupResult, RestoreResult, backup_bepinex_folder, inspect_bepinex_zip, restore_bepinex_folder
+from sailwind_mod_sync.game.plugin_metadata import read_plugin_metadata
 from sailwind_mod_sync.game.saves import (
     SaveRestoreResult,
     backup_saves_folder,
@@ -84,6 +85,13 @@ from sailwind_mod_sync.packs.share import encode_pack_share, parse_share_text
 from sailwind_mod_sync.paths import AppPaths
 
 log = logging.getLogger(__name__)
+
+# Discovery names plugins whose DLL declares no GUID this way.
+GUESSED_GUID_PREFIX = "local."
+# Plugin folders that were in the way of an install and that no mod owned, kept for the player.
+REPLACED_FOLDERS_DIR = "replaced-folders"
+# Asked with a mod's GUID and the plugin folders in its way that no mod of the pack owns; True moves them aside.
+UnownedFolderResolver = Callable[[str, list[str]], bool]
 
 
 class TokenAuthError(RuntimeError):
@@ -685,6 +693,7 @@ class Manager:
         progress: ProgressFn | None = None,
         *,
         resolve_conflicts: ConflictResolver | None = None,
+        replace_unowned: UnownedFolderResolver | None = None,
     ) -> PinnedMod:
         self.packs.check_recovery(pack_id)
         entry = find_entry(self.catalog, guid, repo or "")
@@ -716,6 +725,7 @@ class Manager:
             repo=repo,
             progress=progress,
             resolve_conflicts=resolve_conflicts,
+            replace_unowned=replace_unowned,
         )
 
     def list_remote_mod_versions(
@@ -745,6 +755,7 @@ class Manager:
         repo: str = "",
         progress: ProgressFn | None = None,
         resolve_conflicts: ConflictResolver | None = None,
+        replace_unowned: UnownedFolderResolver | None = None,
     ) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
@@ -758,6 +769,7 @@ class Manager:
                 repo=repo,
                 progress=progress,
                 resolve_conflicts=resolve_conflicts,
+                replace_unowned=replace_unowned,
             )
         return self.install_mod(
             pack_id,
@@ -767,6 +779,7 @@ class Manager:
             version_raw=version_raw or version,
             progress=progress,
             resolve_conflicts=resolve_conflicts,
+            replace_unowned=replace_unowned,
         )
 
     def add_library_mod_to_pack(
@@ -778,6 +791,7 @@ class Manager:
         repo: str | None = None,
         progress: ProgressFn | None = None,
         resolve_conflicts: ConflictResolver | None = None,
+        replace_unowned: UnownedFolderResolver | None = None,
     ) -> PinnedMod:
         """Pin the library artifact ``key`` of ``guid`` on the pack and copy it into the pack's plugins.
 
@@ -802,6 +816,7 @@ class Manager:
         self._change_pack_mod(
             pack_id, pinned, self.library.mod_extracted(guid, key),
             install=pinned.enabled, require_artifact=True, resolve_conflicts=resolve_conflicts,
+            replace_unowned=replace_unowned,
         )
         return pinned
 
@@ -832,6 +847,35 @@ class Manager:
             self.library.write_mod_meta(meta, entry.version)
         return page
 
+    def _check_guid_change(self, guid: str, version: str, entry: CatalogEntry, new_guid: str) -> None:
+        """Refuse to give ``guid`` the catalog GUID ``new_guid`` when that would turn it into another mod.
+
+        A GUID its own DLL declares is the mod's identity; only a guessed one can take the catalog's. A pack
+        that already has ``new_guid`` would also lose that mod to this one.
+        """
+        name = entry.name or new_guid
+        if self._declares_guid(guid, version):
+            raise ValueError(
+                f"{guid} declares its own BepInEx GUID, and {name} is a different mod ({new_guid}). "
+                "Pick the catalog entry with the same GUID, or paste the mod's own repository URL to link it."
+            )
+        holders = [pack.name for pack in self.packs.list_packs() if pack.find_mod(guid) and pack.find_mod(new_guid)]
+        if holders:
+            raise ValueError(
+                f"{name} ({new_guid}) is already in {', '.join(holders)}. "
+                f"Associating {guid} with it would replace that mod."
+            )
+
+    def _declares_guid(self, guid: str, version: str) -> bool:
+        """Return whether a DLL of the library artifact declares ``guid``, or, without one, whether it is not guessed."""
+        extracted = self.library.mod_extracted(guid, version)
+        dlls = list(extracted.rglob("*.dll")) if extracted.is_dir() else []
+        if not dlls:
+            return not guid.lower().startswith(GUESSED_GUID_PREFIX)
+        return any(
+            plugin.guid == guid for dll in dlls for plugin in read_plugin_metadata(dll).plugins
+        )
+
     def associate_mod(
         self,
         guid: str,
@@ -857,6 +901,15 @@ class Manager:
             raise ValueError("No catalog entry or repository to associate")
         page = canonicalize_repo_url(entry.repo)
         new_guid = guid if guid in entry.guids or guid == entry.primary_guid else entry.primary_guid
+        if new_guid != guid:
+            try:
+                self._check_guid_change(guid, version, entry, new_guid)
+            except ValueError:
+                if catalog_entry is not None:
+                    raise
+                # A pasted repository URL links the repository only; the mod keeps its own GUID.
+                self.set_mod_repo(guid, page, pack_id)
+                return guid
         for pack in self.packs.list_packs():
             pinned = pack.find_mod(guid)
             if pinned is not None and (new_guid != guid or _takes_repo(pack, pinned, pack_id)):
@@ -947,6 +1000,7 @@ class Manager:
         *,
         guid: str | None = None,
         resolve_conflicts: ConflictResolver | None = None,
+        replace_unowned: UnownedFolderResolver | None = None,
     ) -> PinnedMod:
         self.packs.check_recovery(pack_id)
         path = Path(path)
@@ -1010,6 +1064,7 @@ class Manager:
                 install=pinned.enabled, require_artifact=True,
                 cache_target=self.library.mod_dir(meta.guid, cache_key),
                 resolve_conflicts=resolve_conflicts,
+                replace_unowned=replace_unowned,
             )
             return pinned
 
@@ -1120,14 +1175,27 @@ class Manager:
         pinned.enabled = enabled
         self._change_pack_mod(pack_id, pinned, extracted, install=install, resolve_conflicts=resolve_conflicts)
 
+    def _set_aside_folders(self, pack_id: str, folders: list[Path]) -> Path:
+        """Move plugin folders no mod owned to a new dated ``replaced-folders`` folder of the profile, and return it."""
+        parent = self.packs.pack_dir(pack_id) / REPLACED_FOLDERS_DIR
+        parent.mkdir(parents=True, exist_ok=True)
+        target = Path(tempfile.mkdtemp(prefix=datetime.now().strftime("%Y%m%d-%H%M%S-"), dir=parent))
+        for folder in folders:
+            folder.replace(target / folder.name)
+            log.info("Moved plugin folder %s no mod owned in profile %s to %s", folder.name, pack_id, target)
+        return target
+
     def _change_pack_mod(
         self, pack_id: str, pinned: PinnedMod, extracted: Path, *,
         install: bool, require_artifact: bool = False, cache_target: Path | None = None,
         resolve_conflicts: ConflictResolver | None = None,
+        replace_unowned: UnownedFolderResolver | None = None,
     ) -> None:
         """Stage files before replacing a pin, retaining backups if rollback fails.
 
-        Files players and mods changed in the old folders are carried into the staged copy.
+        Files players and mods changed in the old folders are carried into the staged copy. A folder in
+        the way that no mod of the pack owns is moved aside to ``replaced-folders`` when ``replace_unowned``
+        allows it.
         """
         self.packs.check_recovery(pack_id)
         pack = self.packs.get(pack_id)
@@ -1157,11 +1225,12 @@ class Manager:
                 or plugins.resolve() != pack_dir.resolve() / "instance" / "BepInEx" / "plugins"):
             raise ValueError("Linked profile folders cannot be changed.")
         affected_names = {folder.casefold() for folder in affected}
-        overlaps = sorted({name for other in pack.mods if other.guid != pinned.guid
+        overlaps = sorted({(name, other.guid) for other in pack.mods if other.guid != pinned.guid
                            for name in other.plugin_folders
                            if name.casefold() in affected_names})
         if overlaps:
-            raise ValueError("Plugin folders are shared with another mod: " + ", ".join(overlaps))
+            owners = ", ".join(f"{name} belongs to {self.mod_display_name(guid)} ({guid})" for name, guid in overlaps)
+            raise ValueError(f"Plugin folders are shared with another mod: {owners}. Remove or change that mod first.")
         if any((plugins / name).resolve() != plugins.resolve() / name for name in affected):
             raise ValueError("Linked plugin folders cannot be changed.")
         # Use the actual old spelling once when a new artifact changes only case.
@@ -1175,7 +1244,13 @@ class Manager:
         owned = {name.casefold() for name in previous.plugin_folders} if previous else set()
         untracked = [name for name in present if name.casefold() not in owned]
         if untracked:
-            raise ValueError("Plugin folders are not owned by this mod: " + ", ".join(untracked))
+            if replace_unowned is None or not replace_unowned(pinned.guid, untracked):
+                raise ValueError(
+                    "Plugin folders are not owned by any mod in this pack: " + ", ".join(untracked)
+                    + ". Move or delete them in the profile's plugins folder, then try again."
+                )
+            # They move with the transaction's backups, so a failed change restores them.
+            log.info("Setting aside unowned plugin folders of profile %s: %s", pack_id, ", ".join(untracked))
         if folders and any(path.is_symlink() or path.resolve() != path.absolute()
                            for path in chain((extracted,), extracted.rglob("*"))):
             raise ValueError("Linked library files cannot be installed.")
@@ -1189,14 +1264,16 @@ class Manager:
         moved: list[str] = []
         installed: list[str] = []
         preserve = False
+        committed = False
         try:
             staged.mkdir()
             backup.mkdir()
             # Copy before touching the profile. Large files stay off the UI thread.
             for name in folders:
                 shutil.copytree(extracted / name, staged / name)
+            # Files in folders no mod owned are not this mod's to carry over.
             files = self._plan_carried_files(pack_id, previous, pinned.guid, extracted if install else None,
-                                             folders, present)
+                                             folders, [name for name in present if name not in untracked])
             overlay_kept_files(files, ask_conflicts([files], resolve_conflicts), staged)
             # Kept files can also remain in a folder the new package dropped, or of a disabled mod.
             # The pin keeps owning such a folder, so a later version or removal can still replace it.
@@ -1283,6 +1360,7 @@ class Manager:
                     installed.append(name)
                 # Atomic replacement also avoids a truncated manifest on save failure.
                 manifest.replace(self.packs.manifest_path(pack_id))
+                committed = True
                 preserve = False
             except Exception as original:
                 try:
@@ -1314,11 +1392,23 @@ class Manager:
                 preserve = False
                 raise
         finally:
+            keep_work = False
+            if committed and not preserve and untracked:
+                try:
+                    self._set_aside_folders(pack_id, [backup / name for name in untracked])
+                except OSError:
+                    # The change is done; the folders stay in its backup, which is then kept.
+                    log.warning("Could not move unowned folders out of %s; they stay there", backup, exc_info=True)
+                    keep_work = True
             if not preserve:
                 # A cleanup failure must not undo an already committed change.
                 try:
                     (work / "recovery-resolved.txt").write_text(
-                        "Completed or rolled back. Cleanup only.\n", encoding="utf-8",
+                        (
+                            "Completed. Plugin folders no mod owned are kept in backup/: "
+                            + ", ".join(untracked) + ". Move them out before deleting this folder.\n"
+                        ) if keep_work else "Completed or rolled back. Cleanup only.\n",
+                        encoding="utf-8",
                     )
                 except OSError:
                     log.warning("Could not mark completed mod change at %s", work, exc_info=True)
@@ -1327,7 +1417,8 @@ class Manager:
                 except OSError:
                     log.warning("Could not remove completed recovery marker at %s", work, exc_info=True)
                 try:
-                    shutil.rmtree(work)
+                    if not keep_work:
+                        shutil.rmtree(work)
                 except OSError:
                     log.warning("Could not remove bulk staging folder %s", work, exc_info=True)
         if install:
