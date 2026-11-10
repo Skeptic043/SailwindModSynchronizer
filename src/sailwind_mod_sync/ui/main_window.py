@@ -36,7 +36,7 @@ from shiboken6 import isValid
 from sailwind_mod_sync.catalog.custom import same_repo, source_key
 from sailwind_mod_sync.catalog.github import GitHubDownloadError, repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
-from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS
+from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS, REPLACED_FOLDERS_DIR
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
 from sailwind_mod_sync.game.proton import (
     PrefixChangeError,
@@ -47,7 +47,7 @@ from sailwind_mod_sync.game.proton import (
 from sailwind_mod_sync.game.saves import inspect_saves_zip
 from sailwind_mod_sync.library.store import artifact_source
 from sailwind_mod_sync.log_export import export_logs
-from sailwind_mod_sync.manager import REPLACED_FOLDERS_DIR, Manager
+from sailwind_mod_sync.manager import Manager
 from sailwind_mod_sync.models import PinnedMod, version_id
 from sailwind_mod_sync.packs.modpack import BulkRollbackError
 from sailwind_mod_sync.packs.plugin_files import FileConflict

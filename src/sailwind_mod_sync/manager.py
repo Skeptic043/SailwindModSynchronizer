@@ -32,7 +32,7 @@ from sailwind_mod_sync.catalog.github import (
 from sailwind_mod_sync.catalog.mvc import build_catalog, find_entry, load_cached_catalog, load_shared_catalog, refresh_catalog
 from sailwind_mod_sync.catalog.scanned import store_scanned_versions
 from sailwind_mod_sync.config import AppConfig, load_config, save_config
-from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION
+from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION, REPLACED_FOLDERS_DIR
 from sailwind_mod_sync.game.backup import BackupResult, RestoreResult, backup_bepinex_folder, inspect_bepinex_zip, restore_bepinex_folder
 from sailwind_mod_sync.game.saves import (
     SaveRestoreResult,
@@ -85,8 +85,6 @@ from sailwind_mod_sync.paths import AppPaths
 
 log = logging.getLogger(__name__)
 
-# Plugin folders that were in the way of an install and that no mod owned, kept for the player.
-REPLACED_FOLDERS_DIR = "replaced-folders"
 # Asked with a mod's GUID and the plugin folders in its way that no mod of the pack owns; True moves them aside.
 UnownedFolderResolver = Callable[[str, list[str]], bool]
 
