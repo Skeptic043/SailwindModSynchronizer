@@ -450,14 +450,7 @@ def _discover_zip(
 
 
 def _refine_local_identity(unit: DiscoveredPlugin, path: Path) -> None:
-    file_text = version_text(path.stem)
-    file_parts = version_parts(file_text)
-    if file_parts is not None and not file_parts.prerelease:
-        # Filenames carry other words too ("-thunderstore", "-test"); only prerelease labels are versions.
-        file_text = ".".join(str(part) for part in file_parts.core)
-    if unit.declared_identity:
-        dll_version = unit.version
-    else:
+    if not unit.declared_identity:
         dlls: list[Path] = []
         for item in unit.plugin_paths:
             if item.is_file() and item.suffix.lower() == ".dll":
@@ -469,25 +462,29 @@ def _refine_local_identity(unit: DiscoveredPlugin, path: Path) -> None:
             dll_version = _version_from_dll(dll, unit.guid)
             if dll_version:
                 break
-    dll_parts = version_parts(dll_version)
-    if file_parts is not None and file_parts.prerelease and (
-        dll_parts is None or _same_core(dll_parts.core, file_parts.core)
-    ):
-        # BepInPlugin versions are numbers only; the filename can say which prerelease this is.
-        chosen_text = file_text
-    elif unit.declared_identity:
-        return
-    else:
-        chosen_text = dll_version or file_text
-    if chosen_text:
-        unit.version = parse_mod_version(chosen_text) or chosen_text
-        unit.version_raw = chosen_text
+        # Words after a file name's version ("-thunderstore", "-test") are not part of it.
+        file_parts = version_parts(path.stem)
+        chosen = dll_version or (file_parts.core_text if file_parts else None)
+        if chosen:
+            unit.version = chosen
+            unit.version_raw = chosen
+    prerelease = _file_prerelease(path, unit.version)
+    if prerelease:
+        unit.version = parse_mod_version(prerelease) or prerelease
+        unit.version_raw = prerelease
 
 
-def _same_core(left: tuple[int, ...], right: tuple[int, ...]) -> bool:
-    """Compare version numbers as equal when only trailing zeros differ (1.4.1 and 1.4.1.0)."""
-    width = max(len(left), len(right))
-    return left + (0,) * (width - len(left)) == right + (0,) * (width - len(right))
+def _file_prerelease(path: Path, version: str | None) -> str | None:
+    """Return the prerelease in a file name such as "BetterDrag-1.4.1-beta.11.zip" when its numbers match ``version``.
+
+    BepInPlugin versions are numbers only, so only the file name can say which prerelease a plugin is.
+    """
+    text = version_text(path.stem)
+    parts = version_parts(text)
+    if parts is None or not parts.prerelease:
+        return None
+    current = version_parts(version)
+    return text if current is None or current.same_core(parts) else None
 
 
 def _loose_guids(data: bytes) -> list[str]:
