@@ -12,6 +12,7 @@ from sailwind_mod_sync.catalog.github import (
     list_releases,
     pick_release_asset,
     release_version,
+    release_version_text,
 )
 from sailwind_mod_sync.catalog.thunderstore import download_bepinex_pack, latest_bepinex_version
 from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION
@@ -26,7 +27,7 @@ from sailwind_mod_sync.library.special_mods import (
     known_repo_for,
 )
 from sailwind_mod_sync.library.store import LibraryStore
-from sailwind_mod_sync.models import ArtifactMeta, parse_mod_version
+from sailwind_mod_sync.models import ArtifactMeta
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def ensure_mod_artifact(
             release_url=release.html_url,
             repo_url=repo,
         )
-        version_raw = release.tag if parse_mod_version(release.tag) else release_version(release) or remote_version
+        version_raw = release_version_text(release) or remote_version
         if asset.name.lower().endswith(".dll"):
             return store.ingest_plugin_paths(
                 guid,

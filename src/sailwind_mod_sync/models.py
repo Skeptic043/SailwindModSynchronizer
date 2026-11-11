@@ -4,32 +4,120 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from packaging.version import InvalidVersion, Version
+# A numeric core plus an optional suffix such as "F-4.1", "-beta.11" or "b2".
+VERSION_RE = re.compile(r"(\d+(?:\.\d+){0,3})((?:[-_.]?[A-Za-z]+(?:[-_.]?\d+)*)?)")
+_SUFFIX_PARTS = re.compile(r"[A-Za-z]+|\d+")
+_FILE_EXTENSIONS = frozenset({"dll", "zip", "exe", "json", "txt", "pdb", "tar", "gz", "rar"})
+# Words that mark a release before the plain version; any other suffix marks one after it.
+PRERELEASE_ORDER = {"dev": 0, "alpha": 1, "beta": 2, "pre": 3, "preview": 3, "rc": 3}
+_OPAQUE_UNSAFE = re.compile(r"[^a-z0-9._-]+")
 
-VERSION_RE = re.compile(r"\d+(?:\.\d+){0,3}")
+
+@dataclass(frozen=True)
+class VersionParts:
+    core: tuple[int, ...]
+    label: str = ""
+    numbers: tuple[int, ...] = ()
+
+    @property
+    def prerelease(self) -> bool:
+        return self.label in PRERELEASE_ORDER
+
+    @property
+    def core_text(self) -> str:
+        return ".".join(str(part) for part in self.core)
+
+    def same_core(self, other: VersionParts) -> bool:
+        """Return whether both have the same numbers, counting 1.4.1 and 1.4.1.0 as the same."""
+        width = max(len(self.core), len(other.core))
+        return self.core + (0,) * (width - len(self.core)) == other.core + (0,) * (width - len(other.core))
 
 
-def parse_mod_version(raw: str | None) -> str | None:
-    if raw is None:
-        return None
-    text = str(raw).strip()
-    if not text or text.lower() == "none":
-        return None
+def _clean(raw: str | None) -> str:
+    text = "" if raw is None else str(raw).strip()
+    return "" if text.lower() == "none" else text
+
+
+def _suffix_label(suffix: str) -> str:
+    return "".join(part for part in _SUFFIX_PARTS.findall(suffix) if part.isalpha()).lower()
+
+
+def _match(text: str) -> re.Match[str] | None:
+    """Find the first version in ``text``; a file extension after it, as in "Mod-1.2.3.dll", is not a suffix."""
     match = VERSION_RE.search(text)
+    if match is not None and _suffix_label(match.group(2)) in _FILE_EXTENSIONS:
+        return VERSION_RE.match(match.group(1))
+    return match
+
+
+def version_text(raw: str | None) -> str | None:
+    """Return the version exactly as written in ``raw`` ("2.3.0F-4.1" from "Realistic Skies 2.3.0F-4.1")."""
+    match = _match(_clean(raw))
     return match.group(0) if match else None
 
 
-def version_key(raw: str | None) -> Version:
-    normalized = parse_mod_version(raw)
-    if not normalized:
-        return Version("0")
-    try:
-        return Version(normalized)
-    except InvalidVersion:
-        return Version("0")
+def version_parts(raw: str | None) -> VersionParts | None:
+    match = _match(_clean(raw))
+    if match is None:
+        return None
+    core = tuple(int(part) for part in match.group(1).split("."))
+    numbers = tuple(int(part) for part in _SUFFIX_PARTS.findall(match.group(2)) if part.isdigit())
+    return VersionParts(core, _suffix_label(match.group(2)), numbers)
+
+
+def parse_mod_version(raw: str | None) -> str | None:
+    """Return the canonical version in ``raw``, keeping its suffix: ``2.3.0F-2`` and ``2.3.0-F2`` -> ``2.3.0-f2``."""
+    parts = version_parts(raw)
+    if parts is None:
+        return None
+    if not parts.label:
+        return parts.core_text
+    return f"{parts.core_text}-{parts.label}{'.'.join(str(part) for part in parts.numbers)}"
+
+
+def version_id(raw: str | None) -> str | None:
+    """Return the canonical version in ``raw``, or for text without one, such as the release tag "textures", the text."""
+    parsed = parse_mod_version(raw)
+    if parsed:
+        return parsed
+    opaque = _OPAQUE_UNSAFE.sub("-", _clean(raw).lower()).strip("-.")
+    return opaque[:64] or None
+
+
+def stored_version(version: str, version_raw: str) -> str:
+    """Return the canonical version of a saved pin or download, recovering a suffix older releases kept only in ``version_raw``."""
+    exact = version_id(version_raw)
+    if not exact:
+        return version
+    stored = version_parts(version)
+    recovered = version_parts(exact)
+    if not version or (stored is not None and recovered is not None and stored.same_core(recovered)):
+        return exact
+    return version
+
+
+def version_key(raw: str | None) -> tuple:
+    """Sort key: numbered versions above tags without one, prereleases below their plain release."""
+    parts = version_parts(raw)
+    if parts is None:
+        return (0, version_id(raw) or "")
+    core = parts.core + (0,) * (4 - len(parts.core))
+    if not parts.label:
+        rank = (1, 0, "")
+    elif parts.prerelease:
+        rank = (0, PRERELEASE_ORDER[parts.label], parts.label)
+    else:
+        rank = (2, 0, parts.label)
+    return (1, core, rank, parts.numbers)
 
 
 def is_newer(latest_raw: str | None, current_raw: str | None) -> bool:
+    latest = version_id(latest_raw)
+    if not latest:
+        return False
+    if version_parts(latest_raw) is None or version_parts(current_raw) is None:
+        # Without a number neither tag can be ordered; a different latest release is the update.
+        return latest != version_id(current_raw)
     return version_key(latest_raw) > version_key(current_raw)
 
 
@@ -122,13 +210,15 @@ class PinnedMod:
         folders = data.get("plugin_folders") or []
         if not isinstance(folders, list):
             folders = []
+        version = str(data.get("version") or "")
+        version_raw = str(data.get("version_raw") or version)
         return cls(
             guid=str(data.get("guid") or ""),
-            version=str(data.get("version") or ""),
+            version=stored_version(version, version_raw),
             repo=str(data.get("repo") or ""),
             enabled=bool(data.get("enabled", True)),
             plugin_folders=[str(item) for item in folders],
-            version_raw=str(data.get("version_raw") or data.get("version") or ""),
+            version_raw=version_raw,
         )
 
 
@@ -201,10 +291,12 @@ class ArtifactMeta:
         folders = data.get("plugin_folders") or []
         if not isinstance(folders, list):
             folders = []
+        version = str(data.get("version") or "")
+        version_raw = str(data.get("version_raw") or "")
         return cls(
             guid=str(data.get("guid") or ""),
-            version=str(data.get("version") or ""),
-            version_raw=str(data.get("version_raw") or ""),
+            version=stored_version(version, version_raw),
+            version_raw=version_raw,
             repo=str(data.get("repo") or ""),
             source_url=str(data.get("source_url") or ""),
             sha256=str(data.get("sha256") or ""),

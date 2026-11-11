@@ -14,7 +14,7 @@ from sailwind_mod_sync.library.main_dll import (
     pick_main_dll,
     _tokens,
 )
-from sailwind_mod_sync.models import CatalogEntry, parse_mod_version
+from sailwind_mod_sync.models import CatalogEntry, parse_mod_version, version_parts, version_text
 
 log = logging.getLogger(__name__)
 
@@ -450,24 +450,41 @@ def _discover_zip(
 
 
 def _refine_local_identity(unit: DiscoveredPlugin, path: Path) -> None:
-    if unit.declared_identity:
-        return
-    dlls: list[Path] = []
-    for item in unit.plugin_paths:
-        if item.is_file() and item.suffix.lower() == ".dll":
-            dlls.append(item)
-        elif item.is_dir():
-            dlls.extend(item.rglob("*.dll"))
-    dll_version = None
-    for dll in dlls:
-        dll_version = _version_from_dll(dll, unit.guid)
-        if dll_version:
-            break
-    file_version = parse_mod_version(path.stem) or parse_mod_version(path.name)
-    chosen = dll_version or file_version
-    if chosen:
-        unit.version = chosen
-        unit.version_raw = chosen
+    if not unit.declared_identity:
+        dlls: list[Path] = []
+        for item in unit.plugin_paths:
+            if item.is_file() and item.suffix.lower() == ".dll":
+                dlls.append(item)
+            elif item.is_dir():
+                dlls.extend(item.rglob("*.dll"))
+        dll_version = None
+        for dll in dlls:
+            dll_version = _version_from_dll(dll, unit.guid)
+            if dll_version:
+                break
+        # Words after a file name's version ("-thunderstore", "-test") are not part of it.
+        file_parts = version_parts(path.stem)
+        chosen = dll_version or (file_parts.core_text if file_parts else None)
+        if chosen:
+            unit.version = chosen
+            unit.version_raw = chosen
+    prerelease = _file_prerelease(path, unit.version)
+    if prerelease:
+        unit.version = parse_mod_version(prerelease) or prerelease
+        unit.version_raw = prerelease
+
+
+def _file_prerelease(path: Path, version: str | None) -> str | None:
+    """Return the prerelease in a file name such as "BetterDrag-1.4.1-beta.11.zip" when its numbers match ``version``.
+
+    BepInPlugin versions are numbers only, so only the file name can say which prerelease a plugin is.
+    """
+    text = version_text(path.stem)
+    parts = version_parts(text)
+    if parts is None or not parts.prerelease:
+        return None
+    current = version_parts(version)
+    return text if current is None or current.same_core(parts) else None
 
 
 def _loose_guids(data: bytes) -> list[str]:

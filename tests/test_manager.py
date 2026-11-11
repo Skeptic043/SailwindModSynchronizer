@@ -320,7 +320,7 @@ def test_set_pack_mod_version_switches_library_copy(paths: AppPaths, tmp_path: P
     manager.close()
 
 
-def test_list_remote_mod_versions_skips_unparsed_and_duplicates(paths: AppPaths) -> None:
+def test_list_remote_mod_versions_keeps_unnumbered_tags_and_skips_duplicates(paths: AppPaths) -> None:
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
     releases = [
         RemoteRelease(tag="v1.2.0", name="1.2.0", assets=[]),
@@ -330,7 +330,7 @@ def test_list_remote_mod_versions_skips_unparsed_and_duplicates(paths: AppPaths)
     ]
     with patch("sailwind_mod_sync.manager.list_releases", return_value=releases):
         rows = manager.list_remote_mod_versions("https://github.com/example/mod")
-    assert rows == [("1.2.0", "v1.2.0"), ("1.0.0", "v1.0.0")]
+    assert rows == [("1.2.0", "v1.2.0"), ("nightly", "nightly"), ("1.0.0", "v1.0.0")]
     manager.close()
 
 
