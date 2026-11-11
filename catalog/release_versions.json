@@ -205,11 +205,6 @@
     "version": "v0.0.3"
   },
   {
-    "guid": "DogEggz.Moorlinefix",
-    "repo": "https://github.com/DogEggz01/MooringLineFix",
-    "version": "1.0.1"
-  },
-  {
     "guid": "com.DogEggz.HerculesThrow",
     "repo": "https://github.com/DogEggz01/Hercules-Throw",
     "version": "0.2.0"
@@ -293,11 +288,6 @@
     "guid": "com.sailwind.removefirstofficerrequirement",
     "repo": "https://github.com/ExocetC3i/VirtualCrew_CaptainSetsWatches",
     "version": "v1.0.4"
-  },
-  {
-    "guid": "archie.Logbook",
-    "repo": "https://github.com/ns-emi12/Archie-Logbook-Release",
-    "version": "v1.1.0"
   },
   {
     "guid": "com.dizzy.sailwind.clothesline",
@@ -673,5 +663,30 @@
     "guid": "DogEggz.ShipwrightTransport",
     "repo": "https://github.com/DogEggz01/ShipwrightTransportation",
     "version": "0.1.3"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.easysweeper",
+    "repo": "https://github.com/Skeptic043/Sailwind-Easy-Sweeper",
+    "version": "v0.1.0"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.custompaintings",
+    "repo": "https://github.com/Skeptic043/sailwind-custom-paintings",
+    "version": "v0.1.7"
+  },
+  {
+    "guid": "com.roy.furstmate",
+    "repo": "https://github.com/Dixiecapt/FurstMate",
+    "version": "v0.9.6-beta1"
+  },
+  {
+    "guid": "kap.saildamage",
+    "repo": "https://github.com/FluffyJesus/Sail-Damage",
+    "version": "1.0.5"
+  },
+  {
+    "guid": "com.diamondminer99.hideui",
+    "repo": "https://github.com/DiamondMiner99/sailwind-hideui",
+    "version": "v0.1.1"
   }
 ]

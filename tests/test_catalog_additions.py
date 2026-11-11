@@ -279,15 +279,6 @@ RELEASE_LAYOUTS = [
         ),
     ),
     (
-        "DogEggz01/MooringLineFix",
-        "DogEggz.Moorlinefix",
-        "1.0.1",
-        "MooringLineFix-1.0.1.zip",
-        (
-            "MooringLineFix/MooringLineFix.dll",
-        ),
-    ),
-    (
         "DogEggz01/Hercules-Throw",
         "com.DogEggz.HerculesThrow",
         "0.2.0",
@@ -506,15 +497,6 @@ RELEASE_LAYOUTS = [
         ),
     ),
     (
-        "ns-emi12/Archie-Logbook-Release",
-        "archie.Logbook",
-        "v1.1.0",
-        "ArchieLogbook.dll",
-        (
-            "ArchieLogbook.dll",
-        ),
-    ),
-    (
         "foxyv/DizzyClothesline",
         "com.dizzy.sailwind.clothesline",
         "v0.2.0",
@@ -714,6 +696,104 @@ RELEASE_LAYOUTS = [
             "ShipwrightAndTransport/assets/dogeggz.shipwrighttransport.assets",
         ),
     ),
+    (
+        "Skeptic043/Sailwind-Easy-Sweeper",
+        "com.skeptic043.sailwind.easysweeper",
+        "v0.1.0",
+        "EasySweeper-0.1.0.zip",
+        (
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "icon.png",
+            "BepInEx/plugins/EasySweeper/EasySweeper.dll",
+        ),
+    ),
+    (
+        "Skeptic043/sailwind-custom-paintings",
+        "com.skeptic043.sailwind.custompaintings",
+        "v0.1.7",
+        "CustomPaintings-0.1.7.zip",
+        (
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "icon.png",
+            "BepInEx/plugins/CustomPaintings/CustomPaintings.dll",
+        ),
+    ),
+    (
+        "Dixiecapt/FurstMate",
+        "com.roy.furstmate",
+        "v0.9.6-beta1",
+        "FurstMate-0.9.6-thunderstore.zip",
+        (
+            "FurstMate.dll",
+            "furstbird",
+            "furstcat",
+            "furstmate",
+            "Sounds/attack.wav",
+            "Sounds/bark.wav",
+            "Sounds/barking.wav",
+            "Sounds/bird_alarm.wav",
+            "Sounds/bird_beat1.wav",
+            "Sounds/bird_beat2.wav",
+            "Sounds/bird_beat3.wav",
+            "Sounds/bird_beat4.wav",
+            "Sounds/bird_beat5.wav",
+            "Sounds/bird_beat6.wav",
+            "Sounds/bird_beat7.wav",
+            "Sounds/bird_brown.wav",
+            "Sounds/bird_call.wav",
+            "Sounds/cat_meow1.wav",
+            "Sounds/cat_meow2.wav",
+            "Sounds/cat_meow3.wav",
+            "Sounds/cat_meow4.wav",
+            "Sounds/cat_meow5.wav",
+            "Sounds/cat_meow6.wav",
+            "Sounds/cat_meow7.wav",
+            "Sounds/cat_meow8.wav",
+            "Sounds/cat_play.wav",
+            "Sounds/cat_purr_soft.wav",
+            "Sounds/cat_purr.wav",
+            "Sounds/growl.wav",
+            "Sounds/howl_long.wav",
+            "Sounds/howl.wav",
+            "Sounds/pant.wav",
+            "Sounds/puppy_bark.wav",
+            "Sounds/puppy_growl.wav",
+            "Sounds/puppy_snarl.wav",
+            "Sounds/puppy_whine.wav",
+            "Sounds/puppy_whine2.wav",
+            "Sounds/puppy_whine3.wav",
+            "Sounds/puppy_whine4.wav",
+            "Sounds/snarl_hard.wav",
+            "Sounds/snarl.wav",
+            "Sounds/whine.wav",
+            "Sounds/yelps.wav",
+        ),
+    ),
+    (
+        "FluffyJesus/Sail-Damage",
+        "kap.saildamage",
+        "1.0.5",
+        "SailDamage-1.0.5.zip",
+        (
+            "BepInEx/plugins/SailDamage/SailDamage.dll",
+            "BepInEx/plugins/SailDamage/ship-bell.wav",
+        ),
+    ),
+    (
+        "DiamondMiner99/sailwind-hideui",
+        "com.diamondminer99.hideui",
+        "v0.1.1",
+        "SailwindHideUI-v0.1.1.zip",
+        (
+            "BepInEx/plugins/SailwindHideUI/SailwindHideUI.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -730,6 +810,9 @@ FIXED_PLUGIN_FOLDERS = {
 RUNTIME_LAYOUT_FOLDERS = {
     "Viking-D-Mike/MusicMod": "LaudMod",
     "DogEggz01/ShipwrightTransportation": "ShipwrightAndTransport",
+    "Dixiecapt/FurstMate": "FurstMate",
+    "FluffyJesus/Sail-Damage": "SailDamage",
+    "DiamondMiner99/sailwind-hideui": "SailwindHideUI",
 }
 
 
@@ -750,6 +833,13 @@ def test_supplemental_catalog_has_unique_matching_release_entries():
     assert set(mod_guids) == set(version_guids)
     repos = {item["guid"]: item["repo"] for item in mods}
     assert all(item["repo"] == repos[item["guid"]] for item in versions)
+
+
+def test_unavailable_or_obsolete_mods_are_not_listed():
+    mods, versions = _catalog_data()
+    removed = {"archie.Logbook", "DogEggz.Moorlinefix"}
+    assert removed.isdisjoint(item["guid"] for item in mods)
+    assert removed.isdisjoint(item["guid"] for item in versions)
 
 
 @pytest.mark.parametrize(
@@ -824,6 +914,10 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
             or ("/" in name and not name.startswith(("docs/", "licenses/", "Companion/")))
             or (repo == "Viking-D-Mike/MusicMod" and name == "laud_bundle")
             or (
+                repo == "Dixiecapt/FurstMate"
+                and name in {"furstbird", "furstcat", "furstmate"}
+            )
+            or (
                 repo == "Dixiecapt/Better-Stoves"
                 and name in {"tinystove", "cabinstove", "galleyrange", "hearthstoves"}
             )
@@ -843,6 +937,8 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
             if repo in RUNTIME_LAYOUT_FOLDERS:
                 folder = RUNTIME_LAYOUT_FOLDERS[repo]
                 relative = Path(name)
+                if relative.parts[:2] == ("BepInEx", "plugins"):
+                    relative = Path(*relative.parts[2:])
                 if not relative.parts or relative.parts[0] != folder:
                     relative = Path(folder) / relative
                 assert entry.plugin_folders == [folder]
