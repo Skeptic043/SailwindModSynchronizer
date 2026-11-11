@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.8.0 (2026-11-10)
+
+- Mod versions keep their full text, such as `2.3.0F-4.1` or `0.9.6-beta1`, so two builds with the same numbers are downloaded and kept separately, and a beta no longer counts as its final release. Downloads you already have are still found.
+- **Associate** no longer renames a mod that declares its own GUID, and refuses to merge it into a mod already in a pack. Press Enter in the dialog to skip a file.
+- When a mod's folder in a pack's plugins already exists and no mod owns it, the app asks before moving it to `replaced-folders`. Before, it stopped with an error.
+- **Scan updates** is now **Check for mod updates**. The catalog filters have clear buttons, and the catalog's right-click menu has **Show Details**.
+- Importing a zip with loose plugin DLLs names the folder after the plugin instead of `extracted`, and the log lists any files left out.
+- The catalog now lists 140 mods, up from 135, including Easy Sweeper, Custom Paintings, FurstMate, Sail Damage, Hide UI, Custom Ship Paints and Custom Aelasyl Paints. Mooring Line Fix and Archie's Logbook are gone: the game now includes the mooring fix.
+
 ## 0.7.2 (2026-11-03)
 
 - Importing a zip with a plugin DLL at its root now keeps the folders that sit beside it, such as textures and asset bundles, inside that plugin's folder. Before, they were dropped.
