@@ -36,7 +36,7 @@ from shiboken6 import isValid
 from sailwind_mod_sync.catalog.custom import same_repo, source_key
 from sailwind_mod_sync.catalog.github import GitHubDownloadError, repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
-from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS
+from sailwind_mod_sync.constants import APP_NAME, APP_REPO, APP_VERSION, CATALOG_REFRESH_HOURS, REPLACED_FOLDERS_DIR
 from sailwind_mod_sync.game.backup import BackupError, inspect_bepinex_zip
 from sailwind_mod_sync.game.proton import (
     PrefixChangeError,
@@ -1352,6 +1352,7 @@ class MainWindow(QMainWindow):
             lambda progress: self.manager.set_pack_mod_version(
                 pack_id, guid, pinned.version, version_raw, progress=progress,
                 resolve_conflicts=self._resolve_file_conflicts,
+                resolve_unowned_folders=self._resolve_unowned_folders,
             ),
             lambda _r: self._reload_views(),
             f"Downloading {guid} {version_raw}…",
@@ -1390,6 +1391,29 @@ class MainWindow(QMainWindow):
     def _resolve_file_conflicts(self, conflicts: list[FileConflict]) -> set[FileConflict]:
         """Ask on the GUI thread which version to keep of files both the player and a mod update changed."""
         return self._gui_call(self._ask_file_conflicts, conflicts) or set()
+
+    def _resolve_unowned_folders(self, guid: str, folders: list[str]) -> bool:
+        """Ask on the GUI thread whether to move plugin folders no mod owns out of the way of ``guid``."""
+        return bool(self._gui_call(self._ask_unowned_folders, guid, folders))
+
+    def _ask_unowned_folders(self, guid: str, folders: list[str]) -> bool:
+        name = self.manager.mod_display_name(guid)
+        listed = "\n".join(f"• {folder}" for folder in folders)
+        waiting = self._progress_timer.isActive()
+        self._progress_timer.stop()
+        try:
+            answer = QMessageBox.question(
+                QApplication.activeModalWidget() or self,
+                "Folder already in plugins",
+                f"{name} installs into a plugin folder that is already there but belongs to no mod in this pack:\n\n"
+                f"{listed}\n\nMove it to the profile's {REPLACED_FOLDERS_DIR} folder and install {name}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+        finally:
+            if waiting:
+                self._progress_timer.start(PROGRESS_DIALOG_DELAY_MS)
+        return answer == QMessageBox.StandardButton.Yes
 
     def _ask_file_conflicts(self, conflicts: list[FileConflict]) -> set[FileConflict]:
         packs = self.manager.packs.list_packs()
@@ -1455,13 +1479,14 @@ class MainWindow(QMainWindow):
                 pinned = self.manager.set_pack_mod_version(
                     pack_id, guid, version, version_raw or version, repo=repo,
                     resolve_conflicts=self._resolve_file_conflicts,
+                    resolve_unowned_folders=self._resolve_unowned_folders,
                 )
             except Exception as exc:
                 QMessageBox.warning(self, "Could not change version", str(exc))
                 self._reload_views()
                 return
             self._reload_views()
-            self.statusBar().showMessage(f"Pinned {pinned.guid} {pinned.version} on the pack")
+            self.statusBar().showMessage(f"Pinned {pinned.guid} {pinned.version_raw or pinned.version} on the pack")
             return
         self._run(
             lambda progress: self.manager.set_pack_mod_version(
@@ -1472,6 +1497,7 @@ class MainWindow(QMainWindow):
                 repo=repo,
                 progress=progress,
                 resolve_conflicts=self._resolve_file_conflicts,
+                resolve_unowned_folders=self._resolve_unowned_folders,
             ),
             lambda _r: QTimer.singleShot(0, self._reload_views),
             f"Downloading {guid} {version_raw or version}…",
@@ -1742,6 +1768,7 @@ class MainWindow(QMainWindow):
             for path in files:
                 imported.append(self.manager.import_local_mod(
                     path, pack_id, progress=progress, resolve_conflicts=self._resolve_file_conflicts,
+                    resolve_unowned_folders=self._resolve_unowned_folders,
                 ))
             return imported
 
@@ -1767,6 +1794,7 @@ class MainWindow(QMainWindow):
         def work(progress):
             return [self.manager.import_local_mod(
                 file_path, pack_id, progress=progress, guid=guid, resolve_conflicts=self._resolve_file_conflicts,
+                resolve_unowned_folders=self._resolve_unowned_folders,
             )]
 
         before = self._pinned_versions(pack_id)
