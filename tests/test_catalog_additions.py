@@ -794,6 +794,45 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/SailwindHideUI/SailwindHideUI.dll",
         ),
     ),
+    # Regnion's paint releases carry no version number; the tag is the version.
+    # One file per folder of the published layout; Custom Ship Paints keeps nested ship and paint folders.
+    (
+        "Regnion/Custom-Ship-Paints",
+        "local.customshippaint",
+        "textures",
+        "CustomShipPaint.zip",
+        (
+            "CustomShipPaint/Baghlah/Common/dhow large_hull_exterior_paint_Albedo.png",
+            "CustomShipPaint/Baghlah/Ebony/dhow large_hull_exterior_paint_Albedo.png",
+            "CustomShipPaint/Baghlah/Ivory/dhow large_hull_exterior_paint_Albedo.png",
+            "CustomShipPaint/Baghlah/Walnut/dhow large_hull_exterior_paint_Albedo.png",
+            "CustomShipPaint/Baghlah/ship.txt",
+            "CustomShipPaint/Brig/Continental/medi medium paint Diffuse Color.png",
+            "CustomShipPaint/Brig/Grayscale/medi medium paint Diffuse Color.png",
+            "CustomShipPaint/Brig/Hansa/medi medium paint Diffuse Color @hull_extra_004.png",
+            "CustomShipPaint/Brig/ship.txt",
+            "CustomShipPaint/Cog/Grayscale/medi small paint Diffuse Color @SE_parts_cog.png",
+            "CustomShipPaint/Cog/Hansa/medi small paint Diffuse Color @SE_parts_cog.png",
+            "CustomShipPaint/Cog/Navy Oak/medi small paint Diffuse Color @SE_parts_cog.png",
+            "CustomShipPaint/Cog/ship.txt",
+            "CustomShipPaint/CustomShipPaint.dll",
+            "CustomShipPaint/README.txt",
+        ),
+    ),
+    (
+        "Regnion/Custom-Aelasyl-Paints",
+        "local.customaelasylpaint",
+        "textures",
+        "CustomAelasylPaint.zip",
+        (
+            "CustomAelasylPaint/CustomAelasylPaint.dll",
+            "CustomAelasylPaint/Interceptor/CAE_extras2.png",
+            "CustomAelasylPaint/Interceptor/decals/0_TRIM__arch_braid.obj",
+            "CustomAelasylPaint/Interceptor/decals/cot/cot.obj",
+            "CustomAelasylPaint/Interceptor/decals/doors/closet_pantry_p_knob0.obj",
+            "CustomAelasylPaint/README.txt",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -813,6 +852,8 @@ RUNTIME_LAYOUT_FOLDERS = {
     "Dixiecapt/FurstMate": "FurstMate",
     "FluffyJesus/Sail-Damage": "SailDamage",
     "DiamondMiner99/sailwind-hideui": "SailwindHideUI",
+    "Regnion/Custom-Ship-Paints": "CustomShipPaint",
+    "Regnion/Custom-Aelasyl-Paints": "CustomAelasylPaint",
 }
 
 
