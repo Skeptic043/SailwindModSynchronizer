@@ -55,7 +55,7 @@ Both scripts call the GitHub API, so set `GITHUB_TOKEN` or save a token in the a
 
 A mod listed from several repositories, such as an original and a fork, gets a row for each source; the **Source** column tells them apart. **Switch source** moves the selected pack to another source, and each pack keeps the source of each of its mods, so different packs can use different sources of the same mod. Downloads of the same version from different sources are stored separately in the library.
 
-The catalog refreshes in the background once a day, at startup and while the app stays open (turn it off in Settings with **Refresh the catalog once a day**); **Refresh catalog** refreshes it on demand. **Scan updates** checks the latest release of every repository. Its results are kept across restarts and win over a catalog that lists no version or an older one. **Update all** on the Pack tab updates every mod of the pack that has a newer version.
+The catalog refreshes in the background once a day, at startup and while the app stays open (turn it off in Settings with **Refresh the catalog once a day**); **Refresh catalog** refreshes it on demand. **Check for mod updates** (Tools menu) checks the latest release of every repository. Its results are kept across restarts and win over a catalog that lists no version or an older one. **Update all** on the Pack tab updates every mod of the pack that has a newer version.
 
 Play copies `winhttp.dll` into the game folder and launches `Sailwind.exe` with `--doorstop-target-assembly` pointed at the selected pack. Mods the pack needs that are not downloaded yet are downloaded first.
 

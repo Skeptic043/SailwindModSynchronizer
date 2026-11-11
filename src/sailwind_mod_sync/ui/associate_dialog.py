@@ -57,6 +57,7 @@ class AssociateCatalogDialog(QDialog):
         self.summary.setWordWrap(True)
         self.filter = QLineEdit()
         self.filter.setPlaceholderText("Filter catalog…")
+        self.filter.setClearButtonEnabled(True)
         self.filter.textChanged.connect(self._refresh_catalog)
         self.catalog_list = QListWidget()
         self.catalog_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

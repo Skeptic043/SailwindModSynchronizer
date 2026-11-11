@@ -183,3 +183,57 @@ def test_normalize_coop_thunderstore_zip_keeps_steam_api(tmp_path: Path) -> None
     plugin = dest / "SailwindCoop"
     assert (plugin / "steam_api64.dll").read_bytes() == b"steam-api"
     assert (plugin / "Facepunch.Steamworks.Win64.dll").exists()
+
+
+def _archive(path: Path, files: dict[str, bytes]) -> Path:
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return path
+
+
+def test_loose_dlls_are_named_after_the_plugin_not_the_temp_folder(tmp_path: Path) -> None:
+    from plugin_metadata_fixture import managed_dll
+
+    archive = _archive(tmp_path / "release.zip", {
+        "AAA.Helpers.dll": b"MZ",
+        "ExampleMod.dll": managed_dll((("com.example.mod", "Example", "1.0.0"),)),
+        "config.json": b"{}",
+    })
+    folders = normalize_plugin_archive(archive, tmp_path / "out")
+    assert folders == ["ExampleMod"]
+    assert (tmp_path / "out" / "ExampleMod" / "AAA.Helpers.dll").is_file()
+    assert (tmp_path / "out" / "ExampleMod" / "config.json").is_file()
+
+
+def test_overlay_files_outside_plugins_are_logged(tmp_path: Path, caplog) -> None:
+    archive = _archive(tmp_path / "overlay.zip", {
+        "BepInEx/plugins/ExampleMod/ExampleMod.dll": b"MZ",
+        "BepInEx/config/example.cfg": b"x",
+        "BepInEx/patchers/ExamplePatcher.dll": b"MZ",
+    })
+    with caplog.at_level("WARNING"):
+        assert normalize_plugin_archive(archive, tmp_path / "out") == ["ExampleMod"]
+    assert "config/example.cfg" in caplog.text and "patchers/ExamplePatcher.dll" in caplog.text
+
+
+def test_catalog_folder_filter_logs_what_it_leaves_out(tmp_path: Path, caplog) -> None:
+    archive = _archive(tmp_path / "pack.zip", {"ModA/ModA.dll": b"MZ", "ModB/ModB.dll": b"MZ"})
+    with caplog.at_level("WARNING"):
+        assert normalize_plugin_archive(archive, tmp_path / "out", keep_folders=["ModA"]) == ["ModA"]
+    assert "left out ModB" in caplog.text
+
+
+def test_loose_dlls_do_not_replace_a_folder_with_the_plugin_name(tmp_path: Path) -> None:
+    from plugin_metadata_fixture import managed_dll
+
+    archive = _archive(tmp_path / "Bundle.zip", {
+        "ExampleMod.dll": managed_dll((("com.example.mod", "Example", "1.0.0"),)),
+        "helper.dll": b"MZ",
+        "ExampleMod/Addon.dll": b"MZ",
+    })
+    folders = normalize_plugin_archive(archive, tmp_path / "out")
+    out = tmp_path / "out"
+    assert sorted(folders) == ["Bundle", "ExampleMod"]
+    assert (out / "Bundle" / "ExampleMod.dll").is_file() and (out / "Bundle" / "helper.dll").is_file()
+    assert (out / "ExampleMod" / "Addon.dll").is_file()
