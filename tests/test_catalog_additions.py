@@ -833,6 +833,25 @@ RELEASE_LAYOUTS = [
             "CustomAelasylPaint/README.txt",
         ),
     ),
+    (
+        "KaelKacz/sail-master",
+        "SailMaster",
+        "1.2",
+        "SailMaster-1.2.zip",
+        (
+            "SailMaster/Newtonsoft.Json.dll",
+            "SailMaster/SailMaster.dll",
+        ),
+    ),
+    (
+        "FluffyJesus/Sail-Customization",
+        "fluffyjesus.sailwind.sailemblems",
+        "1.2.1",
+        "SailEmblems-1.2.1.zip",
+        (
+            "BepInEx/plugins/SailEmblems/SailEmblems.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -854,6 +873,8 @@ RUNTIME_LAYOUT_FOLDERS = {
     "DiamondMiner99/sailwind-hideui": "SailwindHideUI",
     "Regnion/Custom-Ship-Paints": "CustomShipPaint",
     "Regnion/Custom-Aelasyl-Paints": "CustomAelasylPaint",
+    "KaelKacz/sail-master": "SailMaster",
+    "FluffyJesus/Sail-Customization": "SailEmblems",
 }
 
 

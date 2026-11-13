@@ -698,5 +698,15 @@
     "guid": "local.customaelasylpaint",
     "repo": "https://github.com/Regnion/Custom-Aelasyl-Paints",
     "version": "textures"
+  },
+  {
+    "guid": "SailMaster",
+    "repo": "https://github.com/KaelKacz/sail-master",
+    "version": "1.2"
+  },
+  {
+    "guid": "fluffyjesus.sailwind.sailemblems",
+    "repo": "https://github.com/FluffyJesus/Sail-Customization",
+    "version": "1.2.1"
   }
 ]

@@ -838,5 +838,17 @@
     "repo": "https://github.com/Regnion/Custom-Aelasyl-Paints",
     "name": "Custom Aelasyl Paints",
     "plugin_folders": ["CustomAelasylPaint"]
+  },
+  {
+    "guid": "SailMaster",
+    "repo": "https://github.com/KaelKacz/sail-master",
+    "name": "SailMaster",
+    "plugin_folders": ["SailMaster"]
+  },
+  {
+    "guid": "fluffyjesus.sailwind.sailemblems",
+    "repo": "https://github.com/FluffyJesus/Sail-Customization",
+    "name": "Sail Emblems",
+    "plugin_folders": ["SailEmblems"]
   }
 ]
