@@ -8,11 +8,12 @@ from sailwind_mod_sync.fileutil import atomic_write_json
 from sailwind_mod_sync.models import CatalogEntry, is_newer, version_id
 from sailwind_mod_sync.paths import AppPaths
 
-ScannedVersions = dict[tuple[str, str], str]
+ScannedVersions = dict[tuple[str, str], tuple[str, str]]
+"""The release version and newer prerelease ("" for none) update scans found, keyed by mod GUID and repository key."""
 
 
 def load_scanned_versions(paths: AppPaths) -> ScannedVersions:
-    """Return the release versions update scans found, keyed by mod GUID and repository key."""
+    """Return the release versions and prereleases update scans found."""
     try:
         data = json.loads(paths.scanned_versions_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -26,8 +27,9 @@ def load_scanned_versions(paths: AppPaths) -> ScannedVersions:
         guid = str(item.get("guid") or "").strip()
         repo = repo_key(str(item.get("repo") or ""))
         version = str(item.get("version") or "").strip()
+        prerelease = str(item.get("prerelease") or "").strip()
         if guid and repo and version:
-            scanned[(guid, repo)] = version
+            scanned[(guid, repo)] = (version, prerelease)
     return scanned
 
 
@@ -36,13 +38,17 @@ def store_scanned_versions(paths: AppPaths, entries: list[CatalogEntry]) -> None
     scanned = load_scanned_versions(paths)
     for entry in entries:
         if entry.latest_raw:
-            scanned[(entry.primary_guid, repo_key(entry.repo))] = entry.latest_raw
-    payload = [{"guid": guid, "repo": repo, "version": version} for (guid, repo), version in sorted(scanned.items())]
+            scanned[(entry.primary_guid, repo_key(entry.repo))] = (entry.latest_raw, entry.prerelease_raw)
+    payload = [
+        {"guid": guid, "repo": repo, "version": version, **({"prerelease": prerelease} if prerelease else {})}
+        for (guid, repo), (version, prerelease) in sorted(scanned.items())
+    ]
     atomic_write_json(paths.scanned_versions_file, payload)
 
 
 def apply_scanned_versions(entries: list[CatalogEntry], scanned: ScannedVersions) -> list[CatalogEntry]:
-    """Return ``entries`` with the scanned version of each source where the catalog has none or an older one."""
+    """Return ``entries`` with the scanned version of each source where the catalog has none or an older one,
+    and the scanned prerelease where it is still newer than that version."""
     if not scanned:
         return entries
     return [_with_scanned_version(entry, scanned) for entry in entries]
@@ -50,10 +56,13 @@ def apply_scanned_versions(entries: list[CatalogEntry], scanned: ScannedVersions
 
 def _with_scanned_version(entry: CatalogEntry, scanned: ScannedVersions) -> CatalogEntry:
     repo = repo_key(entry.repo)
-    raw = next((scanned[(guid, repo)] for guid in entry.guids if (guid, repo) in scanned), None)
-    if raw is None:
+    found = next((scanned[(guid, repo)] for guid in entry.guids if (guid, repo) in scanned), None)
+    if found is None:
         return entry
-    if entry.available and entry.latest_raw and not is_newer(raw, entry.latest_raw):
-        return entry
-    version = version_id(raw)
-    return replace(entry, latest_raw=raw, latest_version=version, available=bool(version))
+    raw, prerelease = found
+    if not (entry.available and entry.latest_raw and not is_newer(raw, entry.latest_raw)):
+        version = version_id(raw)
+        entry = replace(entry, latest_raw=raw, latest_version=version, available=bool(version))
+    if prerelease and is_newer(prerelease, entry.latest_raw or ""):
+        entry = replace(entry, prerelease_raw=prerelease)
+    return entry

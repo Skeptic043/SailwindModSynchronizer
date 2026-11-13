@@ -21,11 +21,12 @@ from PySide6.QtWidgets import (
 from sailwind_mod_sync.catalog.custom import same_repo
 from sailwind_mod_sync.catalog.github import repo_page_url, repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
-from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, is_newer
+from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, update_target
 from sailwind_mod_sync.ui.links import open_web_url
 from sailwind_mod_sync.ui.tables import (
     enable_column_resize,
     enable_column_sort,
+    latest_text,
     sortable_item,
     sorting_paused,
     version_sort_key,
@@ -120,7 +121,10 @@ class PackView(QWidget):
         missing_guids: set[str] | None = None,
         library_versions: dict[str, list[tuple[str, str]]] | None = None,
         display_names: dict[str, str] | None = None,
+        *,
+        prereleases: bool = False,
     ) -> None:
+        """Show ``pack``; with ``prereleases``, newer prereleases count as updates."""
         pack_id = pack.id if pack else None
         if self._shown_pack_id != pack_id:
             self._filter.clear()
@@ -196,18 +200,23 @@ class PackView(QWidget):
                     versions.get(guid, []),
                     catalog_latest_raw=latest,
                     catalog_latest_version=source.latest_version if source else None,
+                    catalog_prerelease_raw=source.prerelease_raw if source else "",
                     has_repo=bool(repo),
                     missing=guid in missing,
                 )
                 self._enable_row_context_menu(version_combo, guid)
                 self.table.setCellWidget(index, 3, version_combo)
                 is_missing = guid in missing
-                can_update = bool(latest and is_newer(latest, pinned.version))
+                update = update_target(source, pinned.version, prereleases=prereleases)
+                can_update = bool(update)
                 in_catalog = guid in catalog_guids or any(
                     same_repo(entry.repo, repo) for entry in catalog if repo
                 )
                 self._row_state[guid] = (repo, is_missing, can_update, in_catalog)
-                latest_item = sortable_item(f"{latest} (update)" if can_update else latest, version_sort_key(latest))
+                latest_item = sortable_item(
+                    latest_text(latest, source.prerelease_raw if source else "", update),
+                    version_sort_key(update or latest),
+                )
                 self.table.setItem(index, 4, latest_item)
                 self.table.setItem(index, 5, sortable_item(""))
 
@@ -404,6 +413,7 @@ class PackView(QWidget):
         *,
         catalog_latest_raw: str,
         catalog_latest_version: str | None,
+        catalog_prerelease_raw: str,
         has_repo: bool,
         missing: bool,
     ) -> QComboBox:
@@ -419,6 +429,7 @@ class PackView(QWidget):
                 library_versions,
                 catalog_latest_raw=catalog_latest_raw,
                 catalog_latest_version=catalog_latest_version,
+                catalog_prerelease_raw=catalog_prerelease_raw,
                 has_repo=has_repo,
                 missing=missing,
             )

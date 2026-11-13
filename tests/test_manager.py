@@ -330,7 +330,7 @@ def test_list_remote_mod_versions_keeps_unnumbered_tags_and_skips_duplicates(pat
     ]
     with patch("sailwind_mod_sync.manager.list_releases", return_value=releases):
         rows = manager.list_remote_mod_versions("https://github.com/example/mod")
-    assert rows == [("1.2.0", "v1.2.0"), ("nightly", "nightly"), ("1.0.0", "v1.0.0")]
+    assert rows == [("1.2.0", "v1.2.0", False), ("nightly", "nightly", False), ("1.0.0", "v1.0.0", False)]
     manager.close()
 
 
@@ -345,8 +345,8 @@ def test_list_remote_mod_versions_extracts_version_from_name(paths: AppPaths) ->
     ]
     with patch("sailwind_mod_sync.manager.list_releases", return_value=releases):
         rows = manager.list_remote_mod_versions("https://github.com/BryanP-JP19/SailwindSeaLifeMod")
-    assert ("0.0.1", "0.0.1") in rows
-    assert ("1.0.0", "v1.0.0") in rows
+    assert ("0.0.1", "0.0.1", False) in rows
+    assert ("1.0.0", "v1.0.0", False) in rows
     manager.close()
 
 
@@ -921,7 +921,7 @@ def test_scan_updates_raises_token_auth_error_on_401_with_token(
     def bad_fetch(*args, **kwargs):
         raise HttpError("HTTP 401 for https://api.github.com", status_code=401)
 
-    monkeypatch.setattr("sailwind_mod_sync.manager.fetch_release", bad_fetch)
+    monkeypatch.setattr("sailwind_mod_sync.manager.latest_releases", bad_fetch)
     manager = Manager(
         paths=paths,
         config=AppConfig(github_token="ghp_fake"),
@@ -939,7 +939,7 @@ def test_scan_updates_without_token_ignores_401(paths: AppPaths, monkeypatch) ->
     def bad_fetch(*args, **kwargs):
         raise HttpError("HTTP 401 for https://api.github.com", status_code=401)
 
-    monkeypatch.setattr("sailwind_mod_sync.manager.fetch_release", bad_fetch)
+    monkeypatch.setattr("sailwind_mod_sync.manager.latest_releases", bad_fetch)
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
     manager.catalog = _catalog_with_repo()
     try:
@@ -966,8 +966,8 @@ def test_scan_updates_keeps_custom_entries_the_shared_catalog_covers(paths: AppP
     from sailwind_mod_sync.catalog.custom import load_custom_catalog, merge_with_custom, save_custom_catalog
 
     monkeypatch.setattr(
-        "sailwind_mod_sync.manager.fetch_release",
-        lambda *args, **kwargs: RemoteRelease(tag="v1.1.0", name="v1.1.0", assets=[]),
+        "sailwind_mod_sync.manager.latest_releases",
+        lambda *args, **kwargs: (RemoteRelease(tag="v1.1.0", name="v1.1.0", assets=[]), None),
     )
     other = CatalogEntry(
         repo="https://github.com/me/other",
@@ -999,8 +999,8 @@ def test_scan_results_survive_a_restart(paths: AppPaths, monkeypatch) -> None:
     from sailwind_mod_sync.catalog.custom import load_custom_catalog, save_custom_catalog
 
     monkeypatch.setattr(
-        "sailwind_mod_sync.manager.fetch_release",
-        lambda *args, **kwargs: RemoteRelease(tag="v2.1.0", name="v2.1.0", assets=[]),
+        "sailwind_mod_sync.manager.latest_releases",
+        lambda *args, **kwargs: (RemoteRelease(tag="v2.1.0", name="v2.1.0", assets=[]), None),
     )
     save_custom_catalog(paths, [_custom_fork_entry()])
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
@@ -1267,10 +1267,74 @@ class _StickyFixCatalogHttp(_NoHttp):
         raise HttpError("HTTP 404", status_code=404)
 
 
+def test_scanned_prerelease_survives_a_restart_until_a_release_supersedes_it(paths: AppPaths, monkeypatch) -> None:
+    from sailwind_mod_sync.catalog.custom import save_custom_catalog
+
+    monkeypatch.setattr(
+        "sailwind_mod_sync.manager.latest_releases",
+        lambda *args, **kwargs: (
+            RemoteRelease(tag="v2.1.0", name="v2.1.0", assets=[]),
+            RemoteRelease(tag="v2.2.0-rc1", name="v2.2.0-rc1", assets=[], prerelease=True),
+        ),
+    )
+    save_custom_catalog(paths, [_custom_fork_entry()])
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    try:
+        manager.scan_updates(live=True)
+    finally:
+        manager.close()
+
+    restarted = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    restarted.close()
+    entry = find_entry(restarted.catalog, "com.example.mymod", "https://github.com/me/mymod-fork")
+    assert (entry.latest_raw, entry.prerelease_raw) == ("v2.1.0", "v2.2.0-rc1")
+
+    save_custom_catalog(paths, [replace(_custom_fork_entry(), latest_raw="v2.2.0", latest_version="2.2.0")])
+    released = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    released.close()
+    entry = find_entry(released.catalog, "com.example.mymod", "https://github.com/me/mymod-fork")
+    assert (entry.latest_raw, entry.prerelease_raw) == ("v2.2.0", "")
+
+
+@pytest.mark.parametrize(
+    ("prereleases", "expected"),
+    [(False, ("2.1.0", "v2.1.0")), (True, ("2.2.0-rc1", "v2.2.0-rc1"))],
+)
+def test_update_mod_follows_the_prerelease_setting(paths: AppPaths, monkeypatch, prereleases, expected) -> None:
+    manager = Manager(paths=paths, config=AppConfig(prerelease_updates=prereleases), http=_NoHttp())
+    manager.catalog = [
+        replace(_catalog_with_repo()[0], latest_raw="v2.1.0", latest_version="2.1.0", prerelease_raw="v2.2.0-rc1")
+    ]
+    pack = manager.packs.create("Pack")
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mymod", version="2.0.0"))
+    calls: list[dict] = []
+    monkeypatch.setattr(manager, "install_mod", lambda *args, **kwargs: calls.append(kwargs))
+    try:
+        manager.update_mod(pack.id, "com.example.mymod")
+    finally:
+        manager.close()
+    assert (calls[0]["version"], calls[0]["version_raw"]) == expected
+
+
+def test_update_mod_keeps_an_installed_prerelease_newer_than_the_release(paths: AppPaths, monkeypatch) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = [replace(_catalog_with_repo()[0], latest_raw="v1.9.0", latest_version="1.9.0")]
+    pack = manager.packs.create("Pack")
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.example.mymod", version="2.0.0-rc1"))
+    calls: list[dict] = []
+    monkeypatch.setattr(manager, "install_mod", lambda *args, **kwargs: calls.append(kwargs))
+    try:
+        kept = manager.update_mod(pack.id, "com.example.mymod")
+    finally:
+        manager.close()
+    assert calls == []
+    assert kept.version == "2.0.0-rc1"
+
+
 def test_scanned_version_keeps_mod_available_that_the_catalog_lists_as_none(paths: AppPaths, monkeypatch) -> None:
     monkeypatch.setattr(
-        "sailwind_mod_sync.manager.fetch_release",
-        lambda *args, **kwargs: RemoteRelease(tag="v1.0.4", name="v1.0.4", assets=[]),
+        "sailwind_mod_sync.manager.latest_releases",
+        lambda *args, **kwargs: (RemoteRelease(tag="v1.0.4", name="v1.0.4", assets=[]), None),
     )
     manager = Manager(paths=paths, config=AppConfig(), http=_StickyFixCatalogHttp("none"))
     try:

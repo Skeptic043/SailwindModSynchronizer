@@ -42,6 +42,12 @@ def test_save_and_load_auto_scan_mods(paths: AppPaths) -> None:
     assert payload["auto_scan_mods"] is False
 
 
+def test_prerelease_updates_default_off_and_round_trip(paths: AppPaths) -> None:
+    assert load_config(paths).prerelease_updates is False
+    save_config(paths, AppConfig(prerelease_updates=True))
+    assert load_config(paths).prerelease_updates is True
+
+
 def test_save_and_load_update_settings(paths: AppPaths) -> None:
     save_config(
         paths,

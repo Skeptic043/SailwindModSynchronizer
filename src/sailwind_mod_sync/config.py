@@ -17,6 +17,7 @@ class AppConfig:
     warn_proton_launch_option: bool = True
     check_for_updates: bool = True
     auto_scan_mods: bool = True
+    prerelease_updates: bool = False
     auto_refresh_catalog: bool = True
     last_update_check: str = ""
     last_catalog_refresh: str = ""
@@ -46,6 +47,7 @@ def load_config(paths: AppPaths) -> AppConfig:
         warn_proton_launch_option=_as_bool(data.get("warn_proton_launch_option"), True),
         check_for_updates=_as_bool(data.get("check_for_updates"), True),
         auto_scan_mods=_as_bool(data.get("auto_scan_mods"), True),
+        prerelease_updates=_as_bool(data.get("prerelease_updates"), False),
         auto_refresh_catalog=_as_bool(data.get("auto_refresh_catalog"), True),
         last_update_check=str(data.get("last_update_check") or ""),
         last_catalog_refresh=str(data.get("last_catalog_refresh") or ""),

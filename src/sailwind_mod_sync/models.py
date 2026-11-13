@@ -121,6 +121,18 @@ def is_newer(latest_raw: str | None, current_raw: str | None) -> bool:
     return version_key(latest_raw) > version_key(current_raw)
 
 
+def update_target(entry: CatalogEntry | None, current: str, *, prereleases: bool) -> str:
+    """Return the release a mod at version ``current`` should update to from ``entry``, or "" when it is up to date.
+
+    The entry's prerelease counts only with ``prereleases``; an installed prerelease is never replaced by an older
+    stable release.
+    """
+    if entry is None:
+        return ""
+    target = entry.prerelease_raw if prereleases and entry.prerelease_raw else entry.latest_raw or ""
+    return target if target and is_newer(target, current) else ""
+
+
 def guid_family(guid: str) -> str:
     """Group alias GUIDs (sailadex / sailadex82) while keeping distinct mods separate."""
     tail = guid.rsplit(".", 1)[-1].lower()
@@ -178,6 +190,8 @@ class CatalogEntry:
     """True when a higher-priority catalog already lists this mod from another repository."""
     derived_name: bool = False
     """True when no catalog names this mod and ``name`` comes from its plugin, repository or GUID."""
+    prerelease_raw: str = ""
+    """A GitHub prerelease newer than ``latest_raw``, as found by an update scan, or "" when there is none."""
 
     @property
     def guid_label(self) -> str:
@@ -358,3 +372,4 @@ class RemoteRelease:
     assets: list[ReleaseAsset]
     html_url: str = ""
     body: str = ""
+    prerelease: bool = False

@@ -1,4 +1,12 @@
-from sailwind_mod_sync.models import is_newer, parse_mod_version, version_key, PinnedMod, display_mod_name
+from sailwind_mod_sync.models import (
+    CatalogEntry,
+    PinnedMod,
+    display_mod_name,
+    is_newer,
+    parse_mod_version,
+    update_target,
+    version_key,
+)
 from sailwind_mod_sync.ui.tables import version_sort_key
 from sailwind_mod_sync.ui.version_dialog import (
     BROWSE_VERSIONS,
@@ -74,7 +82,7 @@ def test_pack_version_items_marks_missing_and_skips_browse_without_repo() -> Non
 def test_merge_version_rows_prefers_library_and_marks_current() -> None:
     rows = merge_version_rows(
         [("1.1.0", "v1.1.0")],
-        [("1.1.0", "v1.1.0"), ("1.0.0", "v1.0.0")],
+        [("1.1.0", "v1.1.0", False), ("1.0.0", "v1.0.0", False)],
         "1.1.0",
     )
     assert [row.version for row in rows] == ["1.1.0", "1.0.0"]
@@ -83,6 +91,44 @@ def test_merge_version_rows_prefers_library_and_marks_current() -> None:
     assert "downloaded" in rows[0].label
     assert not rows[1].in_library
     assert "download" in rows[1].label
+
+
+def _entry_with_prerelease(latest: str, prerelease: str) -> CatalogEntry:
+    return CatalogEntry(
+        repo="https://github.com/example/mod",
+        guids=["com.example.mod"],
+        primary_guid="com.example.mod",
+        name="Mod",
+        latest_raw=latest,
+        latest_version=parse_mod_version(latest),
+        available=True,
+        prerelease_raw=prerelease,
+    )
+
+
+def test_update_target_offers_prereleases_only_when_enabled() -> None:
+    entry = _entry_with_prerelease("v1.4.0", "v1.5.0-rc1")
+    assert update_target(entry, "1.4.0", prereleases=False) == ""
+    assert update_target(entry, "1.4.0", prereleases=True) == "v1.5.0-rc1"
+    assert update_target(entry, "1.3.0", prereleases=False) == "v1.4.0"
+
+
+def test_update_target_keeps_an_installed_prerelease_until_a_newer_release() -> None:
+    assert update_target(_entry_with_prerelease("v1.4.0", ""), "1.5.0-rc1", prereleases=False) == ""
+    assert update_target(_entry_with_prerelease("v1.5.0", ""), "1.5.0-rc1", prereleases=False) == "v1.5.0"
+    assert update_target(_entry_with_prerelease("v1.4.0", "v1.5.0-rc2"), "1.5.0-rc1", prereleases=True) == "v1.5.0-rc2"
+
+
+def test_version_lists_mark_prereleases() -> None:
+    rows = merge_version_rows([("1.5.0-rc1", "v1.5.0-rc1")], [("1.5.0-rc1", "v1.5.0-rc1", True)], "1.4.0")
+    assert rows[0].label == "v1.5.0-rc1  (prerelease, downloaded)"
+    items = pack_version_items(
+        PinnedMod(guid="com.example.mod", version="1.4.0", version_raw="v1.4.0"),
+        [],
+        catalog_latest_raw="v1.4.0",
+        catalog_prerelease_raw="v1.5.0-rc1",
+    )
+    assert [label for label, _ in items] == ["v1.5.0-rc1 (prerelease, download)", "v1.4.0"]
 
 
 def test_display_mod_name_prefers_alias() -> None:

@@ -652,7 +652,7 @@ def test_select_version_dialog_lists_library_and_remote() -> None:
         labels = [dialog.list.item(index).text() for index in range(dialog.list.count())]
         assert any("v1.0.0" in label and "current" in label for label in labels)
         assert any("v0.9.0" in label and "downloaded" in label for label in labels)
-        dialog._on_remote([("1.2.0", "v1.2.0")])
+        dialog._on_remote([("1.2.0", "v1.2.0", False)])
         labels = [dialog.list.item(index).text() for index in range(dialog.list.count())]
         assert any("v1.2.0" in label and "download" in label for label in labels)
         dialog.list.setCurrentRow(0)
@@ -1615,7 +1615,7 @@ def test_switch_source_lists_only_versions_of_the_new_source(paths: AppPaths, mo
 
     class _Dialog(SelectVersionDialog):
         def start_remote(self, fetch):
-            self._on_remote([("2.0.0", "v2.0.0")])
+            self._on_remote([("2.0.0", "v2.0.0", False)])
 
         def exec(self):
             labels = [self.list.item(index).text() for index in range(self.list.count())]

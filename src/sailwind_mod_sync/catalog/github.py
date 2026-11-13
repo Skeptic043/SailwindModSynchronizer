@@ -8,7 +8,14 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
-from sailwind_mod_sync.models import ReleaseAsset, RemoteRelease, parse_mod_version, version_id, version_text
+from sailwind_mod_sync.models import (
+    ReleaseAsset,
+    RemoteRelease,
+    is_newer,
+    parse_mod_version,
+    version_id,
+    version_text,
+)
 from sailwind_mod_sync.paths import AppPaths
 
 log = logging.getLogger(__name__)
@@ -147,11 +154,7 @@ def pick_release_asset(
     repo_name: str,
     extra_hints: list[str] | tuple[str, ...] = (),
 ) -> ReleaseAsset:
-    usable = [
-        asset
-        for asset in assets
-        if asset.name.lower().endswith((".zip", ".dll")) and asset.download_url
-    ]
+    usable = [asset for asset in assets if _is_mod_file(asset)]
     if not usable:
         names = ", ".join(asset.name for asset in assets if asset.name) or "none"
         raise FileNotFoundError(
@@ -185,6 +188,14 @@ def pick_release_asset(
         return points
 
     return max(usable, key=score)
+
+
+def _is_mod_file(asset: ReleaseAsset) -> bool:
+    return asset.name.lower().endswith((".zip", ".dll")) and bool(asset.download_url)
+
+
+def _has_mod_file(release: RemoteRelease) -> bool:
+    return any(_is_mod_file(asset) for asset in release.assets)
 
 
 class GitHubDownloadError(RuntimeError):
@@ -358,12 +369,82 @@ def _github_latest_from_list(http: HttpClient, ref: RepoRef, cache_path: Path | 
 
 
 def _pick_github_list_release(items: list) -> dict:
-    usable = [item for item in items if isinstance(item, dict) and not item.get("draft")]
+    usable = _published_newest_first(items)
     if not usable:
         raise HttpError("No published GitHub releases")
-    usable.sort(key=lambda item: str(item.get("published_at") or item.get("created_at") or ""), reverse=True)
     stable = [item for item in usable if not item.get("prerelease")]
     return (stable or usable)[0]
+
+
+def _published_newest_first(items: list) -> list[dict]:
+    usable = [item for item in items if isinstance(item, dict) and not item.get("draft")]
+    usable.sort(key=lambda item: str(item.get("published_at") or item.get("created_at") or ""), reverse=True)
+    return usable
+
+
+def latest_releases(
+    http: HttpClient,
+    repo_url: str,
+    paths: AppPaths | None = None,
+    progress: ProgressFn | None = None,
+) -> tuple[RemoteRelease | None, RemoteRelease | None]:
+    """Return the repository's release to install and a newer prerelease, from one listing of its releases.
+
+    See ``pick_latest_releases``. GitLab releases have no prerelease flag, so a GitLab repository has no prerelease.
+    """
+    ref = parse_repo_url(repo_url)
+    log.info("Listing %s releases for an update check", ref.full_path)
+    if progress:
+        progress(f"Checking {ref.full_path}…")
+    if ref.is_gitlab:
+        return pick_latest_releases([_gitlab_release(http, ref, None)])
+    if not ref.is_github:
+        raise ValueError(f"Unsupported repo: {repo_url}")
+    items = _published_newest_first(_github_release_list(http, ref, paths))
+    return pick_latest_releases([_parse_github_payload(item) for item in items])
+
+
+def pick_latest_releases(releases: list[RemoteRelease]) -> tuple[RemoteRelease | None, RemoteRelease | None]:
+    """From ``releases``, newest first, return the release to install and a newer prerelease.
+
+    Only releases with a .zip or .dll can be installed. The release to install is the newest stable one, or the
+    newest prerelease when there is no stable one. The prerelease is the newest one published after the newest stable
+    release, even one without a download, with a higher version than it, or None.
+    """
+    installable = [release for release in releases if _has_mod_file(release)]
+    stable = next((release for release in installable if not release.prerelease), None)
+    if stable is None:
+        return (installable[0] if installable else None), None
+    newest_stable_at = next(index for index, release in enumerate(releases) if not release.prerelease)
+    floor = release_version_text(releases[newest_stable_at])
+    newer = next(
+        (
+            release
+            for release in releases[:newest_stable_at]
+            if _has_mod_file(release) and is_newer(release_version_text(release), floor)
+        ),
+        None,
+    )
+    return stable, newer
+
+
+def _github_release_list(http: HttpClient, ref: RepoRef, paths: AppPaths | None) -> list:
+    url = f"https://api.github.com/repos/{ref.full_path}/releases?per_page=100"
+    cache_path = _release_list_cache_path(paths, ref) if paths else None
+    etag_path = cache_path.with_suffix(".etag") if cache_path else None
+    cached = cache_path is not None and cache_path.exists() and etag_path is not None and etag_path.exists()
+    etag = etag_path.read_text(encoding="utf-8").strip() if cached else None
+    data, new_etag, not_modified = http.get_json(url, extra_headers=_github_accept(), etag=etag)
+    if not_modified and cached:
+        log.info("GitHub 304 cache hit for %s releases", ref.full_path)
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise HttpError(f"Unexpected GitHub releases payload for {ref.full_path}")
+    if cache_path is not None and etag_path is not None and new_etag and not not_modified:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        etag_path.write_text(new_etag, encoding="utf-8")
+    return data
 
 
 def _github_accept() -> dict[str, str]:
@@ -387,6 +468,7 @@ def _parse_github_payload(data: dict) -> RemoteRelease:
         assets=assets,
         html_url=str(data.get("html_url") or ""),
         body=str(data.get("body") or ""),
+        prerelease=bool(data.get("prerelease")),
     )
 
 
@@ -508,3 +590,8 @@ def _etag_path(paths: AppPaths, ref: RepoRef) -> Path:
 def _release_cache_path(paths: AppPaths, ref: RepoRef) -> Path:
     key = ref.full_path.replace("/", "_")
     return paths.etag_dir / f"{key}.release.json"
+
+
+def _release_list_cache_path(paths: AppPaths, ref: RepoRef) -> Path:
+    key = ref.full_path.replace("/", "_")
+    return paths.etag_dir / f"{key}.releases.json"

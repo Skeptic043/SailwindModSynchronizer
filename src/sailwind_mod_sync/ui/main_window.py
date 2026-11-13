@@ -466,8 +466,13 @@ class MainWindow(QMainWindow):
                     library_entries=library,
                     packs=all_packs,
                 )
-        self.pack_view.set_pack(pack, self.manager.catalog, missing, library_version_rows, display_names)
-        self.catalog_view.set_data(self.manager.catalog, pack, self.manager.config.hidden_catalog_mods)
+        prereleases = self.manager.config.prerelease_updates
+        self.pack_view.set_pack(
+            pack, self.manager.catalog, missing, library_version_rows, display_names, prereleases=prereleases
+        )
+        self.catalog_view.set_data(
+            self.manager.catalog, pack, self.manager.config.hidden_catalog_mods, prereleases=prereleases
+        )
         pinned_keys = {pinned.guid: self.manager.library.pinned_key(pinned) for pinned in (pack.mods if pack else [])}
         self.library_view.set_entries(library, pack, display_names, pinned_keys)
         game = self.manager.game_dir()

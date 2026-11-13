@@ -24,6 +24,7 @@ from sailwind_mod_sync.catalog.github import (
     download_release_asset,
     fetch_readme,
     fetch_release,
+    latest_releases,
     list_releases,
     parse_repo_url,
     release_version,
@@ -62,6 +63,7 @@ from sailwind_mod_sync.models import (
     RemoteModInfo,
     catalog_mod_name,
     display_mod_name,
+    update_target,
     version_id,
     version_key,
 )
@@ -269,7 +271,7 @@ class Manager:
                 if entry.repo in seen_repos:
                     continue
                 seen_repos.add(entry.repo)
-                raw = self._scan_latest_release(entry, progress)
+                raw, prerelease = self._scan_latest_release(entry, progress)
                 if not raw:
                     continue
                 latest[entry.primary_guid] = raw
@@ -278,14 +280,16 @@ class Manager:
                 entry.latest_raw = raw
                 entry.latest_version = version_id(raw)
                 entry.available = bool(entry.latest_version)
+                entry.prerelease_raw = prerelease
                 updated.append(entry)
         finally:
             if updated:
                 store_scanned_versions(self.paths, updated)
         return latest
 
-    def _scan_latest_release(self, entry: CatalogEntry, progress: ProgressFn | None) -> str:
-        """Return the latest release version of the entry's repository, or "" when it cannot be checked.
+    def _scan_latest_release(self, entry: CatalogEntry, progress: ProgressFn | None) -> tuple[str, str]:
+        """Return the version of the entry's release to install and of a newer prerelease ("" for none),
+        or two "" when the repository cannot be checked.
 
         Raises:
             TokenAuthError: GitHub rejected the configured token.
@@ -293,9 +297,9 @@ class Manager:
         try:
             parse_repo_url(entry.repo)
         except ValueError:
-            return ""
+            return "", ""
         try:
-            release = fetch_release(self.http, entry.repo, tag=None, paths=self.paths, progress=progress)
+            release, prerelease = latest_releases(self.http, entry.repo, paths=self.paths, progress=progress)
         except HttpError as exc:
             if exc.status_code == 401 and self.config.token():
                 raise TokenAuthError(
@@ -303,11 +307,14 @@ class Manager:
                     "Fix it in Settings."
                 ) from exc
             log.warning("Live update check failed for %s: %s", entry.repo, exc)
-            return ""
+            return "", ""
         except Exception as exc:
             log.warning("Live update check failed for %s: %s", entry.repo, exc)
-            return ""
-        return release_version_text(release)
+            return "", ""
+        if release is None:
+            log.warning("Live update check found no release with a .zip or .dll for %s", entry.repo)
+            return "", ""
+        return release_version_text(release), release_version_text(prerelease) if prerelease else ""
 
     def add_catalog_repo(self, repo_url: str, progress: ProgressFn | None = None) -> list[CatalogEntry]:
         repo = canonicalize_repo_url(repo_url)
@@ -727,9 +734,10 @@ class Manager:
         self,
         repo: str,
         progress: ProgressFn | None = None,
-    ) -> list[tuple[str, str]]:
+    ) -> list[tuple[str, str, bool]]:
+        """Return the version, version text and prerelease flag of the repository's recent releases."""
         releases = list_releases(self.http, repo, limit=40, progress=progress)
-        rows: list[tuple[str, str]] = []
+        rows: list[tuple[str, str, bool]] = []
         seen: set[str] = set()
         for item in releases:
             version = release_version(item)
@@ -737,7 +745,7 @@ class Manager:
                 continue
             seen.add(version)
             raw = release_version_text(item)
-            rows.append((version, raw))
+            rows.append((version, raw, item.prerelease))
         return rows
 
     def set_pack_mod_version(
@@ -1062,6 +1070,12 @@ class Manager:
         repo = (pinned.repo if pinned else "") or (entry.repo if entry else "")
         version_raw = entry.latest_raw if entry else None
         version = entry.latest_version if entry else None
+        if pinned is not None:
+            target = update_target(entry, pinned.version, prereleases=self.config.prerelease_updates)
+            if not target:
+                return pinned
+            if target != version_raw:
+                version_raw, version = target, version_id(target)
         return self.install_mod(
             pack_id,
             guid,
