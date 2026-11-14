@@ -708,5 +708,10 @@
     "guid": "fluffyjesus.sailwind.sailemblems",
     "repo": "https://github.com/FluffyJesus/Sail-Customization",
     "version": "1.2.1"
+  },
+  {
+    "guid": "com.vikingdmike.adornosmod",
+    "repo": "https://github.com/Viking-D-Mike/SailorsKeepsakes",
+    "version": "v1.0.0"
   }
 ]

@@ -850,5 +850,11 @@
     "repo": "https://github.com/FluffyJesus/Sail-Customization",
     "name": "Sail Emblems",
     "plugin_folders": ["SailEmblems"]
+  },
+  {
+    "guid": "com.vikingdmike.adornosmod",
+    "repo": "https://github.com/Viking-D-Mike/SailorsKeepsakes",
+    "name": "Sailor's Keepsakes",
+    "plugin_folders": ["AdornosMod"]
   }
 ]
