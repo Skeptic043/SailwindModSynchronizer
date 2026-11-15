@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from sailwind_mod_sync.catalog.github import repo_short_name
 from sailwind_mod_sync.http_util import ProgressFn
-from sailwind_mod_sync.models import PinnedMod, parse_mod_version, version_key
+from sailwind_mod_sync.models import PinnedMod, parse_mod_version, version_id, version_key
 from sailwind_mod_sync.ui.workers import TaskBridge, run_background
 
 BROWSE_VERSIONS = "__browse_versions__"
@@ -29,10 +29,12 @@ class VersionRow:
     version_raw: str
     in_library: bool
     current: bool = False
+    prerelease: bool = False
 
     @property
     def label(self) -> str:
-        extras = ["downloaded"] if self.in_library else ["download"]
+        extras = ["prerelease"] if self.prerelease else []
+        extras.append("downloaded" if self.in_library else "download")
         if self.current:
             extras.append("current")
         return f"{self.version_raw or self.version}  ({', '.join(extras)})"
@@ -48,6 +50,7 @@ def pack_version_items(
     *,
     catalog_latest_raw: str = "",
     catalog_latest_version: str | None = None,
+    catalog_prerelease_raw: str = "",
     has_repo: bool = False,
     missing: bool = False,
 ) -> list[tuple[str, object]]:
@@ -74,6 +77,8 @@ def pack_version_items(
     latest_version = catalog_latest_version or parse_mod_version(catalog_latest_raw)
     if latest_version:
         add(latest_version, catalog_latest_raw or latest_version, "(download)")
+    if catalog_prerelease_raw:
+        add(version_id(catalog_prerelease_raw) or catalog_prerelease_raw, catalog_prerelease_raw, "(prerelease, download)")
     items.sort(key=lambda item: version_key(item[1][0]), reverse=True)
     result: list[tuple[str, object]] = list(items)
     if has_repo:
@@ -83,7 +88,7 @@ def pack_version_items(
 
 def merge_version_rows(
     library_versions: list[tuple[str, str]] | None,
-    remote_versions: list[tuple[str, str]] | None,
+    remote_versions: list[tuple[str, str, bool]] | None,
     current_version: str,
 ) -> list[VersionRow]:
     rows: dict[str, VersionRow] = {}
@@ -93,11 +98,16 @@ def merge_version_rows(
         if not key:
             continue
         rows[key] = VersionRow(version, raw or version, in_library=True, current=key == current_id)
-    for version, raw in remote_versions or ():
+    for version, raw, prerelease in remote_versions or ():
         key = _version_id(version)
-        if not key or key in rows:
+        if not key:
             continue
-        rows[key] = VersionRow(version, raw or version, in_library=False, current=key == current_id)
+        if key in rows:
+            rows[key] = replace(rows[key], prerelease=prerelease)
+            continue
+        rows[key] = VersionRow(
+            version, raw or version, in_library=False, current=key == current_id, prerelease=prerelease
+        )
     if current_id and current_id not in rows:
         rows[current_id] = VersionRow(
             current_version,
@@ -125,7 +135,7 @@ class SelectVersionDialog(QDialog):
         self._closed = False
         self._bridge: TaskBridge | None = None
         self._library = list(library_versions or [])
-        self._remote: list[tuple[str, str]] = []
+        self._remote: list[tuple[str, str, bool]] = []
         self._current_version = current_version
         self._selected: tuple[str, str] | None = None
         title = name or guid
@@ -229,11 +239,11 @@ class SelectVersionDialog(QDialog):
     def _on_remote(self, result: object) -> None:
         if self._closed:
             return
-        rows: list[tuple[str, str]] = []
+        rows: list[tuple[str, str, bool]] = []
         if isinstance(result, list):
             for item in result:
-                if isinstance(item, tuple) and len(item) == 2:
-                    rows.append((str(item[0]), str(item[1])))
+                if isinstance(item, tuple) and len(item) == 3:
+                    rows.append((str(item[0]), str(item[1]), bool(item[2])))
         self._remote = rows
         self.status.setText("" if rows else "No releases found")
         self._rebuild()

@@ -21,7 +21,7 @@ Mods come from [ModVersionChecker](https://github.com/bryon82/SailwindModVersion
 
 ### Catalog and updates
 
-The catalog refreshes in the background once a day (this can be disabled in the Settings menu) and can be refreshed manually with **Refresh catalog**. **Tools → Check for mod updates** checks every mod in the catalog for updates. **Add GitHub repo** adds a repository that is not in the catalog, including a fork of a listed mod. A mod listed from several repositories gets a row for each **Source**, and **Switch source** moves the selected pack to another one.
+The catalog refreshes in the background once a day (this can be disabled in the Settings menu) and can be refreshed manually with **Refresh catalog**. **Tools → Check for mod updates** checks every mod in the catalog for updates. A newer GitHub prerelease is shown beside the mod's latest release and in its version list, and counts as an update only when **Include prereleases in mod updates** is on in Settings. **Add GitHub repo** adds a repository that is not in the catalog, including a fork of a listed mod. A mod listed from several repositories gets a row for each **Source**, and **Switch source** moves the selected pack to another one.
 
 ### Files and cache
 

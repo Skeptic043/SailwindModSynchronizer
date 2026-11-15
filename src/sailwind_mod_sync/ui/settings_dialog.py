@@ -108,6 +108,13 @@ class SettingsDialog(QDialog):
         self.auto_scan.setEnabled(bool(config.token()))
         self.token.textChanged.connect(self._sync_auto_scan_enabled)
         form.addRow("Mod updates", self.auto_scan)
+        self.prerelease_updates = QCheckBox("Include prereleases in mod updates")
+        self.prerelease_updates.setToolTip(
+            "Offer a mod's newer GitHub prereleases as updates, including in Update all. "
+            "When off, prereleases can still be chosen from the version list."
+        )
+        self.prerelease_updates.setChecked(config.prerelease_updates)
+        form.addRow("", self.prerelease_updates)
         self.auto_refresh_catalog = QCheckBox("Refresh the catalog once a day")
         self.auto_refresh_catalog.setToolTip(
             "Downloads the ModVersionChecker and Sailwind Mod Synchronizer catalogs in the background "
@@ -174,4 +181,5 @@ class SettingsDialog(QDialog):
         config.warn_proton_launch_option = self.warn_launch_option.isChecked()
         config.check_for_updates = self.check_updates.isChecked()
         config.auto_scan_mods = self.auto_scan.isChecked()
+        config.prerelease_updates = self.prerelease_updates.isChecked()
         config.auto_refresh_catalog = self.auto_refresh_catalog.isChecked()

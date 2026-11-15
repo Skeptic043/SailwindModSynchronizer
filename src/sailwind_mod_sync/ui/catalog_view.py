@@ -17,11 +17,12 @@ from PySide6.QtWidgets import (
 from sailwind_mod_sync.catalog.custom import is_hidden, same_repo, source_key
 from sailwind_mod_sync.catalog.github import repo_short_name
 from sailwind_mod_sync.catalog.mvc import find_entry
-from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, is_newer
+from sailwind_mod_sync.models import CatalogEntry, ModPack, PinnedMod, update_target
 from sailwind_mod_sync.ui.links import repo_button
 from sailwind_mod_sync.ui.tables import (
     enable_column_resize,
     enable_column_sort,
+    latest_text,
     sortable_item,
     sorting_paused,
     version_sort_key,
@@ -42,6 +43,7 @@ class CatalogView(QWidget):
         self._entries: list[CatalogEntry] = []
         self._entries_by_key: dict[str, CatalogEntry] = {}
         self._pack: ModPack | None = None
+        self._prereleases = False
         self._hidden: set[str] = set()
         self._revealed_key = ""
         self._syncing_table = False
@@ -89,7 +91,11 @@ class CatalogView(QWidget):
         entries: list[CatalogEntry],
         pack: ModPack | None,
         hidden_guids: set[str] | list[str] | None = None,
+        *,
+        prereleases: bool = False,
     ) -> None:
+        """Show ``entries`` for ``pack``; with ``prereleases``, newer prereleases count as updates."""
+        self._prereleases = prereleases
         self._entries = entries
         self._entries_by_key = {source_key(entry): entry for entry in entries}
         self._pack = pack
@@ -125,10 +131,13 @@ class CatalogView(QWidget):
                     guid_item = sortable_item(entry.guid_label, entry.primary_guid.casefold())
                     guid_item.setToolTip("\n".join(entry.guids))
                     self.table.setItem(index, GUID_COLUMN, guid_item)
-                    latest = entry.latest_raw or ("none" if not entry.available else "")
+                    latest = latest_text(entry.latest_raw or "", entry.prerelease_raw) or (
+                        "none" if not entry.available else ""
+                    )
                     latest_key = (0 if entry.available else 1, version_sort_key(entry.latest_raw))
                     self.table.setItem(index, LATEST_COLUMN, sortable_item(latest, latest_key))
-                    self.table.setItem(index, STATUS_COLUMN, sortable_item(_catalog_status(entry, self._pack)))
+                    status = _catalog_status(entry, self._pack, prereleases=self._prereleases)
+                    self.table.setItem(index, STATUS_COLUMN, sortable_item(status))
                     self.table.setItem(index, ACTIONS_COLUMN, sortable_item(""))
                     actions = self._row_actions(entry)
                     self.table.setCellWidget(index, ACTIONS_COLUMN, actions)
@@ -144,7 +153,7 @@ class CatalogView(QWidget):
         actions_layout = QHBoxLayout(actions)
         actions_layout.setContentsMargins(4, 0, 4, 0)
         actions_layout.addWidget(repo_button(entry.repo, actions))
-        label, tip = catalog_pack_button(entry, self._pack)
+        label, tip = catalog_pack_button(entry, self._pack, prereleases=self._prereleases)
         button = QPushButton(label)
         button.setEnabled(entry.available and self._pack is not None)
         button.setToolTip("Select a ModPack first" if self._pack is None else tip)
@@ -279,7 +288,7 @@ class CatalogView(QWidget):
             self.details_requested.emit(entry.primary_guid, entry.repo)
 
 
-def catalog_pack_button(entry: CatalogEntry, pack: ModPack | None) -> tuple[str, str]:
+def catalog_pack_button(entry: CatalogEntry, pack: ModPack | None, *, prereleases: bool = False) -> tuple[str, str]:
     pinned = _pinned_for_entry(entry, pack)
     if pinned is None:
         return (
@@ -292,7 +301,7 @@ def catalog_pack_button(entry: CatalogEntry, pack: ModPack | None) -> tuple[str,
             f"The pack has this mod from {repo_short_name(pinned.repo)}. "
             f"Choose a version from {repo_short_name(entry.repo)} to use instead.",
         )
-    if entry.latest_raw and is_newer(entry.latest_raw, pinned.version):
+    if update_target(entry, pinned.version, prereleases=prereleases):
         return (
             "Update",
             "A newer version is available. Choose a version to download and pin on the pack.",
@@ -324,7 +333,7 @@ def _pinned_from_entry(entry: CatalogEntry, pack: ModPack | None) -> PinnedMod |
     return pinned
 
 
-def _catalog_status(entry: CatalogEntry, pack: ModPack | None) -> str:
+def _catalog_status(entry: CatalogEntry, pack: ModPack | None, *, prereleases: bool) -> str:
     if not entry.available:
         return "Unavailable"
     pinned = _pinned_for_entry(entry, pack)
@@ -332,7 +341,7 @@ def _catalog_status(entry: CatalogEntry, pack: ModPack | None) -> str:
         return "Custom" if entry.custom else "Available"
     if not _pinned_from_source(entry, pinned):
         return "Other source in pack"
-    if entry.latest_raw and is_newer(entry.latest_raw, pinned.version):
+    if update_target(entry, pinned.version, prereleases=prereleases):
         return "Update"
     return f"Installed {pinned.version}"
 

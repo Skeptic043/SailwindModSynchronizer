@@ -34,6 +34,16 @@ def version_sort_key(raw: str | None) -> tuple:
     return version_key(raw)
 
 
+def latest_text(latest: str, prerelease: str, update: str = "") -> str:
+    """Text of a Latest cell: the release, then any newer prerelease, marking the one that ``update`` names."""
+    parts = []
+    if latest:
+        parts.append(f"{latest} (update)" if update == latest else latest)
+    if prerelease:
+        parts.append(f"{prerelease} (prerelease update)" if update == prerelease else f"{prerelease} (prerelease)")
+    return " · ".join(parts)
+
+
 def enable_column_resize(table: QTableWidget, widths: list[int] | None = None) -> None:
     header = table.horizontalHeader()
     header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)

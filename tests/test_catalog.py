@@ -9,6 +9,7 @@ from sailwind_mod_sync.catalog.github import (
     fetch_release,
     github_manual_download_help,
     github_release_page_url,
+    latest_releases,
     list_releases,
     pick_release_asset,
     pick_zip_asset,
@@ -404,6 +405,109 @@ def test_fetch_release_list_prefers_stable_over_newer_prerelease() -> None:
     http = _GithubListHttp(HttpError("HTTP 404", status_code=404), payload)
     release = fetch_release(http, "https://github.com/example/mod")
     assert release.tag == "v0.3.0"
+
+
+def _listed(tag: str, published: str, *, prerelease: bool = False, assets: tuple[str, ...] = ("Mod.zip",)) -> dict:
+    return {
+        "tag_name": tag,
+        "prerelease": prerelease,
+        "draft": False,
+        "published_at": published,
+        "assets": [{"name": name, "browser_download_url": f"https://example/{name}"} for name in assets],
+    }
+
+
+class _ReleaseListHttp:
+    """Serves one releases listing with an ETag and answers 304 to a request that sends it."""
+
+    def __init__(self, payload: list) -> None:
+        self.payload = payload
+        self.urls: list[str] = []
+        self.etags: list[str | None] = []
+
+    def get_json(self, url, extra_headers=None, etag=None):
+        self.urls.append(url)
+        self.etags.append(etag)
+        if etag == '"listing"':
+            return None, etag, True
+        return self.payload, '"listing"', False
+
+
+def test_latest_releases_finds_a_newer_prerelease_beside_the_stable_release() -> None:
+    http = _ReleaseListHttp(
+        [
+            _listed("v1.4.0", "2026-09-01T00:00:00Z"),
+            _listed("v1.5.0-rc1", "2026-10-02T00:00:00Z", prerelease=True),
+        ]
+    )
+    stable, prerelease = latest_releases(http, "https://github.com/example/mod")
+    assert (stable.tag, prerelease.tag) == ("v1.4.0", "v1.5.0-rc1")
+    assert prerelease.prerelease and not stable.prerelease
+    assert http.urls == ["https://api.github.com/repos/example/mod/releases?per_page=100"]
+
+
+def test_latest_releases_ignores_prereleases_the_stable_release_supersedes() -> None:
+    http = _ReleaseListHttp(
+        [
+            _listed("v1.4.1-beta2", "2026-10-20T00:00:00Z", prerelease=True),
+            _listed("v1.5.0", "2026-10-10T00:00:00Z"),
+            _listed("v1.5.0-rc1", "2026-10-02T00:00:00Z", prerelease=True),
+        ]
+    )
+    stable, prerelease = latest_releases(http, "https://github.com/example/mod")
+    assert stable.tag == "v1.5.0"
+    assert prerelease is None
+
+
+def test_latest_releases_installs_the_newest_prerelease_when_there_is_no_stable_release() -> None:
+    http = _ReleaseListHttp(
+        [
+            _listed("v0.3.1", "2026-08-01T00:00:00Z", prerelease=True),
+            _listed("v0.3.2", "2026-08-09T00:00:00Z", prerelease=True),
+        ]
+    )
+    stable, prerelease = latest_releases(http, "https://github.com/example/mod")
+    assert stable.tag == "v0.3.2"
+    assert prerelease is None
+
+
+def test_latest_releases_skips_releases_without_a_mod_download() -> None:
+    http = _ReleaseListHttp(
+        [
+            _listed("v2.0.0", "2026-10-01T00:00:00Z", assets=()),
+            _listed("v2.1.0-beta", "2026-10-05T00:00:00Z", prerelease=True, assets=("notes.txt",)),
+            _listed("v1.9.0", "2026-09-01T00:00:00Z"),
+        ]
+    )
+    stable, prerelease = latest_releases(http, "https://github.com/example/mod")
+    assert stable.tag == "v1.9.0"
+    assert prerelease is None
+
+
+def test_latest_releases_drops_a_prerelease_that_a_release_without_downloads_supersedes() -> None:
+    http = _ReleaseListHttp(
+        [
+            _listed("v2.0.0", "2026-10-10T00:00:00Z", assets=()),
+            _listed("v2.0.0-rc1", "2026-10-02T00:00:00Z", prerelease=True),
+            _listed("v1.9.0", "2026-09-01T00:00:00Z"),
+        ]
+    )
+    stable, prerelease = latest_releases(http, "https://github.com/example/mod")
+    assert stable.tag == "v1.9.0"
+    assert prerelease is None
+
+
+def test_latest_releases_reuses_the_cached_listing_when_github_reports_no_change(paths: AppPaths) -> None:
+    http = _ReleaseListHttp(
+        [
+            _listed("v1.4.0", "2026-09-01T00:00:00Z"),
+            _listed("v1.5.0-rc1", "2026-10-02T00:00:00Z", prerelease=True),
+        ]
+    )
+    latest_releases(http, "https://github.com/example/mod", paths=paths)
+    stable, prerelease = latest_releases(http, "https://github.com/example/mod", paths=paths)
+    assert http.etags == [None, '"listing"']
+    assert (stable.tag, prerelease.tag) == ("v1.4.0", "v1.5.0-rc1")
 
 
 def test_merge_with_custom_keeps_extra_repo() -> None:
