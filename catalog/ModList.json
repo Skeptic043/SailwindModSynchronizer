@@ -856,5 +856,11 @@
     "repo": "https://github.com/Viking-D-Mike/SailorsKeepsakes",
     "name": "Sailor's Keepsakes",
     "plugin_folders": ["AdornosMod"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.voyagerecorder",
+    "repo": "https://github.com/Skeptic043/sailwind-voyage-recorder",
+    "name": "Voyage Recorder",
+    "plugin_folders": ["VoyageRecorder"]
   }
 ]

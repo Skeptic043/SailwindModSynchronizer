@@ -891,6 +891,19 @@ RELEASE_LAYOUTS = [
             "plugins/Shields/_Templates/template_knight.png",
         ),
     ),
+    (
+        "Skeptic043/sailwind-voyage-recorder",
+        "com.skeptic043.sailwind.voyagerecorder",
+        "v0.1.8",
+        "VoyageRecorder-0.1.8.zip",
+        (
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "BepInEx/plugins/VoyageRecorder/VoyageRecorder.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -915,6 +928,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "KaelKacz/sail-master": "SailMaster",
     "FluffyJesus/Sail-Customization": "SailEmblems",
     "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
+    "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
 }
 
 

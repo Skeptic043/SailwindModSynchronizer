@@ -713,5 +713,10 @@
     "guid": "com.vikingdmike.adornosmod",
     "repo": "https://github.com/Viking-D-Mike/SailorsKeepsakes",
     "version": "v1.0.0"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.voyagerecorder",
+    "repo": "https://github.com/Skeptic043/sailwind-voyage-recorder",
+    "version": "v0.1.8"
   }
 ]
