@@ -833,6 +833,77 @@ RELEASE_LAYOUTS = [
             "CustomAelasylPaint/README.txt",
         ),
     ),
+    (
+        "KaelKacz/sail-master",
+        "SailMaster",
+        "1.2",
+        "SailMaster-1.2.zip",
+        (
+            "SailMaster/Newtonsoft.Json.dll",
+            "SailMaster/SailMaster.dll",
+        ),
+    ),
+    (
+        "FluffyJesus/Sail-Customization",
+        "fluffyjesus.sailwind.sailemblems",
+        "1.2.1",
+        "SailEmblems-1.2.1.zip",
+        (
+            "BepInEx/plugins/SailEmblems/SailEmblems.dll",
+        ),
+    ),
+    (
+        "Viking-D-Mike/SailorsKeepsakes",
+        "com.vikingdmike.adornosmod",
+        "v1.0.0",
+        "SailorsKeepsakes-1.0.0.zip",
+        (
+            "plugins/AdornosMod.dll",
+            "plugins/Shields/README.txt",
+            "plugins/Shields/Kite/README.txt",
+            "plugins/Shields/Kite/black_saltire.png",
+            "plugins/Shields/Kite/chevrons.png",
+            "plugins/Shields/Kite/halves.png",
+            "plugins/Shields/Kite/lozenges.png",
+            "plugins/Shields/Kite/norman_cross.png",
+            "plugins/Shields/Kite/ring.png",
+            "plugins/Shields/Knight/README.txt",
+            "plugins/Shields/Knight/bars.png",
+            "plugins/Shields/Knight/bend.png",
+            "plugins/Shields/Knight/chevron.png",
+            "plugins/Shields/Knight/per_pale.png",
+            "plugins/Shields/Knight/quartered.png",
+            "plugins/Shields/Knight/red_cross.png",
+            "plugins/Shields/Round/README.txt",
+            "plugins/Shields/Round/cross.png",
+            "plugins/Shields/Round/diagonals.png",
+            "plugins/Shields/Round/half_sun.png",
+            "plugins/Shields/Round/plain_wood.png",
+            "plugins/Shields/Round/quarters.png",
+            "plugins/Shields/Round/rays.png",
+            "plugins/Shields/Round/red_white.png",
+            "plugins/Shields/Round/rings.png",
+            "plugins/Shields/Round/saltire.png",
+            "plugins/Shields/Round/spiral.png",
+            "plugins/Shields/Round/three_colors.png",
+            "plugins/Shields/Round/whirl.png",
+            "plugins/Shields/_Templates/template_kite.png",
+            "plugins/Shields/_Templates/template_knight.png",
+        ),
+    ),
+    (
+        "Skeptic043/sailwind-voyage-recorder",
+        "com.skeptic043.sailwind.voyagerecorder",
+        "v0.1.8",
+        "VoyageRecorder-0.1.8.zip",
+        (
+            "manifest.json",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "BepInEx/plugins/VoyageRecorder/VoyageRecorder.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -854,6 +925,10 @@ RUNTIME_LAYOUT_FOLDERS = {
     "DiamondMiner99/sailwind-hideui": "SailwindHideUI",
     "Regnion/Custom-Ship-Paints": "CustomShipPaint",
     "Regnion/Custom-Aelasyl-Paints": "CustomAelasylPaint",
+    "KaelKacz/sail-master": "SailMaster",
+    "FluffyJesus/Sail-Customization": "SailEmblems",
+    "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
+    "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
 }
 
 
@@ -980,6 +1055,8 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
                 relative = Path(name)
                 if relative.parts[:2] == ("BepInEx", "plugins"):
                     relative = Path(*relative.parts[2:])
+                elif relative.parts[:1] == ("plugins",):
+                    relative = Path(*relative.parts[1:])
                 if not relative.parts or relative.parts[0] != folder:
                     relative = Path(folder) / relative
                 assert entry.plugin_folders == [folder]
