@@ -4,7 +4,7 @@ import json
 import logging
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import chain
@@ -45,7 +45,7 @@ from sailwind_mod_sync.game.saves import (
 from sailwind_mod_sync.game.bepinex import doorstop_installed, install_doorstop, write_doorstop_config
 from sailwind_mod_sync.game.detect import detect_game_path, resolve_game_dir
 from sailwind_mod_sync.game.launch import launch_modded, launch_vanilla
-from sailwind_mod_sync.game.plugin_metadata import folder_plugins, outside_dependencies
+from sailwind_mod_sync.game.plugin_metadata import PluginMetadata, folder_plugins, outside_dependencies
 from sailwind_mod_sync.game.scan_plugins import declares_guid, discover_local_file, is_guessed_guid, scan_plugins_dir
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
@@ -67,6 +67,13 @@ from sailwind_mod_sync.models import (
     update_target,
     version_id,
     version_key,
+)
+from sailwind_mod_sync.packs.dependencies import (
+    DependencyPlan,
+    Provider,
+    Requirement,
+    plan_dependencies,
+    rule_requirements,
 )
 from sailwind_mod_sync.packs.instance import (
     ensure_instance_bepinex,
@@ -90,6 +97,17 @@ log = logging.getLogger(__name__)
 
 # Asked with a mod's GUID and the plugin folders in its way that no mod of the pack owns; True moves them aside.
 UnownedFolderResolver = Callable[[str, list[str]], bool]
+# Asked with what adding a mod still needs: True adds those mods too, False adds the mod alone, None cancels.
+DependencyResolver = Callable[[DependencyPlan], "bool | None"]
+
+
+def add_dependencies(plan: DependencyPlan) -> bool:
+    """Resolve every plan by adding what it needs, for mods pulled in after the player already chose Add."""
+    return True
+
+
+class ChangeCancelled(Exception):
+    """The player cancelled a change when asked; nothing was changed."""
 
 
 class TokenAuthError(RuntimeError):
@@ -128,6 +146,7 @@ class Manager:
         self.http = http or HttpClient(self.config.token())
         self.library = LibraryStore(self.paths)
         self.packs = PackStore(self.paths)
+        self._plugin_cache: dict[tuple[str, str, str], list[PluginMetadata]] = {}
         self.aliases = load_aliases(self.paths)
         self.catalog: list[CatalogEntry] = load_cached_catalog(self.paths) or []
         default_pack = self.packs.ensure_default()
@@ -611,7 +630,7 @@ class Manager:
             if entry.guid == guid and entry.version == version:
                 size = entry.size_bytes
                 break
-        required, optional, incompatible = self._declared_relations(self.library.mod_extracted(guid, version))
+        required, optional, incompatible = self._declared_relations(self._artifact_plugins(guid, version))
         return ModDetails(
             guid=guid,
             version=version,
@@ -631,12 +650,11 @@ class Manager:
             incompatible_mods=incompatible,
         )
 
-    def _declared_relations(self, extracted: Path) -> tuple[list[str], list[str], list[str]]:
-        """Return the required, optional and incompatible mods the DLLs in ``extracted`` declare, by name.
+    def _declared_relations(self, plugins: list[PluginMetadata]) -> tuple[list[str], list[str], list[str]]:
+        """Return the required, optional and incompatible mods ``plugins`` declare, by name.
 
         Plugins the download itself contains are left out, and a mod both required and optional is required.
         """
-        plugins = folder_plugins(extracted)
         hard: dict[str, str] = {}
         soft: set[str] = set()
         for dependency in outside_dependencies(plugins):
@@ -733,6 +751,7 @@ class Manager:
         *,
         resolve_conflicts: ConflictResolver | None = None,
         resolve_unowned_folders: UnownedFolderResolver | None = None,
+        resolve_dependencies: DependencyResolver | None = None,
     ) -> PinnedMod:
         self.packs.check_recovery(pack_id)
         entry = find_entry(self.catalog, guid, repo or "")
@@ -765,6 +784,7 @@ class Manager:
             progress=progress,
             resolve_conflicts=resolve_conflicts,
             resolve_unowned_folders=resolve_unowned_folders,
+            resolve_dependencies=resolve_dependencies,
         )
 
     def list_remote_mod_versions(
@@ -796,6 +816,7 @@ class Manager:
         progress: ProgressFn | None = None,
         resolve_conflicts: ConflictResolver | None = None,
         resolve_unowned_folders: UnownedFolderResolver | None = None,
+        resolve_dependencies: DependencyResolver | None = None,
     ) -> PinnedMod:
         pack = self.packs.get(pack_id)
         pinned = pack.find_mod(guid)
@@ -810,6 +831,7 @@ class Manager:
                 progress=progress,
                 resolve_conflicts=resolve_conflicts,
                 resolve_unowned_folders=resolve_unowned_folders,
+                resolve_dependencies=resolve_dependencies,
             )
         return self.install_mod(
             pack_id,
@@ -820,6 +842,7 @@ class Manager:
             progress=progress,
             resolve_conflicts=resolve_conflicts,
             resolve_unowned_folders=resolve_unowned_folders,
+            resolve_dependencies=resolve_dependencies,
         )
 
     def add_library_mod_to_pack(
@@ -832,15 +855,28 @@ class Manager:
         progress: ProgressFn | None = None,
         resolve_conflicts: ConflictResolver | None = None,
         resolve_unowned_folders: UnownedFolderResolver | None = None,
+        resolve_dependencies: DependencyResolver | None = None,
     ) -> PinnedMod:
         """Pin the library artifact ``key`` of ``guid`` on the pack and copy it into the pack's plugins.
 
-        The pin's repository is ``repo``, or else the repository the artifact was downloaded from.
+        The pin's repository is ``repo``, or else the repository the artifact was downloaded from. With
+        ``resolve_dependencies``, a mod new to the pack first gets the mods it needs: turned-off ones come back on,
+        and the rest are offered and added when it says so.
         """
         self.packs.check_recovery(pack_id)
         meta = self.library.read_mod_meta(guid, key)
         if meta is None:
             raise FileNotFoundError(f"{guid} {key} is not in the library")
+        if resolve_dependencies is not None and self.packs.get(pack_id).find_mod(guid) is None:
+            plan = self.dependency_plan(pack_id, guid, key)
+            add = resolve_dependencies(plan) if plan.asks else True
+            if add is None:
+                raise ChangeCancelled(f"Cancelled adding {guid}")
+            if plan:
+                self.apply_dependency_plan(
+                    pack_id, plan, add=add, progress=progress, resolve_conflicts=resolve_conflicts,
+                    resolve_unowned_folders=resolve_unowned_folders,
+                )
         if progress:
             progress(f"Adding {guid} {meta.version} to the pack…")
         pack = self.packs.get(pack_id)
@@ -859,6 +895,112 @@ class Manager:
             resolve_unowned_folders=resolve_unowned_folders,
         )
         return pinned
+
+    def _artifact_plugins(self, guid: str, key: str | None) -> list[PluginMetadata]:
+        """Return the plugins the library artifact declares, read once per download; none without an artifact."""
+        if key is None:
+            return []
+        meta = self.library.read_mod_meta(guid, key)
+        cache_key = (guid, key, meta.sha256 if meta else "")
+        if cache_key not in self._plugin_cache:
+            self._plugin_cache[cache_key] = folder_plugins(self.library.mod_extracted(guid, key))
+        return self._plugin_cache[cache_key]
+
+    def _requirements(self, guid: str, key: str | None) -> list[Requirement]:
+        """Return what ``guid`` needs: the hard dependencies its artifact declares, when there is one, and rules."""
+        plugins = self._artifact_plugins(guid, key)
+        declared = [Requirement(dependency.guid, dependency.minimum_version)
+                    for dependency in outside_dependencies(plugins) if dependency.hard]
+        return declared + rule_requirements([guid, *(plugin.guid for plugin in plugins)])
+
+    def _downloaded_key(self, pin: PinnedMod) -> str | None:
+        """Return the library key of the pin's version, or None while it isn't downloaded."""
+        key = self.library.pinned_key(pin)
+        return key if self.library.has_mod(pin.guid, key) else None
+
+    def _catalog_artifact_key(self, guid: str) -> str | None:
+        """Return the library key of the catalog version ``install_mod`` would pin, when it is downloaded already."""
+        entry = find_entry(self.catalog, guid)
+        if entry is None or not entry.latest_version:
+            return None
+        key = self.library.artifact_key(guid, entry.latest_version, entry.repo)
+        return key if self.library.has_mod(guid, key) else None
+
+    def _pack_providers(self, pins: Iterable[PinnedMod]) -> dict[str, Provider]:
+        """Map each case-folded GUID the pins provide, as their own GUID or a plugin they contain, to its pin."""
+        providers: dict[str, Provider] = {}
+        for pin in pins:
+            # A plugin's declared version wins over the release number for the pin's own GUID.
+            provided = {pin.guid.casefold(): pin.version}
+            provided.update((plugin.guid.casefold(), plugin.version)
+                            for plugin in self._artifact_plugins(pin.guid, self._downloaded_key(pin)))
+            for provided_guid, version in provided.items():
+                providers[provided_guid] = Provider(pin.guid, pin.enabled, version)
+        return providers
+
+    def _catalog_guid(self, guid: str) -> str | None:
+        entry = find_entry(self.catalog, guid)
+        if entry is None:
+            entry = next((item for item in self.catalog
+                          if any(alias.casefold() == guid.casefold() for alias in item.guids)), None)
+        return (entry.primary_guid or guid) if entry else None
+
+    def dependency_plan(self, pack_id: str, guid: str, key: str) -> DependencyPlan:
+        """Return what pinning the library artifact ``key`` of ``guid`` still needs in the pack."""
+        roots = self._requirements(guid, key)
+        if not roots:
+            return DependencyPlan(guid)  # Most mods need nothing, so the pack isn't read for them.
+        return plan_dependencies(
+            guid,
+            roots,
+            self._pack_providers(pin for pin in self.packs.get(pack_id).mods if pin.guid != guid),
+            lambda target: self._requirements(target, self._catalog_artifact_key(target)),
+            self._catalog_guid,
+        )
+
+    def imported_dependency_plan(self, pack_id: str, guids: Collection[str]) -> DependencyPlan:
+        """Return what the imported mods ``guids`` still need together in the pack."""
+        pack = self.packs.get(pack_id)
+        roots: list[Requirement] = []
+        for pin in pack.mods:
+            key = self._downloaded_key(pin)
+            if pin.enabled and key is not None and pin.guid in guids:
+                roots.extend(self._requirements(pin.guid, key))
+        return plan_dependencies(
+            pack.name, roots, self._pack_providers(pack.mods),
+            lambda target: self._requirements(target, self._catalog_artifact_key(target)),
+            self._catalog_guid,
+        )
+
+    def apply_dependency_plan(
+        self,
+        pack_id: str,
+        plan: DependencyPlan,
+        *,
+        add: bool = True,
+        progress: ProgressFn | None = None,
+        resolve_conflicts: ConflictResolver | None = None,
+        resolve_unowned_folders: UnownedFolderResolver | None = None,
+    ) -> None:
+        """Turn on the mods ``plan`` needs that are turned off and, with ``add``, update and download the rest.
+
+        Downloads go dependencies first, and the mods they need are added too.
+        """
+        for guid in plan.enable:
+            self._set_bulk_mod_enabled(pack_id, guid, True, resolve_conflicts)
+        if not add:
+            return
+        for guid in plan.update:
+            self.update_mod(pack_id, guid, progress=progress, resolve_conflicts=resolve_conflicts)
+        for guid in plan.download:
+            if self.packs.get(pack_id).find_mod(guid) is not None:
+                continue  # A mod added earlier in this plan pulled it in already.
+            self.install_mod(
+                pack_id, guid, progress=progress, resolve_conflicts=resolve_conflicts,
+                resolve_unowned_folders=resolve_unowned_folders, resolve_dependencies=add_dependencies,
+            )
+        if plan.missing:
+            log.warning("Not in the catalog, so not added for %s: %s", plan.mod, ", ".join(plan.missing))
 
     def set_mod_repo(self, guid: str, repo: str, pack_id: str | None = None) -> str:
         """Set the repository of ``guid`` and return its canonical URL.

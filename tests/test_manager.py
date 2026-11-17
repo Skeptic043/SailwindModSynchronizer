@@ -1689,3 +1689,82 @@ def test_pasted_repository_links_a_declared_plugin_without_renaming_it(paths: Ap
     assert pack.find_mod(guid).plugin_folders == ["FlightSpeed"]
     assert pack.find_mod("com.winter.ageofexploration").plugin_folders == ["AgeOfExploration"]
     manager.close()
+
+
+def _dependency_manager(paths: AppPaths, tmp_path: Path) -> Manager:
+    """Return a manager whose catalog and library have a consumer mod that declares a hard dependency on an API."""
+    from plugin_metadata_fixture import managed_dll
+
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = []
+    for guid, name, deps in (
+        ("com.example.consumer", "Consumer", (("com.example.api", 1),)),
+        ("com.example.api", "Example API", ()),
+    ):
+        repo = f"https://github.com/example/{name.replace(' ', '')}"
+        manager.catalog.append(CatalogEntry(name=name, repo=repo, guids=[guid], primary_guid=guid,
+                                            latest_raw="v1.0.0", latest_version="1.0.0", available=True))
+        archive = _zip_with(tmp_path / f"{name}.zip", {
+            f"{name}/{name}.dll": managed_dll(((guid, name, "1.0.0"),), dependencies=deps),
+        })
+        manager.library.ingest_mod_zip(guid, "1.0.0", archive, version_raw="v1.0.0", repo=repo,
+                                       source_url=f"{repo}/releases/download/v1.0.0/{name}.zip")
+    return manager
+
+
+@pytest.mark.parametrize("answer, pinned", [
+    (True, ["com.example.api", "com.example.consumer"]),
+    (False, ["com.example.consumer"]),
+])
+def test_adding_a_mod_offers_its_required_mods(
+    paths: AppPaths, tmp_path: Path, answer: bool, pinned: list[str]
+) -> None:
+    manager = _dependency_manager(paths, tmp_path)
+    pack = manager.packs.create("Deps")
+    asked = []
+
+    manager.install_mod(pack.id, "com.example.consumer",
+                        resolve_dependencies=lambda plan: asked.append(plan) or answer)
+
+    assert [plan.download for plan in asked] == [["com.example.api"]]
+    assert [mod.guid for mod in manager.packs.get(pack.id).mods] == pinned
+    manager.close()
+
+
+def test_a_turned_off_required_mod_comes_back_on_without_asking(paths: AppPaths, tmp_path: Path) -> None:
+    manager = _dependency_manager(paths, tmp_path)
+    pack = manager.packs.create("Deps")
+    manager.add_library_mod_to_pack(pack.id, "com.example.api", "1.0.0")
+    manager.set_mod_enabled(pack.id, "com.example.api", False)
+
+    manager.install_mod(pack.id, "com.example.consumer", resolve_dependencies=lambda plan: pytest.fail("asked"))
+
+    assert manager.packs.get(pack.id).find_mod("com.example.api").enabled
+    manager.close()
+
+
+def test_cancelling_the_dependency_question_changes_nothing(paths: AppPaths, tmp_path: Path) -> None:
+    from sailwind_mod_sync.manager import ChangeCancelled
+
+    manager = _dependency_manager(paths, tmp_path)
+    pack = manager.packs.create("Deps")
+    with pytest.raises(ChangeCancelled):
+        manager.install_mod(pack.id, "com.example.consumer", resolve_dependencies=lambda plan: None)
+    assert manager.packs.get(pack.id).mods == []
+    manager.close()
+
+
+def test_imported_mods_get_what_they_need(paths: AppPaths, tmp_path: Path) -> None:
+    manager = _dependency_manager(paths, tmp_path)
+    pack = manager.packs.create("Shared")
+    manager.add_library_mod_to_pack(pack.id, "com.example.consumer", "1.0.0")
+    # Mods without a readable download, like this one, are left alone.
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.example.unknown", version="1.0.0"))
+
+    assert not manager.imported_dependency_plan(pack.id, ["com.example.unknown"])
+    plan = manager.imported_dependency_plan(pack.id, ["com.example.consumer"])
+    assert plan.download == ["com.example.api"]
+    manager.apply_dependency_plan(pack.id, plan)
+    assert {mod.guid for mod in manager.packs.get(pack.id).mods} >= {"com.example.api", "com.example.consumer"}
+    assert not manager.imported_dependency_plan(pack.id, ["com.example.consumer"])
+    manager.close()

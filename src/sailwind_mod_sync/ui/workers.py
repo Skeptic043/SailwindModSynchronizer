@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 from sailwind_mod_sync.catalog.github import GitHubDownloadError
 from sailwind_mod_sync.http_util import ProgressFn
+from sailwind_mod_sync.manager import ChangeCancelled
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,11 @@ def run_background(fn: Callable[[ProgressFn], object], bridge: TaskBridge) -> th
         log.info("Background task started")
         try:
             result = fn(_progress(bridge))
+        except ChangeCancelled:
+            # The player chose Cancel when asked; nothing changed and there is nothing to report.
+            log.info("Background task cancelled when asked")
+            bridge.finished.emit(None)
+            return
         except Exception as exc:
             log.exception("Background task failed")
             if isinstance(exc, GitHubDownloadError):
