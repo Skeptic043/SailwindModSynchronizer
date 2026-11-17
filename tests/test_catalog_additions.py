@@ -904,6 +904,20 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/VoyageRecorder/VoyageRecorder.dll",
         ),
     ),
+    (
+        "Viking-D-Mike/ThrowingHooks",
+        "vikingdmike.grapplinghook",
+        "v1.0.0",
+        "VDMThrowingHooks-1.0.0.zip",
+        (
+            "README.md",
+            "CHANGELOG.md",
+            "manifest.json",
+            "icon.png",
+            "GarfioMod.dll",
+            "garfio_bundle",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -929,6 +943,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "FluffyJesus/Sail-Customization": "SailEmblems",
     "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
     "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
+    "Viking-D-Mike/ThrowingHooks": "GarfioMod",
 }
 
 
