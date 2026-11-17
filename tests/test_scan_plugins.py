@@ -8,7 +8,7 @@ import pytest
 from plugin_metadata_fixture import managed_dll, native_dll
 
 from sailwind_mod_sync.catalog.mvc import merge_catalog
-from sailwind_mod_sync.game.plugin_metadata import read_plugin_metadata
+from sailwind_mod_sync.game.plugin_metadata import PluginDependency, read_plugin_metadata
 from sailwind_mod_sync.game.scan_plugins import (
     AmbiguousPluginError,
     apply_catalog_identity,
@@ -412,6 +412,24 @@ def test_ambiguity_is_reported_for_import_and_does_not_abort_tree_scan(tmp_path:
         zf.writestr("Bundle/Bundle.dll", dll.read_bytes())
     with pytest.raises(AmbiguousPluginError, match="Multiple plugin identities"):
         discover_local_file(archive)
+
+
+def test_reads_declared_dependencies_and_incompatibilities(tmp_path: Path) -> None:
+    dll = tmp_path / "Consumer.dll"
+    dll.write_bytes(managed_dll(
+        (("com.example.consumer", "Consumer", "1.0.0"),),
+        dependencies=(("com.example.api", "2.0.0"), ("com.example.hard", 1), ("com.example.soft", 2), ("com.example.both", 3)),
+        incompatibilities=("com.example.old",),
+    ))
+    plugin, = read_plugin_metadata(dll).plugins
+    assert plugin.guid == "com.example.consumer"
+    assert plugin.dependencies == (
+        PluginDependency("com.example.api", True, "2.0.0"),
+        PluginDependency("com.example.hard", True),
+        PluginDependency("com.example.soft", False),
+        PluginDependency("com.example.both", True),
+    )
+    assert plugin.incompatibilities == ("com.example.old",)
 
 
 @pytest.mark.parametrize("bad", [b"\x00\x00", b"\x01\x00\xff", b"\x01\x00\x01a", b"\x01\x00\xe0"])

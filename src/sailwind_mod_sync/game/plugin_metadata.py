@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -16,10 +16,19 @@ MAX_METADATA_ROWS = 1_000_000
 
 
 @dataclass(frozen=True)
+class PluginDependency:
+    guid: str
+    hard: bool
+    minimum_version: str = ""
+
+
+@dataclass(frozen=True)
 class PluginMetadata:
     guid: str
     name: str
     version: str
+    dependencies: tuple[PluginDependency, ...] = ()
+    incompatibilities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,6 +77,74 @@ def _identity(blob: bytes) -> PluginMetadata:
     return PluginMetadata(guid, name, version)
 
 
+# BepInEx DependencyFlags: HardDependency = 1, SoftDependency = 2.
+_HARD_DEPENDENCY = 1
+
+
+def _ser_strings(blob: bytes, count: int, tail: int = 0) -> tuple[list[str | None], bytes]:
+    """Decode ``count`` SerStrings after the prolog and return them with the ``tail`` bytes that follow."""
+    if blob[:2] != b"\x01\x00":
+        raise ValueError("Unsupported attribute prolog")
+    offset = 2
+    values: list[str | None] = []
+    for _ in range(count):
+        if offset < len(blob) and blob[offset] == 0xFF:
+            values.append(None)
+            offset += 1
+            continue
+        size, offset = _compressed_uint(blob, offset)
+        if offset + size > len(blob):
+            raise ValueError("Truncated attribute string")
+        values.append(blob[offset:offset + size].decode("utf-8", errors="strict"))
+        offset += size
+    rest = blob[offset:offset + tail]
+    if len(rest) != tail or blob[offset + tail:] != b"\x00\x00":
+        raise ValueError("Unsupported attribute arguments")
+    return values, rest
+
+
+def _dependency(signature: bytes, blob: bytes) -> PluginDependency | None:
+    """Decode either BepInDependency constructor, or None for a shape this reader doesn't know."""
+    if len(blob) > MAX_ATTRIBUTE_BYTES:
+        return None
+    try:
+        if signature == b"\x20\x02\x01\x0e\x0e":  # (string guid, string minimumVersion): always hard.
+            (guid, minimum), _ = _ser_strings(blob, 2)
+            return PluginDependency(guid, True, minimum or "") if guid else None
+        if signature.startswith(b"\x20\x02\x01\x0e\x11"):  # (string guid, DependencyFlags flags)
+            (guid,), flags = _ser_strings(blob, 1, tail=4)
+            if not guid:
+                return None
+            # BepInEx treats a dependency as hard whenever the HardDependency bit is set.
+            return PluginDependency(guid, bool(int.from_bytes(flags, "little") & _HARD_DEPENDENCY))
+    except ValueError:
+        return None
+    return None
+
+
+def _incompatibility(signature: bytes, blob: bytes) -> str | None:
+    if signature != b"\x20\x01\x01\x0e" or len(blob) > MAX_ATTRIBUTE_BYTES:
+        return None
+    try:
+        (guid,), _ = _ser_strings(blob, 1)
+    except ValueError:
+        return None
+    return guid or None
+
+
+def folder_plugins(folder: Path) -> list[PluginMetadata]:
+    """Return the plugins every DLL under ``folder`` declares."""
+    if not folder.is_dir():
+        return []
+    return [plugin for dll in sorted(folder.rglob("*.dll")) for plugin in read_plugin_metadata(dll).plugins]
+
+
+def outside_dependencies(plugins: list[PluginMetadata]) -> list[PluginDependency]:
+    """Return what ``plugins`` depend on that isn't one of them, such as the other mods a download needs."""
+    own = {plugin.guid for plugin in plugins}
+    return [dependency for plugin in plugins for dependency in plugin.dependencies if dependency.guid not in own]
+
+
 def read_plugin_metadata(path: Path) -> MetadataResult:
     """Return declared type attributes, or a bounded classification for fallback.
 
@@ -98,7 +175,9 @@ def read_plugin_metadata(path: Path) -> MetadataResult:
         attributes = tables.CustomAttribute
         if attributes is None:
             return MetadataResult("managed-helper")
-        plugins: list[PluginMetadata] = []
+        plugins: list[tuple[int, PluginMetadata]] = []
+        dependencies: dict[int, list[PluginDependency]] = {}
+        incompatibilities: dict[int, list[str]] = {}
         method_owners: dict[int, TypeDefRow] | None = None
         for attribute in attributes.rows:
             parent = attribute.Parent.row
@@ -117,13 +196,33 @@ def read_plugin_metadata(path: Path) -> MetadataResult:
                 return MetadataResult("unsupported")
             if not isinstance(declaring_type, (TypeRefRow, TypeDefRow)):
                 return MetadataResult("unsupported")
-            if (str(declaring_type.TypeNamespace), str(declaring_type.TypeName)) != ("BepInEx", "BepInPlugin"):
+            name = (str(declaring_type.TypeNamespace), str(declaring_type.TypeName))
+            if name == ("BepInEx", "BepInDependency"):
+                # A dependency this reader can't decode is left out; it never hides the plugin itself.
+                found = _dependency(constructor.Signature.value, attribute.Value.value)
+                if found is not None:
+                    dependencies.setdefault(id(parent), []).append(found)
+                continue
+            if name == ("BepInEx", "BepInIncompatibility"):
+                found = _incompatibility(constructor.Signature.value, attribute.Value.value)
+                if found is not None:
+                    incompatibilities.setdefault(id(parent), []).append(found)
+                continue
+            if name != ("BepInEx", "BepInPlugin"):
                 continue
             # HASTHIS, 3 parameters, void return, three System.String arguments.
             if str(constructor.Name) != ".ctor" or constructor.Signature.value != b"\x20\x03\x01\x0e\x0e\x0e":
                 return MetadataResult("unsupported")
-            plugins.append(_identity(attribute.Value.value))
-        return MetadataResult("plugin", tuple(plugins)) if plugins else MetadataResult("managed-helper")
+            plugins.append((id(parent), _identity(attribute.Value.value)))
+        found_plugins = tuple(
+            replace(
+                plugin,
+                dependencies=tuple(dependencies.get(owner, ())),
+                incompatibilities=tuple(incompatibilities.get(owner, ())),
+            )
+            for owner, plugin in plugins
+        )
+        return MetadataResult("plugin", found_plugins) if found_plugins else MetadataResult("managed-helper")
     except (OSError, ValueError, TypeError, AttributeError, IndexError, KeyError,
             OverflowError, struct.error, dnfile.PEFormatError, dnfile.errors.dnFormatError):
         return MetadataResult("unsupported")

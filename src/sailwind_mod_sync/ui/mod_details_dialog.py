@@ -52,6 +52,9 @@ class ModDetailsDialog(QDialog):
         self.available = _selectable("Checking…" if details.repo else "—")
         form.addRow("Available releases", self.available)
         form.addRow("In packs", _selectable(_format_packs(details.pack_pins)))
+        form.addRow("Requires", _selectable(_format_mods(details.required_mods)))
+        form.addRow("Optional", _selectable(_format_mods(details.optional_mods)))
+        form.addRow("Incompatible with", _selectable(_format_mods(details.incompatible_mods)))
 
         self.status = QLabel("" if details.repo else "No repository URL. Use Add Repository, then open details again.")
         self.status.setWordWrap(True)
@@ -166,6 +169,12 @@ def _format_packs(pins: list[tuple[str, str]]) -> str:
     if not pins:
         return "Not in any pack"
     return ", ".join(f"{name} ({version})" for name, version in pins)
+
+
+def _format_mods(mods: list[str] | None) -> str:
+    if mods is None:
+        return "Shown after download"
+    return ", ".join(mods) if mods else "None"
 
 
 def _set_readme(browser: QTextBrowser, text: str) -> None:

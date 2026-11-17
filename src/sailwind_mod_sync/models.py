@@ -346,6 +346,10 @@ class ModDetails:
     installed_versions: list[str]
     catalog_latest: str | None
     pack_pins: list[tuple[str, str]] = field(default_factory=list)
+    # Declared by the downloaded DLLs; None until the mod is downloaded.
+    required_mods: list[str] | None = None
+    optional_mods: list[str] | None = None
+    incompatible_mods: list[str] | None = None
 
 
 @dataclass

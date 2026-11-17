@@ -45,6 +45,7 @@ from sailwind_mod_sync.game.saves import (
 from sailwind_mod_sync.game.bepinex import doorstop_installed, install_doorstop, write_doorstop_config
 from sailwind_mod_sync.game.detect import detect_game_path, resolve_game_dir
 from sailwind_mod_sync.game.launch import launch_modded, launch_vanilla
+from sailwind_mod_sync.game.plugin_metadata import folder_plugins, outside_dependencies
 from sailwind_mod_sync.game.scan_plugins import declares_guid, discover_local_file, is_guessed_guid, scan_plugins_dir
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
@@ -610,6 +611,7 @@ class Manager:
             if entry.guid == guid and entry.version == version:
                 size = entry.size_bytes
                 break
+        required, optional, incompatible = self._declared_relations(self.library.mod_extracted(guid, version))
         return ModDetails(
             guid=guid,
             version=version,
@@ -624,6 +626,41 @@ class Manager:
             installed_versions=installed,
             catalog_latest=(catalog.latest_raw if catalog else None),
             pack_pins=pack_pins,
+            required_mods=required,
+            optional_mods=optional,
+            incompatible_mods=incompatible,
+        )
+
+    def _declared_relations(self, extracted: Path) -> tuple[list[str], list[str], list[str]]:
+        """Return the required, optional and incompatible mods the DLLs in ``extracted`` declare, by name.
+
+        Plugins the download itself contains are left out, and a mod both required and optional is required.
+        """
+        plugins = folder_plugins(extracted)
+        hard: dict[str, str] = {}
+        soft: set[str] = set()
+        for dependency in outside_dependencies(plugins):
+            if dependency.hard:
+                hard[dependency.guid] = max(hard.get(dependency.guid, ""), dependency.minimum_version, key=version_key)
+            else:
+                soft.add(dependency.guid)
+        soft -= set(hard)
+        own = {plugin.guid for plugin in plugins}
+        incompatible = {guid for plugin in plugins for guid in plugin.incompatibilities if guid not in own}
+        library = self.library.list_mods()
+        known = {entry.guid for entry in library}
+
+        def label(guid: str, minimum: str = "") -> str:
+            # Only a mod the catalog or library knows has a real name; otherwise the GUID says more than a guess.
+            name = (self.mod_display_name(guid, library_entries=library)
+                    if guid in known or find_entry(self.catalog, guid) else guid)
+            text = guid if name == guid else f"{name} ({guid})"
+            return f"{text}, {minimum} or newer" if minimum else text
+
+        return (
+            sorted((label(guid, minimum) for guid, minimum in hard.items()), key=str.casefold),
+            sorted((label(guid) for guid in soft), key=str.casefold),
+            sorted((label(guid) for guid in incompatible), key=str.casefold),
         )
 
     def catalog_mod_details(self, guid: str, repo: str = "") -> ModDetails:

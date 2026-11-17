@@ -20,11 +20,15 @@ def managed_dll(
     plugins: tuple[tuple[str, str, str], ...] = (("private.example.plugin", "Example", "1.2.3"),),
     *, nested: bool = False, bad_attribute: bytes | None = None,
     attribute_namespace: str = "BepInEx", local_constructor: bool = False,
+    dependencies: tuple[tuple[str, str | int], ...] = (), incompatibilities: tuple[str, ...] = (),
 ) -> bytes:
     """Build only metadata needed to describe plugin and dependency attributes.
 
     Literals model what the C# compiler emits for attribute constant arguments.
     Nested TypeDefs prove discovery doesn't depend on top-level type traversal.
+    Each plugin type also gets ``dependencies`` as real BepInDependency attributes (a string second value uses
+    the (guid, minimum version) constructor, an int the (guid, DependencyFlags) one) and ``incompatibilities``
+    as BepInIncompatibility attributes.
     """
     strings = bytearray(b"\x00")
     blobs = bytearray(b"\x00")
@@ -39,13 +43,23 @@ def managed_dll(
         blobs.extend(_compressed(len(value)) + value)
         return index
 
+    def ser(value: str) -> bytes:
+        return _compressed(len(value.encode("utf-8"))) + value.encode("utf-8")
+
     def identity(values: tuple[str, str, str]) -> bytes:
-        return b"\x01\x00" + b"".join(_compressed(len(v.encode("utf-8"))) + v.encode("utf-8") for v in values) + b"\x00\x00"
+        return b"\x01\x00" + b"".join(ser(v) for v in values) + b"\x00\x00"
+
+    def dependency(guid: str, second: str | int) -> tuple[int, bytes]:
+        """Return the MemberRef row (1-based) of the constructor and the attribute value."""
+        if isinstance(second, str):
+            return 3, b"\x01\x00" + ser(guid) + ser(second) + b"\x00\x00"
+        return 4, b"\x01\x00" + ser(guid) + struct.pack("<i", second) + b"\x00\x00"
 
     plugin_sig = blob(b"\x20\x03\x01\x0e\x0e\x0e")
     ctor_name = string(".ctor")
     namespace = string(attribute_namespace)
-    refs = [struct.pack("<HHH", 0, string(name), namespace) for name in ("BepInPlugin", "BepInDependency", "BaseUnityPlugin")]
+    refs = [struct.pack("<HHH", 0, string(name), namespace)
+            for name in ("BepInPlugin", "BepInDependency", "BaseUnityPlugin", "BepInIncompatibility")]
     definitions = [struct.pack("<IHHHHH", 0, string("<Module>"), 0, 0, 1, 1)]
     for number in range(max(1, len(plugins))):
         definitions.append(struct.pack("<IHHHHH", 2 if nested else 1, string(f"Plugin{number}"), string("Fixtures"), (3 << 2) | 1, 1, 1))
@@ -54,12 +68,22 @@ def managed_dll(
     members = [
         struct.pack("<HHH", (1 << 3) | 1, ctor_name, plugin_sig),
         struct.pack("<HHH", (2 << 3) | 1, ctor_name, plugin_sig),
+        # The real constructors: BepInDependency(string, string), BepInDependency(string, DependencyFlags) and
+        # BepInIncompatibility(string).
+        struct.pack("<HHH", (2 << 3) | 1, ctor_name, blob(b"\x20\x02\x01\x0e\x0e")),
+        struct.pack("<HHH", (2 << 3) | 1, ctor_name, blob(b"\x20\x02\x01\x0e\x11" + _compressed((2 << 2) | 1))),
+        struct.pack("<HHH", (4 << 3) | 1, ctor_name, blob(b"\x20\x01\x01\x0e")),
     ]
     attributes = []
     for number, values in enumerate(plugins):
         parent = ((number + 2) << 5) | 3  # HasCustomAttribute TypeDef tag.
         attributes.append(struct.pack("<HHH", parent, (1 << 3) | (2 if local_constructor else 3), blob(bad_attribute if bad_attribute is not None else identity(values))))
         attributes.append(struct.pack("<HHH", parent, (2 << 3) | 3, blob(identity(("com.dependency.fake", "Decoy 9.9.9", "9.9.9")))))
+        for guid, second in dependencies:
+            member, value = dependency(guid, second)
+            attributes.append(struct.pack("<HHH", parent, (member << 3) | 3, blob(value)))
+        for guid in incompatibilities:
+            attributes.append(struct.pack("<HHH", parent, (5 << 3) | 3, blob(b"\x01\x00" + ser(guid) + b"\x00\x00")))
     rows = {
         0: [struct.pack("<HHHHH", 0, string("Fixture.dll"), 1, 0, 0)],
         1: refs, 2: definitions, 10: members,

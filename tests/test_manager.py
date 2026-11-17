@@ -806,6 +806,36 @@ def test_local_mod_details_lists_installed_versions(paths: AppPaths, tmp_path: P
     manager.close()
 
 
+
+def test_local_mod_details_lists_declared_dependencies(paths: AppPaths, tmp_path: Path) -> None:
+    from plugin_metadata_fixture import managed_dll
+
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = [
+        CatalogEntry(repo="https://github.com/example/api", guids=["com.example.api"], primary_guid="com.example.api",
+                     name="Example API", latest_raw="v2.1.0", latest_version="2.1.0", available=True),
+    ]
+    consumer = managed_dll(
+        (("com.example.consumer", "Consumer", "1.0.0"),),
+        dependencies=(("com.example.api", "2.0.0"), ("com.example.extra", 2), ("com.example.helper", 1)),
+        incompatibilities=("com.example.old",),
+    )
+    # A plugin shipped in the same download satisfies its own dependency and isn't listed.
+    helper = managed_dll((("com.example.helper", "Helper", "1.0.0"),))
+    archive = _zip_with(tmp_path / "consumer.zip", {"Consumer/Consumer.dll": consumer, "Consumer/Helper.dll": helper})
+    manager.library.ingest_mod_zip(
+        "com.example.consumer", "1.0.0", archive, version_raw="v1.0.0",
+        repo="https://github.com/example/consumer", source_url="https://example/consumer.zip",
+    )
+
+    details = manager.local_mod_details("com.example.consumer", "1.0.0")
+
+    assert details.required_mods == ["Example API (com.example.api), 2.0.0 or newer"]
+    assert details.optional_mods == ["com.example.extra"]
+    assert details.incompatible_mods == ["com.example.old"]
+    manager.close()
+
+
 def test_catalog_mod_details_without_download(paths: AppPaths) -> None:
     manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
     manager.catalog = [
@@ -831,6 +861,7 @@ def test_catalog_mod_details_without_download(paths: AppPaths) -> None:
     assert details.catalog_latest == "v1.2.0"
     assert details.installed_versions == []
     assert details.pack_pins == [("Crew", "1.0.0")]
+    assert details.required_mods is None
     manager.close()
 
 
