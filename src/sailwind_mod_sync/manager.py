@@ -48,10 +48,17 @@ from sailwind_mod_sync.game.launch import launch_modded, launch_vanilla
 from sailwind_mod_sync.game.scan_plugins import declares_guid, discover_local_file, is_guessed_guid, scan_plugins_dir
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
-from sailwind_mod_sync.library.download import ensure_bepinex, ensure_mod_artifact
+from sailwind_mod_sync.library.download import ensure_bepinex, ensure_bundled_player_model, ensure_mod_artifact
 from sailwind_mod_sync.library.hashing import dir_size
 from sailwind_mod_sync.library.name_discovery import record_library_plugin_names
-from sailwind_mod_sync.library.special_mods import artifact_ready, coop_dll_search_path, known_repo_for
+from sailwind_mod_sync.library.special_mods import (
+    COOP_GUID,
+    PLAYER_MODEL_GUID,
+    artifact_ready,
+    coop_dll_search_path,
+    is_coop_guid,
+    known_repo_for,
+)
 from sailwind_mod_sync.library.store import LibraryStore, artifact_source, source_matches
 from sailwind_mod_sync.logutil import log_duration, setup_logging
 from sailwind_mod_sync.models import (
@@ -63,6 +70,7 @@ from sailwind_mod_sync.models import (
     RemoteModInfo,
     catalog_mod_name,
     display_mod_name,
+    is_newer,
     update_target,
     version_id,
     version_key,
@@ -804,6 +812,11 @@ class Manager:
         meta = self.library.read_mod_meta(guid, key)
         if meta is None:
             raise FileNotFoundError(f"{guid} {key} is not in the library")
+        if is_coop_guid(guid):
+            self._pin_bundled_player_model(
+                pack_id, key, progress=progress, resolve_conflicts=resolve_conflicts,
+                resolve_unowned_folders=resolve_unowned_folders,
+            )
         if progress:
             progress(f"Adding {guid} {meta.version} to the pack…")
         pack = self.packs.get(pack_id)
@@ -822,6 +835,40 @@ class Manager:
             resolve_unowned_folders=resolve_unowned_folders,
         )
         return pinned
+
+    def _pin_bundled_player_model(
+        self,
+        pack_id: str,
+        coop_key: str,
+        *,
+        progress: ProgressFn | None,
+        resolve_conflicts: ConflictResolver | None,
+        resolve_unowned_folders: UnownedFolderResolver | None,
+    ) -> None:
+        """Pin the Player Model bundled with Co-op ``coop_key`` as its own mod, before Co-op itself.
+
+        A newer Player Model pin stays. Player Model is enabled with an enabled or new Co-op, and a Player Model
+        added beside a disabled Co-op starts disabled too.
+        """
+        key = ensure_bundled_player_model(self.library, coop_key)
+        if key is None:
+            return
+        pack = self.packs.get(pack_id)
+        coop = pack.find_mod(COOP_GUID)
+        coop_enabled = coop is None or coop.enabled
+        current = pack.find_mod(PLAYER_MODEL_GUID)
+        bundled = self.library.read_mod_meta(PLAYER_MODEL_GUID, key)
+        if bundled is not None and (current is None or is_newer(bundled.version, current.version)):
+            added = current is None
+            current = self.add_library_mod_to_pack(
+                pack_id, PLAYER_MODEL_GUID, key, progress=progress, resolve_conflicts=resolve_conflicts,
+                resolve_unowned_folders=resolve_unowned_folders,
+            )
+            if added and not coop_enabled:
+                self._set_bulk_mod_enabled(pack_id, PLAYER_MODEL_GUID, False, resolve_conflicts)
+                return
+        if current is not None and not current.enabled and coop_enabled:
+            self._set_bulk_mod_enabled(pack_id, PLAYER_MODEL_GUID, True, resolve_conflicts)
 
     def set_mod_repo(self, guid: str, repo: str, pack_id: str | None = None) -> str:
         """Set the repository of ``guid`` and return its canonical URL.

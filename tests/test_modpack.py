@@ -62,6 +62,40 @@ def test_export_import_bundle(paths: AppPaths, tmp_path: Path) -> None:
     assert library.has_mod("com.dizzy.sailwind.gamma", "0.3.3")
 
 
+
+def test_bundle_round_trip_keeps_coop_and_player_model_folders_apart(paths: AppPaths, tmp_path: Path) -> None:
+    from plugin_metadata_fixture import coop_release_files
+
+    from sailwind_mod_sync.library.download import ensure_bundled_player_model
+    from sailwind_mod_sync.library.special_mods import COOP_GUID, COOP_REPO, PLAYER_MODEL_GUID
+
+    library = LibraryStore(paths)
+    release = tmp_path / "SailwindCoop-v0.6.0.zip"
+    with zipfile.ZipFile(release, "w") as zf:
+        for name, data in coop_release_files("0.6.0", "0.2.0").items():
+            zf.writestr(name, data)
+    library.ingest_mod_zip(
+        COOP_GUID, "0.6.0", release, version_raw="v0.6.0", repo=COOP_REPO,
+        source_url="https://example/coop.zip", keep_folders=["SailwindCoop"],
+    )
+    model_key = ensure_bundled_player_model(library, "0.6.0")
+    packs = PackStore(paths)
+    pack = packs.create("Co-op")
+    packs.upsert_mod(pack.id, PinnedMod(guid=COOP_GUID, version="0.6.0", plugin_folders=["SailwindCoop"]))
+    packs.upsert_mod(pack.id, PinnedMod(guid=PLAYER_MODEL_GUID, version=model_key, plugin_folders=["SailwindPlayerModel"]))
+    dest = tmp_path / "pack.zip"
+    packs.export_bundle(pack.id, dest, library)
+    library.delete_mod(COOP_GUID, "0.6.0")
+    library.delete_mod(PLAYER_MODEL_GUID, model_key)
+
+    packs.import_file(dest, library)
+
+    assert library.read_mod_meta(COOP_GUID, "0.6.0").plugin_folders == ["SailwindCoop"]
+    assert library.read_mod_meta(PLAYER_MODEL_GUID, model_key).plugin_folders == ["SailwindPlayerModel"]
+    extracted = library.mod_extracted(PLAYER_MODEL_GUID, model_key)
+    assert sorted(path.name for path in extracted.iterdir()) == ["SailwindPlayerModel"]
+
+
 def test_bundle_carries_bepinex_configs_and_extracted_only_mods(paths: AppPaths, tmp_path: Path) -> None:
     library = LibraryStore(paths)
     bx_archive = tmp_path / "bx.zip"

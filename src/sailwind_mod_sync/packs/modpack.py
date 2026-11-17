@@ -257,11 +257,13 @@ class PackStore:
                     repo = ""
                     source_url = ""
                     version_raw = version
+                    folders: list[str] = []
                     if meta_name in names:
                         meta = json.loads(zf.read(meta_name).decode("utf-8"))
                         repo = str(meta.get("repo") or "")
                         source_url = str(meta.get("source_url") or "")
                         version_raw = str(meta.get("version_raw") or version)
+                        folders = [str(name) for name in meta.get("plugin_folders") or []]
                     library.ingest_mod_zip(
                         guid,
                         version,
@@ -270,6 +272,7 @@ class PackStore:
                         repo=repo,
                         source_url=source_url,
                         filename=filename,
+                        keep_folders=folders or None,
                     )
                     log.info("Ingested bundle artifact %s %s", guid, version)
         log.info("Created pack %s (%s) from bundle with %s mod(s)", pack.id, pack.name, len(pack.mods))

@@ -116,3 +116,18 @@ def native_dll() -> bytes:
     data = bytearray(managed_dll(()))
     struct.pack_into("<II", data, 0x98 + 96 + 14 * 8, 0, 0)
     return bytes(data)
+
+
+def coop_release_files(coop_version: str, player_model_version: str) -> dict[str, bytes]:
+    """Lay out a Co-op release ZIP the way it ships: a BepInEx overlay that bundles Player Model."""
+    return {
+        "steam_api64.dll": b"steam-api",
+        "winhttp.dll": b"doorstop",
+        "BepInEx/plugins/SailwindCoop/SailwindCoop.dll": managed_dll(
+            (("com.sailwindcoop.mod", "Sailwind Coop", coop_version),)
+        ),
+        "BepInEx/plugins/SailwindCoop/Facepunch.Steamworks.Win64.dll": b"MZ",
+        "BepInEx/plugins/SailwindPlayerModel/SailwindPlayerModel.dll": managed_dll(
+            (("com.diamondminer99.playermodel", "Sailwind Player Model", player_model_version),)
+        ),
+    }

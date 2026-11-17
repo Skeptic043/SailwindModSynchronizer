@@ -11,7 +11,7 @@ import pytest
 from sailwind_mod_sync.catalog.mvc import find_entry
 from sailwind_mod_sync.config import AppConfig, load_config
 from sailwind_mod_sync.http_util import HttpClient, HttpError
-from sailwind_mod_sync.library.special_mods import COOP_GUID
+from sailwind_mod_sync.library.special_mods import COOP_GUID, COOP_REPO, PLAYER_MODEL_GUID, PLAYER_MODEL_REPO
 from sailwind_mod_sync.manager import Manager, TokenAuthError
 from sailwind_mod_sync.models import CatalogEntry, PinnedMod, RemoteRelease
 from sailwind_mod_sync.paths import AppPaths
@@ -463,6 +463,92 @@ def test_play_coop_pack_sets_dll_search_path(paths: AppPaths, tmp_path: Path) ->
     assert f"dll_search_path_override = {search}" in config
     assert (search / "steam_api64.dll").exists()
     assert not (game / "steam_api64.dll").exists()
+    manager.close()
+
+
+
+def _coop_manager(paths: AppPaths, tmp_path: Path, model_versions: tuple[str, ...] = ("0.2.0",)) -> Manager:
+    """Return a manager whose library has Co-op 0.6.0, which bundles Player Model 0.2.0, and standalone Player Models."""
+    from plugin_metadata_fixture import coop_release_files, managed_dll
+
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.catalog = [
+        CatalogEntry(name="SailwindCoop", repo=COOP_REPO, guids=[COOP_GUID], primary_guid=COOP_GUID,
+                     latest_raw="v0.6.0", latest_version="0.6.0", available=True, plugin_folders=["SailwindCoop"]),
+        CatalogEntry(name="Sailwind Player Model", repo=PLAYER_MODEL_REPO, guids=[PLAYER_MODEL_GUID],
+                     primary_guid=PLAYER_MODEL_GUID, latest_raw="v0.2.0", latest_version="0.2.0", available=True,
+                     plugin_folders=["SailwindPlayerModel"]),
+    ]
+    coop = _zip_with(tmp_path / "SailwindCoop-v0.6.0.zip", coop_release_files("0.6.0", "0.2.0"))
+    manager.library.ingest_mod_zip(
+        COOP_GUID, "0.6.0", coop, version_raw="v0.6.0", repo=COOP_REPO,
+        source_url=f"{COOP_REPO}/releases/download/v0.6.0/{coop.name}", keep_folders=["SailwindCoop"],
+    )
+    for version in model_versions:
+        model = _zip_with(tmp_path / f"SailwindPlayerModel-v{version}.zip", {
+            "BepInEx/plugins/SailwindPlayerModel/SailwindPlayerModel.dll": managed_dll(
+                ((PLAYER_MODEL_GUID, "Sailwind Player Model", version),)
+            ),
+        })
+        manager.library.ingest_mod_zip(
+            PLAYER_MODEL_GUID, version, model, version_raw=f"v{version}", repo=PLAYER_MODEL_REPO,
+            source_url=f"{PLAYER_MODEL_REPO}/releases/download/v{version}/{model.name}",
+        )
+    return manager
+
+
+@pytest.mark.parametrize("order", [(COOP_GUID,), (PLAYER_MODEL_GUID, COOP_GUID), (COOP_GUID, PLAYER_MODEL_GUID)])
+def test_coop_and_its_bundled_player_model_install_as_separate_mods(
+    paths: AppPaths, tmp_path: Path, order: tuple[str, ...]
+) -> None:
+    # Installing Player Model first uses its own release; installing Co-op first uses only the Co-op ZIP.
+    standalone = ("0.2.0",) if order[0] == PLAYER_MODEL_GUID else ()
+    manager = _coop_manager(paths, tmp_path, model_versions=standalone)
+    pack = manager.packs.create("Co-op")
+    for guid in order:
+        manager.install_mod(pack.id, guid)
+    pins = {mod.guid: mod for mod in manager.packs.get(pack.id).mods}
+    assert sorted(pins) == sorted([COOP_GUID, PLAYER_MODEL_GUID])
+    assert pins[COOP_GUID].plugin_folders == ["SailwindCoop"]
+    assert (pins[PLAYER_MODEL_GUID].version, pins[PLAYER_MODEL_GUID].repo) == ("0.2.0", PLAYER_MODEL_REPO)
+    assert pins[PLAYER_MODEL_GUID].plugin_folders == ["SailwindPlayerModel"]
+    assert all(mod.enabled for mod in pins.values())
+    plugins = manager.packs.plugins_dir(pack.id)
+    assert (plugins / "SailwindCoop" / "SailwindCoop.dll").is_file()
+    assert (plugins / "SailwindPlayerModel" / "SailwindPlayerModel.dll").is_file()
+    manager.close()
+
+
+def test_coop_version_change_upgrades_and_enables_player_model_but_never_downgrades(
+    paths: AppPaths, tmp_path: Path
+) -> None:
+    manager = _coop_manager(paths, tmp_path, model_versions=("0.1.7", "0.3.0"))
+    pack = manager.packs.create("Co-op")
+    manager.add_library_mod_to_pack(pack.id, PLAYER_MODEL_GUID, "0.1.7")
+    manager.set_mod_enabled(pack.id, PLAYER_MODEL_GUID, False)
+
+    manager.set_pack_mod_version(pack.id, COOP_GUID, "0.6.0", "v0.6.0")
+    model = manager.packs.get(pack.id).find_mod(PLAYER_MODEL_GUID)
+    assert (model.version, model.enabled) == ("0.2.0", True)
+
+    manager.add_library_mod_to_pack(pack.id, PLAYER_MODEL_GUID, "0.3.0")
+    manager.set_pack_mod_version(pack.id, COOP_GUID, "0.6.0", "v0.6.0")
+    assert manager.packs.get(pack.id).find_mod(PLAYER_MODEL_GUID).version == "0.3.0"
+    manager.close()
+
+
+def test_disabled_coop_adds_its_player_model_disabled(paths: AppPaths, tmp_path: Path) -> None:
+    manager = _coop_manager(paths, tmp_path, model_versions=())
+    pack = manager.packs.create("Co-op")
+    manager.packs.upsert_mod(pack.id, PinnedMod(
+        guid=COOP_GUID, version="0.5.0", repo=COOP_REPO, enabled=False, plugin_folders=["SailwindCoop"],
+    ))
+
+    manager.set_pack_mod_version(pack.id, COOP_GUID, "0.6.0", "v0.6.0")
+
+    model = manager.packs.get(pack.id).find_mod(PLAYER_MODEL_GUID)
+    assert (model.version, model.enabled) == ("0.2.0", False)
+    assert not (manager.packs.plugins_dir(pack.id) / "SailwindPlayerModel").exists()
     manager.close()
 
 

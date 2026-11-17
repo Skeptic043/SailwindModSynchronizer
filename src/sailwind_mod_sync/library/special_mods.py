@@ -9,6 +9,11 @@ COOP_REPO = "https://github.com/DiamondMiner99/sailwind-coop"
 COOP_PLUGIN_FOLDER = "SailwindCoop"
 STEAM_API_DLL = "steam_api64.dll"
 
+# Co-op release ZIPs bundle the Player Model it depends on; it is pinned as its own mod.
+PLAYER_MODEL_GUID = "com.diamondminer99.playermodel"
+PLAYER_MODEL_REPO = "https://github.com/DiamondMiner99/sailwind-playermodel"
+PLAYER_MODEL_PLUGIN_FOLDER = "SailwindPlayerModel"
+
 FAIL_DOWNLOAD_GUID = "com.sms.test.faildownload"
 FAIL_DOWNLOAD_REPO = "https://github.com/foxyv/SailwindModSynchronizer"
 FAIL_DOWNLOAD_ASSET = "BrokenDownloadTest.zip"
