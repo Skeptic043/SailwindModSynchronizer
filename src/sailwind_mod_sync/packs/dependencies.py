@@ -70,10 +70,29 @@ class DependencyPlan:
         return bool(self.download or self.update or self.missing)
 
 
-def rule_requirements(guids: Iterable[str]) -> list[Requirement]:
-    """Return what the rules say any of ``guids`` requires."""
+def rule_requirements(guids: Iterable[str], *, removal: bool = False) -> list[Requirement]:
+    """Return what the rules say any of ``guids`` requires; with ``removal``, also what they're pointless without."""
     wanted = {guid.casefold() for guid in guids}
-    return [Requirement(rule.needs) for rule in RULES if rule.required and rule.mod.casefold() in wanted]
+    return [Requirement(rule.needs) for rule in RULES
+            if (rule.required or removal) and rule.mod.casefold() in wanted]
+
+
+def dependents_of(target: str, needs: dict[str, list[str]]) -> list[str]:
+    """Return the pins that need ``target``, directly or through other pins, in order.
+
+    ``needs`` maps each pin GUID to the pins that provide what it requires.
+    """
+    gone = {target}
+    found: list[str] = []
+    changed = True
+    while changed:
+        changed = False
+        for pin, requirements in needs.items():
+            if pin not in gone and any(provider in gone for provider in requirements):
+                gone.add(pin)
+                found.append(pin)
+                changed = True
+    return found
 
 
 def plan_dependencies(

@@ -16,6 +16,49 @@ def dependency_lines(plan: DependencyPlan, display_name: Callable[[str], str]) -
     )
 
 
+def _joined(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
+
+
+def ask_dependents(name: str, dependents: list[str], action: str, parent: QWidget | None = None) -> bool | None:
+    """Ask whether to ``action`` (Remove or Disable) the mods that depend on ``name`` too.
+
+    True does it to them as well, False only to ``name``, None cancels.
+    """
+    single = len(dependents) == 1
+    box = QMessageBox(
+        QMessageBox.Icon.Question,
+        f"{action} {name}",
+        f"{_joined(dependents)} {'requires' if single else 'require'} {name} in order to work.",
+        QMessageBox.StandardButton.NoButton,
+        parent,
+    )
+    box.setInformativeText(f"Would you like to {action.lower()} {'it' if single else 'them'} too?")
+    also = box.addButton(action, QMessageBox.ButtonRole.AcceptRole)
+    keep = box.addButton("Keep", QMessageBox.ButtonRole.NoRole)
+    cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(also)
+    box.setEscapeButton(cancel)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is also:
+        return True
+    if clicked is keep:
+        return False
+    return None
+
+
+def ask_enable_required(name: str, required: list[str], parent: QWidget | None = None) -> bool:
+    """Ask whether to turn on the turned-off mods ``name`` requires along with it."""
+    names = _joined(required)
+    box = QMessageBox(QMessageBox.Icon.Question, f"Enable {name}", f"{name} requires {names}.",
+                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, parent)
+    box.setInformativeText(f"Do you wish to enable {names} too?")
+    box.setDefaultButton(QMessageBox.StandardButton.Yes)
+    box.setEscapeButton(QMessageBox.StandardButton.No)
+    return box.exec() == QMessageBox.StandardButton.Yes
+
+
 def ask_dependencies(
     plan: DependencyPlan,
     name: str,
@@ -40,7 +83,7 @@ def ask_dependencies(
     add = box.addButton("Add", QMessageBox.ButtonRole.AcceptRole)
     skip = None
     if actionable:
-        box.setInformativeText("Add them?" if imported else f"Add them too? Skip adds only {name}.")
+        box.setInformativeText("Add them?" if imported else "Add them too?")
         skip = box.addButton("Skip", QMessageBox.ButtonRole.RejectRole if imported else QMessageBox.ButtonRole.NoRole)
     cancel = None if imported else box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
     box.setDefaultButton(add)

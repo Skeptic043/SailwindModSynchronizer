@@ -1768,3 +1768,19 @@ def test_imported_mods_get_what_they_need(paths: AppPaths, tmp_path: Path) -> No
     assert {mod.guid for mod in manager.packs.get(pack.id).mods} >= {"com.example.api", "com.example.consumer"}
     assert not manager.imported_dependency_plan(pack.id, ["com.example.consumer"])
     manager.close()
+
+
+def test_dependents_include_removal_only_rules_and_skip_disabled_pins(paths: AppPaths, tmp_path: Path) -> None:
+    manager = _dependency_manager(paths, tmp_path)
+    pack = manager.packs.create("Deps")
+    manager.add_library_mod_to_pack(pack.id, "com.example.api", "1.0.0")
+    manager.add_library_mod_to_pack(pack.id, "com.example.consumer", "1.0.0")
+    # Pins without a download still count through the rules: Mug Fix is pointless without Old Chronian.
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.Aquilartz.OldChronian", version="1.0.0"))
+    manager.packs.upsert_mod(pack.id, PinnedMod(guid="com.nandbrew.ChronianMugFix", version="1.0.0"))
+
+    assert manager.dependents(pack.id, "com.example.api") == ["com.example.consumer"]
+    assert manager.dependents(pack.id, "com.Aquilartz.OldChronian") == ["com.nandbrew.ChronianMugFix"]
+    manager.set_mod_enabled(pack.id, "com.example.consumer", False)
+    assert manager.dependents(pack.id, "com.example.api", enabled_only=True) == []
+    manager.close()

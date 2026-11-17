@@ -76,3 +76,16 @@ def test_bundled_plugin_counts_as_installed_and_aliases_map_to_the_catalog() -> 
     assert plan.download == ["com.raddude.newname"]
     assert plan.missing == ["com.example.gone"]
     assert not plan.enable
+
+
+def test_dependents_follow_the_chain() -> None:
+    from sailwind_mod_sync.packs.dependencies import dependents_of
+
+    needs = {
+        REMOVE_FIRST_OFFICER: [VIRTUAL_CREW],
+        VIRTUAL_CREW: [MOD_SAVE_BACKUPS],
+        "com.johng.goodtiming": [MOD_SAVE_BACKUPS],
+        "com.example.unrelated": [],
+    }
+    assert dependents_of(MOD_SAVE_BACKUPS, needs) == [VIRTUAL_CREW, "com.johng.goodtiming", REMOVE_FIRST_OFFICER]
+    assert dependents_of("com.example.unrelated", needs) == []

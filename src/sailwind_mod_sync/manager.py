@@ -72,6 +72,7 @@ from sailwind_mod_sync.packs.dependencies import (
     DependencyPlan,
     Provider,
     Requirement,
+    dependents_of,
     plan_dependencies,
     rule_requirements,
 )
@@ -906,17 +907,35 @@ class Manager:
             self._plugin_cache[cache_key] = folder_plugins(self.library.mod_extracted(guid, key))
         return self._plugin_cache[cache_key]
 
-    def _requirements(self, guid: str, key: str | None) -> list[Requirement]:
-        """Return what ``guid`` needs: the hard dependencies its artifact declares, when there is one, and rules."""
+    def _requirements(self, guid: str, key: str | None, *, removal: bool = False) -> list[Requirement]:
+        """Return what ``guid`` needs: the hard dependencies its artifact declares, when there is one, and rules.
+
+        With ``removal``, also the mods the rules say it is pointless without.
+        """
         plugins = self._artifact_plugins(guid, key)
         declared = [Requirement(dependency.guid, dependency.minimum_version)
                     for dependency in outside_dependencies(plugins) if dependency.hard]
-        return declared + rule_requirements([guid, *(plugin.guid for plugin in plugins)])
+        return declared + rule_requirements([guid, *(plugin.guid for plugin in plugins)], removal=removal)
 
     def _downloaded_key(self, pin: PinnedMod) -> str | None:
         """Return the library key of the pin's version, or None while it isn't downloaded."""
         key = self.library.pinned_key(pin)
         return key if self.library.has_mod(pin.guid, key) else None
+
+    def dependents(self, pack_id: str, guid: str, *, enabled_only: bool = False) -> list[str]:
+        """Return the pins that depend on ``guid``, directly or through other pins, to offer removing or disabling.
+
+        With ``enabled_only``, only enabled pins count, since disabling an already disabled mod changes nothing.
+        """
+        pins = [pin for pin in self.packs.get(pack_id).mods if pin.enabled or not enabled_only]
+        providers = self._pack_providers(pins)
+        needs = {
+            pin.guid: [providers[item.guid.casefold()].pin_guid
+                       for item in self._requirements(pin.guid, self._downloaded_key(pin), removal=True)
+                       if item.guid.casefold() in providers]
+            for pin in pins
+        }
+        return dependents_of(guid, needs)
 
     def _catalog_artifact_key(self, guid: str) -> str | None:
         """Return the library key of the catalog version ``install_mod`` would pin, when it is downloaded already."""
