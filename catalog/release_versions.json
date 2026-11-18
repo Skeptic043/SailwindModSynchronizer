@@ -723,5 +723,10 @@
     "guid": "vikingdmike.grapplinghook",
     "repo": "https://github.com/Viking-D-Mike/ThrowingHooks",
     "version": "v1.0.0"
+  },
+  {
+    "guid": "com.terraincognita",
+    "repo": "https://github.com/FluffyJesus/Terra_Incognita",
+    "version": "0.1.0"
   }
 ]

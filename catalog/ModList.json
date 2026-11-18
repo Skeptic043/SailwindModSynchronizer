@@ -868,5 +868,11 @@
     "repo": "https://github.com/Viking-D-Mike/ThrowingHooks",
     "name": "Throwing Hooks",
     "plugin_folders": ["GarfioMod"]
+  },
+  {
+    "guid": "com.terraincognita",
+    "repo": "https://github.com/FluffyJesus/Terra_Incognita",
+    "name": "Terra Incognita",
+    "plugin_folders": ["TerraIncognita"]
   }
 ]
