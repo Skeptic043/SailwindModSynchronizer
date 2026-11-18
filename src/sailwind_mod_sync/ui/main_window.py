@@ -7,6 +7,7 @@ from functools import wraps
 import logging
 from pathlib import Path
 import subprocess
+import threading
 import time
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Slot
@@ -525,6 +526,10 @@ class MainWindow(QMainWindow):
         if pack_id:
             self.manager.config.last_pack_id = pack_id
             self.manager.save_config()
+            # Reading every mod's DLLs takes seconds in a large pack; do it now so removing or disabling doesn't wait.
+            threading.Thread(
+                target=self.manager.read_pack_plugins, args=(pack_id,), name="sailwind-mod-sync-plugins", daemon=True,
+            ).start()
         self._reload_views()
 
     @_unless_bulk_running

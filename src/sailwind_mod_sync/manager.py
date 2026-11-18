@@ -147,7 +147,7 @@ class Manager:
         self.http = http or HttpClient(self.config.token())
         self.library = LibraryStore(self.paths)
         self.packs = PackStore(self.paths)
-        self._plugin_cache: dict[tuple[str, str, str], list[PluginMetadata]] = {}
+        self._plugin_cache: dict[tuple[str, str, int], list[PluginMetadata]] = {}
         self.aliases = load_aliases(self.paths)
         self.catalog: list[CatalogEntry] = load_cached_catalog(self.paths) or []
         default_pack = self.packs.ensure_default()
@@ -901,8 +901,12 @@ class Manager:
         """Return the plugins the library artifact declares, read once per download; none without an artifact."""
         if key is None:
             return []
-        meta = self.library.read_mod_meta(guid, key)
-        cache_key = (guid, key, meta.sha256 if meta else "")
+        try:
+            # A new download into the same folder rewrites metadata.json, which a stat notices without reading it.
+            written = (self.library.mod_dir(guid, key) / "metadata.json").stat().st_mtime_ns
+        except OSError:
+            written = 0
+        cache_key = (guid, key, written)
         if cache_key not in self._plugin_cache:
             self._plugin_cache[cache_key] = folder_plugins(self.library.mod_extracted(guid, key))
         return self._plugin_cache[cache_key]
@@ -922,16 +926,25 @@ class Manager:
         key = self.library.pinned_key(pin)
         return key if self.library.has_mod(pin.guid, key) else None
 
+    def _downloaded_keys(self, pins: Iterable[PinnedMod]) -> dict[str, str | None]:
+        return {pin.guid: self._downloaded_key(pin) for pin in pins}
+
+    def read_pack_plugins(self, pack_id: str) -> None:
+        """Read the plugins of every downloaded mod in the pack ahead of time, so dependency checks find them cached."""
+        pins = self.packs.get(pack_id).mods
+        self._pack_providers(pins, self._downloaded_keys(pins))
+
     def dependents(self, pack_id: str, guid: str, *, enabled_only: bool = False) -> list[str]:
         """Return the pins that depend on ``guid``, directly or through other pins, to offer removing or disabling.
 
         With ``enabled_only``, only enabled pins count, since disabling an already disabled mod changes nothing.
         """
         pins = [pin for pin in self.packs.get(pack_id).mods if pin.enabled or not enabled_only]
-        providers = self._pack_providers(pins)
+        keys = self._downloaded_keys(pins)
+        providers = self._pack_providers(pins, keys)
         needs = {
             pin.guid: [providers[item.guid.casefold()].pin_guid
-                       for item in self._requirements(pin.guid, self._downloaded_key(pin), removal=True)
+                       for item in self._requirements(pin.guid, keys[pin.guid], removal=True)
                        if item.guid.casefold() in providers]
             for pin in pins
         }
@@ -945,14 +958,17 @@ class Manager:
         key = self.library.artifact_key(guid, entry.latest_version, entry.repo)
         return key if self.library.has_mod(guid, key) else None
 
-    def _pack_providers(self, pins: Iterable[PinnedMod]) -> dict[str, Provider]:
-        """Map each case-folded GUID the pins provide, as their own GUID or a plugin they contain, to its pin."""
+    def _pack_providers(self, pins: Iterable[PinnedMod], keys: dict[str, str | None]) -> dict[str, Provider]:
+        """Map each case-folded GUID the pins provide, as their own GUID or a plugin they contain, to its pin.
+
+        ``keys`` maps each pin GUID to its downloaded library key, as ``_downloaded_keys`` returns.
+        """
         providers: dict[str, Provider] = {}
         for pin in pins:
             # A plugin's declared version wins over the release number for the pin's own GUID.
             provided = {pin.guid.casefold(): pin.version}
             provided.update((plugin.guid.casefold(), plugin.version)
-                            for plugin in self._artifact_plugins(pin.guid, self._downloaded_key(pin)))
+                            for plugin in self._artifact_plugins(pin.guid, keys[pin.guid]))
             for provided_guid, version in provided.items():
                 providers[provided_guid] = Provider(pin.guid, pin.enabled, version)
         return providers
@@ -969,10 +985,11 @@ class Manager:
         roots = self._requirements(guid, key)
         if not roots:
             return DependencyPlan(guid)  # Most mods need nothing, so the pack isn't read for them.
+        others = [pin for pin in self.packs.get(pack_id).mods if pin.guid != guid]
         return plan_dependencies(
             guid,
             roots,
-            self._pack_providers(pin for pin in self.packs.get(pack_id).mods if pin.guid != guid),
+            self._pack_providers(others, self._downloaded_keys(others)),
             lambda target: self._requirements(target, self._catalog_artifact_key(target)),
             self._catalog_guid,
         )
@@ -980,13 +997,14 @@ class Manager:
     def imported_dependency_plan(self, pack_id: str, guids: Collection[str]) -> DependencyPlan:
         """Return what the imported mods ``guids`` still need together in the pack."""
         pack = self.packs.get(pack_id)
+        keys = self._downloaded_keys(pack.mods)
         roots: list[Requirement] = []
         for pin in pack.mods:
-            key = self._downloaded_key(pin)
+            key = keys[pin.guid]
             if pin.enabled and key is not None and pin.guid in guids:
                 roots.extend(self._requirements(pin.guid, key))
         return plan_dependencies(
-            pack.name, roots, self._pack_providers(pack.mods),
+            pack.name, roots, self._pack_providers(pack.mods, keys),
             lambda target: self._requirements(target, self._catalog_artifact_key(target)),
             self._catalog_guid,
         )

@@ -1784,3 +1784,25 @@ def test_dependents_include_removal_only_rules_and_skip_disabled_pins(paths: App
     manager.set_mod_enabled(pack.id, "com.example.consumer", False)
     assert manager.dependents(pack.id, "com.example.api", enabled_only=True) == []
     manager.close()
+
+
+def test_read_plugins_follow_a_new_download_of_the_same_version(paths: AppPaths, tmp_path: Path) -> None:
+    from plugin_metadata_fixture import managed_dll
+
+    manager = _dependency_manager(paths, tmp_path)
+    pack = manager.packs.create("Deps")
+    manager.add_library_mod_to_pack(pack.id, "com.example.api", "1.0.0")
+    manager.add_library_mod_to_pack(pack.id, "com.example.consumer", "1.0.0")
+    manager.read_pack_plugins(pack.id)
+    assert manager.dependents(pack.id, "com.example.api") == ["com.example.consumer"]
+
+    # The same release downloaded again no longer needs the API.
+    archive = _zip_with(tmp_path / "Consumer-fixed.zip", {
+        "Consumer/Consumer.dll": managed_dll((("com.example.consumer", "Consumer", "1.0.0"),)),
+    })
+    repo = "https://github.com/example/Consumer"
+    manager.library.ingest_mod_zip("com.example.consumer", "1.0.0", archive, version_raw="v1.0.0", repo=repo,
+                                   source_url=f"{repo}/releases/download/v1.0.0/Consumer.zip")
+
+    assert manager.dependents(pack.id, "com.example.api") == []
+    manager.close()
