@@ -904,6 +904,30 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/VoyageRecorder/VoyageRecorder.dll",
         ),
     ),
+    (
+        "Viking-D-Mike/ThrowingHooks",
+        "vikingdmike.grapplinghook",
+        "v1.0.0",
+        "VDMThrowingHooks-1.0.0.zip",
+        (
+            "README.md",
+            "CHANGELOG.md",
+            "manifest.json",
+            "icon.png",
+            "GarfioMod.dll",
+            "garfio_bundle",
+        ),
+    ),
+    (
+        "FluffyJesus/Terra_Incognita",
+        "com.terraincognita",
+        "0.1.0",
+        "TerraIncognita.zip",
+        (
+            "terra_incognita",
+            "TerraIncognita.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -929,6 +953,8 @@ RUNTIME_LAYOUT_FOLDERS = {
     "FluffyJesus/Sail-Customization": "SailEmblems",
     "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
     "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
+    "Viking-D-Mike/ThrowingHooks": "GarfioMod",
+    "FluffyJesus/Terra_Incognita": "TerraIncognita",
 }
 
 
@@ -1029,6 +1055,7 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
             name.lower().endswith(".dll")
             or ("/" in name and not name.startswith(("docs/", "licenses/", "Companion/")))
             or (repo == "Viking-D-Mike/MusicMod" and name == "laud_bundle")
+            or (repo == "FluffyJesus/Terra_Incognita" and name == "terra_incognita")
             or (
                 repo == "Dixiecapt/FurstMate"
                 and name in {"furstbird", "furstcat", "furstmate"}
