@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.8.1rc6 (2026-11-18)
+
+- Mod Details shows the mods a mod declares it needs
+- Adding a mod offers the mods it needs, and removing, disabling or enabling a mod checks what depends on it
+- Dependency checks are faster in large packs
+- Adding Co-op also adds its bundled Player Model as its own mod
+- GitHub prereleases are shown and can optionally be offered as mod updates
+- Added SailMaster, Sail Emblems, Sailor's Keepsakes, Voyage Recorder, Throwing Hooks and Terra Incognita to the catalog
+
 ## 0.8.0 (2026-11-10)
 
 - Mod versions keep their full text, such as `2.3.0F-4.1` or `0.9.6-beta1`, so two builds with the same numbers are downloaded and kept separately, and a beta no longer counts as its final release. Downloads you already have are still found.
