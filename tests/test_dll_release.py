@@ -5,11 +5,13 @@ from pathlib import Path
 
 from sailwind_mod_sync.catalog.github import GitHubDownloadError
 from sailwind_mod_sync.http_util import HttpClient, HttpError
-from sailwind_mod_sync.library.download import ensure_mod_artifact
+from sailwind_mod_sync.library.download import ensure_bundled_player_model, ensure_mod_artifact
 from sailwind_mod_sync.library.special_mods import (
     COOP_GUID,
     COOP_REPO,
     FAIL_DOWNLOAD_GUID,
+    PLAYER_MODEL_GUID,
+    PLAYER_MODEL_REPO,
     artifact_needs_refetch,
     artifact_ready,
     known_repo_for,
@@ -134,6 +136,38 @@ def test_refetches_incomplete_coop_artifact(paths: AppPaths, tmp_path: Path, mon
     plugin = store.mod_extracted(COOP_GUID, "0.3.2") / "SailwindCoop"
     assert (plugin / "steam_api64.dll").read_bytes() == b"steam-api"
     assert artifact_ready(store, COOP_GUID, "0.3.2")
+
+
+
+def test_coop_release_splits_into_coop_and_player_model_artifacts(paths: AppPaths, tmp_path: Path, monkeypatch) -> None:
+    from plugin_metadata_fixture import coop_release_files
+
+    store = LibraryStore(paths)
+    release = tmp_path / "SailwindCoop-v0.6.0.zip"
+    with zipfile.ZipFile(release, "w") as zf:
+        for name, data in coop_release_files("0.6.0", "0.2.0").items():
+            zf.writestr(name, data)
+    url = "https://github.com/DiamondMiner99/sailwind-coop/releases/download/v0.6.0/SailwindCoop-v0.6.0.zip"
+    monkeypatch.setattr(
+        "sailwind_mod_sync.library.download.fetch_release",
+        lambda *args, **kwargs: RemoteRelease(tag="v0.6.0", name="v0.6.0", assets=[ReleaseAsset(release.name, url)]),
+    )
+    coop = ensure_mod_artifact(
+        store, _FakeHttp(release.read_bytes()), guid=COOP_GUID, repo=COOP_REPO,
+        version="0.6.0", version_raw="v0.6.0", plugin_folders=["SailwindCoop"],
+    )
+
+    key = ensure_bundled_player_model(store, "0.6.0")
+
+    assert coop.plugin_folders == ["SailwindCoop"]
+    assert artifact_ready(store, COOP_GUID, "0.6.0")
+    assert key == "0.2.0"
+    model = store.read_mod_meta(PLAYER_MODEL_GUID, key)
+    assert (model.version, model.repo, model.source_url) == ("0.2.0", PLAYER_MODEL_REPO, url)
+    assert model.plugin_folders == ["SailwindPlayerModel"]
+    extracted = store.mod_extracted(PLAYER_MODEL_GUID, key)
+    assert sorted(path.name for path in extracted.iterdir()) == ["SailwindPlayerModel"]
+    assert not any(extracted.rglob("steam_api64.dll"))
 
 
 def test_fetches_release_by_version_when_tag_is_not_a_version(

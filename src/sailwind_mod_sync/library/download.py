@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -17,17 +18,22 @@ from sailwind_mod_sync.catalog.github import (
 from sailwind_mod_sync.catalog.thunderstore import download_bepinex_pack, latest_bepinex_version
 from sailwind_mod_sync.constants import DEFAULT_BEPINEX_VERSION
 from sailwind_mod_sync.http_util import HttpClient, ProgressFn
-from sailwind_mod_sync.library.extract import ExtractError
+from sailwind_mod_sync.game.plugin_metadata import read_plugin_metadata
+from sailwind_mod_sync.library.extract import ExtractError, normalize_plugin_archive
 from sailwind_mod_sync.library.special_mods import (
+    COOP_GUID,
     FAIL_DOWNLOAD_ASSET,
     FAIL_DOWNLOAD_REPO,
     FAIL_DOWNLOAD_VERSION,
+    PLAYER_MODEL_GUID,
+    PLAYER_MODEL_PLUGIN_FOLDER,
+    PLAYER_MODEL_REPO,
     artifact_needs_refetch,
     is_fail_download_guid,
     known_repo_for,
 )
 from sailwind_mod_sync.library.store import LibraryStore
-from sailwind_mod_sync.models import ArtifactMeta
+from sailwind_mod_sync.models import ArtifactMeta, version_id
 
 log = logging.getLogger(__name__)
 
@@ -200,6 +206,51 @@ def _reuse_or_filter_cache(
         filename=meta.filename,
         keep_folders=plugin_folders,
     )
+
+
+def ensure_bundled_player_model(store: LibraryStore, coop_key: str) -> str | None:
+    """Return the library key of the Player Model that the Co-op artifact ``coop_key`` bundles.
+
+    The bundled copy becomes a Player Model artifact of the version its DLL declares, kept to its own plugin
+    folder, unless the library already has that version. Return None when the Co-op ZIP bundles none.
+    """
+    coop = store.read_mod_meta(COOP_GUID, coop_key)
+    zip_path = store.mod_zip_path(COOP_GUID, coop_key, coop)
+    if coop is None or zip_path.suffix.lower() != ".zip" or not zip_path.is_file():
+        return None
+    with tempfile.TemporaryDirectory(prefix="sms-coop-") as tmp:
+        try:
+            folders = normalize_plugin_archive(zip_path, Path(tmp), keep_folders=[PLAYER_MODEL_PLUGIN_FOLDER])
+        except (zipfile.BadZipFile, ExtractError, OSError) as exc:
+            log.warning("Could not read the Player Model bundled with Co-op %s: %s", coop_key, exc)
+            return None
+        if [name.lower() for name in folders] != [PLAYER_MODEL_PLUGIN_FOLDER.lower()]:
+            return None
+        versions = {
+            plugin.version
+            for dll in (Path(tmp) / folders[0]).rglob("*.dll")
+            for plugin in read_plugin_metadata(dll).plugins
+            if plugin.guid.lower() == PLAYER_MODEL_GUID
+        }
+    if len(versions) != 1:
+        log.warning("Co-op %s bundles %s without one %s plugin; skipping it",
+                    coop_key, PLAYER_MODEL_PLUGIN_FOLDER, PLAYER_MODEL_GUID)
+        return None
+    version = version_id(versions.pop()) or ""
+    key = store.artifact_key(PLAYER_MODEL_GUID, version, PLAYER_MODEL_REPO)
+    if not store.has_mod(PLAYER_MODEL_GUID, key):
+        log.info("Adding Player Model %s from Co-op %s", version, coop_key)
+        store.ingest_mod_zip(
+            PLAYER_MODEL_GUID,
+            key,
+            zip_path,
+            version_raw=version,
+            repo=PLAYER_MODEL_REPO,
+            source_url=coop.source_url,
+            filename=zip_path.name,
+            keep_folders=[PLAYER_MODEL_PLUGIN_FOLDER],
+        )
+    return key
 
 
 def _fetch_needed_release(http, store, repo, version, version_raw, progress):
