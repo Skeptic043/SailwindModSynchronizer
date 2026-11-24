@@ -19,8 +19,8 @@ PLAYER_MODEL_PLUGIN_FOLDER = "SailwindPlayerModel"
 UUVR_GUID = "raicuparta.uuvr-legacy"
 UUVR_REPO = "https://github.com/Raicuparta/uuvr"
 RELEASE_ASSET_HINTS = {UUVR_GUID: "uuvr-mono-legacy"}
-# Names for mods that are downloaded but not listed in the catalog.
-KNOWN_MOD_NAMES = {UUVR_GUID: "UUVR"}
+# Mods downloaded only for the mods that need them, by lowercase GUID; they never get catalog entries.
+UNLISTED_MOD_NAMES = {UUVR_GUID: "UUVR"}
 
 FAIL_DOWNLOAD_GUID = "com.sms.test.faildownload"
 FAIL_DOWNLOAD_REPO = "https://github.com/foxyv/SailwindModSynchronizer"
@@ -46,6 +46,11 @@ def release_asset_hints(guid: str) -> tuple[str, ...]:
     """Names that pick a mod's file among several downloads of one release."""
     hint = RELEASE_ASSET_HINTS.get((guid or "").strip().lower())
     return (hint,) if hint else ()
+
+
+def unlisted_mod_name(guid: str) -> str:
+    """Name of a mod kept out of the catalog, or "" for any other mod."""
+    return UNLISTED_MOD_NAMES.get((guid or "").strip().lower(), "")
 
 
 def is_coop_guid(guid: str) -> bool:

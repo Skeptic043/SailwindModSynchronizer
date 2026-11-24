@@ -55,12 +55,12 @@ from sailwind_mod_sync.library.hashing import dir_size
 from sailwind_mod_sync.library.name_discovery import record_library_plugin_names
 from sailwind_mod_sync.library.special_mods import (
     COOP_GUID,
-    KNOWN_MOD_NAMES,
     PLAYER_MODEL_GUID,
     artifact_ready,
     coop_dll_search_path,
     is_coop_guid,
     known_repo_for,
+    unlisted_mod_name,
 )
 from sailwind_mod_sync.library.store import LibraryStore, artifact_source, source_matches
 from sailwind_mod_sync.logutil import log_duration, setup_logging
@@ -519,7 +519,7 @@ class Manager:
         added: list[CatalogEntry] = []
         for pinned in mods:
             guid = (pinned.guid or "").strip()
-            if not guid or find_entry(working, guid, pinned.repo) is not None:
+            if not guid or unlisted_mod_name(guid) or find_entry(working, guid, pinned.repo) is not None:
                 continue
             entry = self._catalog_entry_from_pin(pinned)
             custom = upsert_custom_entry(custom, entry)
@@ -597,7 +597,7 @@ class Manager:
         return display_mod_name(
             guid,
             alias=self.aliases.get(guid, "") if alias is None else alias,
-            catalog_name=catalog.name if catalog else KNOWN_MOD_NAMES.get(guid, ""),
+            catalog_name=catalog.name if catalog else unlisted_mod_name(guid),
             catalog_shared=bool(catalog and len(catalog.guids) > 1),
             plugin_folders=folders,
             repo=repo_url or (catalog.repo if catalog else ""),

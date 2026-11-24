@@ -1990,6 +1990,23 @@ def test_helmvr_gets_uuvr_from_its_known_repo_although_uuvr_is_not_listed(paths:
     manager.close()
 
 
+def test_importing_a_vr_pack_does_not_list_uuvr_in_the_catalog(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    source = manager.packs.create("VR")
+    for guid, repo in (
+        ("com.skeptic043.sailwind.helmvr", "https://github.com/Skeptic043/Sailwind-HelmVR"),
+        ("raicuparta.uuvr-legacy", "https://github.com/Raicuparta/uuvr"),
+    ):
+        manager.packs.upsert_mod(source.id, PinnedMod(guid=guid, version="1.0.0", repo=repo))
+    dest = tmp_path / "vr.json"
+    manager.export_pack(source.id, dest, bundle=False)
+    manager.packs.delete(source.id)
+    manager.import_pack(dest)
+    assert find_entry(manager.catalog, "com.skeptic043.sailwind.helmvr") is not None
+    assert find_entry(manager.catalog, "raicuparta.uuvr-legacy") is None
+    manager.close()
+
+
 def test_dependents_include_removal_only_rules_and_skip_disabled_pins(paths: AppPaths, tmp_path: Path) -> None:
     manager = _dependency_manager(paths, tmp_path)
     pack = manager.packs.create("Deps")
