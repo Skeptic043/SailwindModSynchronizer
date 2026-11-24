@@ -14,6 +14,10 @@ PLAYER_MODEL_GUID = "com.diamondminer99.playermodel"
 PLAYER_MODEL_REPO = "https://github.com/DiamondMiner99/sailwind-playermodel"
 PLAYER_MODEL_PLUGIN_FOLDER = "SailwindPlayerModel"
 
+# UUVR releases one zip per Unity backend; Sailwind is Unity 2019 Mono, which needs the legacy Mono build.
+UUVR_GUID = "raicuparta.uuvr-legacy"
+RELEASE_ASSET_HINTS = {UUVR_GUID: "uuvr-mono-legacy"}
+
 FAIL_DOWNLOAD_GUID = "com.sms.test.faildownload"
 FAIL_DOWNLOAD_REPO = "https://github.com/foxyv/SailwindModSynchronizer"
 FAIL_DOWNLOAD_ASSET = "BrokenDownloadTest.zip"
@@ -31,6 +35,12 @@ def known_repo_for(guid: str) -> str | None:
         if known.lower() == key:
             return repo
     return None
+
+
+def release_asset_hints(guid: str) -> tuple[str, ...]:
+    """Names that pick a mod's file among several downloads of one release."""
+    hint = RELEASE_ASSET_HINTS.get((guid or "").strip().lower())
+    return (hint,) if hint else ()
 
 
 def is_coop_guid(guid: str) -> bool:

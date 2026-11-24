@@ -728,5 +728,15 @@
     "guid": "com.terraincognita",
     "repo": "https://github.com/FluffyJesus/Terra_Incognita",
     "version": "0.1.0"
+  },
+  {
+    "guid": "raicuparta.uuvr-legacy",
+    "repo": "https://github.com/Raicuparta/uuvr",
+    "version": "v0.4.0"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.helmvr",
+    "repo": "https://github.com/Skeptic043/Sailwind-HelmVR",
+    "version": "v0.10.0"
   }
 ]
