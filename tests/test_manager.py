@@ -1974,6 +1974,22 @@ def test_imported_mods_get_what_they_need(paths: AppPaths, tmp_path: Path) -> No
     manager.close()
 
 
+def test_helmvr_gets_uuvr_from_its_known_repo_although_uuvr_is_not_listed(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.library.ingest_mod_zip(
+        "com.skeptic043.sailwind.helmvr", "0.10.0",
+        _zip_with(tmp_path / "HelmVR-0.10.0.zip", {"BepInEx/plugins/HelmVR/HelmVR.dll": b"MZ"}),
+        version_raw="0.10.0", repo="", source_url="HelmVR-0.10.0.zip",
+    )
+    pack = manager.packs.list_packs()[0]
+    manager.add_library_mod_to_pack(pack.id, "com.skeptic043.sailwind.helmvr", "0.10.0")
+
+    plan = manager.imported_dependency_plan(pack.id, ["com.skeptic043.sailwind.helmvr"])
+    assert (plan.download, plan.missing) == (["raicuparta.uuvr-legacy"], [])
+    assert manager.mod_display_name("raicuparta.uuvr-legacy") == "UUVR"
+    manager.close()
+
+
 def test_dependents_include_removal_only_rules_and_skip_disabled_pins(paths: AppPaths, tmp_path: Path) -> None:
     manager = _dependency_manager(paths, tmp_path)
     pack = manager.packs.create("Deps")

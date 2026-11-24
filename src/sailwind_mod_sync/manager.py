@@ -55,6 +55,7 @@ from sailwind_mod_sync.library.hashing import dir_size
 from sailwind_mod_sync.library.name_discovery import record_library_plugin_names
 from sailwind_mod_sync.library.special_mods import (
     COOP_GUID,
+    KNOWN_MOD_NAMES,
     PLAYER_MODEL_GUID,
     artifact_ready,
     coop_dll_search_path,
@@ -596,7 +597,7 @@ class Manager:
         return display_mod_name(
             guid,
             alias=self.aliases.get(guid, "") if alias is None else alias,
-            catalog_name=catalog.name if catalog else "",
+            catalog_name=catalog.name if catalog else KNOWN_MOD_NAMES.get(guid, ""),
             catalog_shared=bool(catalog and len(catalog.guids) > 1),
             plugin_folders=folders,
             repo=repo_url or (catalog.repo if catalog else ""),
@@ -993,7 +994,10 @@ class Manager:
         if entry is None:
             entry = next((item for item in self.catalog
                           if any(alias.casefold() == guid.casefold() for alias in item.guids)), None)
-        return (entry.primary_guid or guid) if entry else None
+        if entry is None:
+            # Mods only other mods need, like UUVR, are downloaded from a known repo instead of the catalog.
+            return guid if known_repo_for(guid) else None
+        return entry.primary_guid or guid
 
     def dependency_plan(self, pack_id: str, guid: str, key: str) -> DependencyPlan:
         """Return what pinning the library artifact ``key`` of ``guid`` still needs in the pack."""

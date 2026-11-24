@@ -19,6 +19,8 @@ PLAYER_MODEL_PLUGIN_FOLDER = "SailwindPlayerModel"
 UUVR_GUID = "raicuparta.uuvr-legacy"
 UUVR_REPO = "https://github.com/Raicuparta/uuvr"
 RELEASE_ASSET_HINTS = {UUVR_GUID: "uuvr-mono-legacy"}
+# Names for mods that are downloaded but not listed in the catalog.
+KNOWN_MOD_NAMES = {UUVR_GUID: "UUVR"}
 
 FAIL_DOWNLOAD_GUID = "com.sms.test.faildownload"
 FAIL_DOWNLOAD_REPO = "https://github.com/foxyv/SailwindModSynchronizer"
