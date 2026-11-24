@@ -46,6 +46,7 @@ from sailwind_mod_sync.game.bepinex import doorstop_installed, install_doorstop,
 from sailwind_mod_sync.game.detect import detect_game_path, resolve_game_dir
 from sailwind_mod_sync.game.launch import launch_modded, launch_vanilla
 from sailwind_mod_sync.game.scan_plugins import declares_guid, discover_local_file, is_guessed_guid, scan_plugins_dir
+from sailwind_mod_sync.game.vr_settings import restore_flat_settings
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
 from sailwind_mod_sync.library.download import ensure_bepinex, ensure_mod_artifact
@@ -69,6 +70,7 @@ from sailwind_mod_sync.models import (
 )
 from sailwind_mod_sync.packs.instance import (
     ensure_instance_bepinex,
+    sync_pack_patchers,
     sync_pack_plugins,
 )
 from sailwind_mod_sync.packs.modpack import BulkRollbackError, PackStore
@@ -1491,6 +1493,7 @@ class Manager:
             instance = self.packs.instance_dir(pack_id)
             preloader = ensure_instance_bepinex(instance, bx_extracted)
             self.resolve_pack_artifacts(pack_id, progress=progress, resolve_conflicts=resolve_conflicts)
+            sync_pack_patchers(self.packs.get(pack_id), instance / "BepInEx" / "patchers", self.library)
             return preloader
 
     def resolve_pack_artifacts(
@@ -1589,6 +1592,7 @@ class Manager:
         search_path = coop_dll_search_path(pack, self.packs.plugins_dir(pack_id))
         if progress:
             progress("Installing Doorstop into the game folder…")
+        restore_flat_settings(game_dir)
         if not doorstop_installed(game_dir):
             install_doorstop(game_dir, bx_extracted, preloader, dll_search_path=search_path)
         else:
@@ -1606,6 +1610,7 @@ class Manager:
             raise FileNotFoundError("Sailwind.exe not found. Set the game path in Settings.")
         log.info("Launching vanilla Sailwind from %s via Steam", game_dir)
         write_doorstop_config(game_dir, enabled=False)
+        restore_flat_settings(game_dir)
         return launch_vanilla(game_dir)
 
     def export_pack(

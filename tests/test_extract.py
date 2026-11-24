@@ -66,6 +66,49 @@ def test_normalize_bepinex_plugins_layout(tmp_path: Path) -> None:
     assert folders == ["CoolMod"]
 
 
+def test_normalize_keeps_bepinex_patcher_folders(tmp_path: Path) -> None:
+    archive = _write_zip(
+        tmp_path / "overlay.zip",
+        {
+            "BepInEx/plugins/CoolMod/CoolMod.dll": _dll_bytes(),
+            "BepInEx/patchers/CoolPatcher/CoolPatcher.dll": _dll_bytes(),
+            "BepInEx/patchers/CoolPatcher/data.bin": b"data",
+        },
+    )
+    patchers = tmp_path / "patchers"
+    folders = normalize_plugin_archive(archive, tmp_path / "out", patchers_dest=patchers)
+    assert folders == ["CoolMod"]
+    assert (patchers / "CoolMod" / "CoolPatcher" / "CoolPatcher.dll").is_file()
+    assert (patchers / "CoolMod" / "CoolPatcher" / "data.bin").is_file()
+
+
+def test_normalize_rai_pal_layout_with_top_level_patchers(tmp_path: Path) -> None:
+    """UUVR's zip holds plugins/ and patchers/ without a BepInEx folder; loose patchers share the mod's name."""
+    archive = _write_zip(
+        tmp_path / "uuvr-mono-legacy.zip",
+        {
+            "plugins/Uuvr.dll": _dll_bytes(),
+            "plugins/Assets/cursor.bmp": b"bmp",
+            "patchers/Uuvr.Patcher.dll": _dll_bytes(),
+            "patchers/AssetsTools.NET.dll": _dll_bytes(),
+            "patchers/classdata.tpk": b"tpk",
+            "patchers/CopyToGame/Plugins/x64/openvr_api.dll": _dll_bytes(),
+        },
+    )
+    dest = tmp_path / "out"
+    patchers = tmp_path / "patchers"
+    patchers.mkdir()
+    (patchers / "Stale").mkdir()
+    folders = normalize_plugin_archive(archive, dest, keep_folders=["Uuvr"], patchers_dest=patchers)
+    assert folders == ["Uuvr"]
+    assert sorted(p.name for p in dest.iterdir()) == ["Uuvr"]
+    assert (dest / "Uuvr" / "Uuvr.dll").is_file()
+    assert (dest / "Uuvr" / "Assets" / "cursor.bmp").is_file()
+    assert sorted(p.name for p in patchers.iterdir()) == ["Uuvr"]
+    for name in ("Uuvr.Patcher.dll", "AssetsTools.NET.dll", "classdata.tpk", "CopyToGame/Plugins/x64/openvr_api.dll"):
+        assert (patchers / "Uuvr" / name).is_file()
+
+
 def test_normalize_loose_dll(tmp_path: Path) -> None:
     archive = _write_zip(tmp_path / "loose.zip", {"Widget.dll": _dll_bytes()})
     dest = tmp_path / "out"

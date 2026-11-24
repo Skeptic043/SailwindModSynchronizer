@@ -113,6 +113,10 @@ class LibraryStore:
     def mod_extracted(self, guid: str, version: str) -> Path:
         return self.mod_dir(guid, version) / "extracted"
 
+    def mod_patchers(self, guid: str, version: str) -> Path:
+        """Preloader patcher folders the mod's zip ships for BepInEx/patchers."""
+        return self.mod_dir(guid, version) / "patchers"
+
     def bepinex_dir(self, version: str) -> Path:
         return self.paths.bepinex_dir(version)
 
@@ -161,7 +165,9 @@ class LibraryStore:
         digest = sha256_file(stored)
         (directory / "sha256").write_text(digest + "\n", encoding="utf-8")
         extracted = self.mod_extracted(guid, version)
-        folders = normalize_plugin_archive(stored, extracted, keep_folders=keep_folders)
+        folders = normalize_plugin_archive(
+            stored, extracted, keep_folders=keep_folders, patchers_dest=self.mod_patchers(guid, version),
+        )
         meta = ArtifactMeta(
             guid=guid,
             version=key_version(version),

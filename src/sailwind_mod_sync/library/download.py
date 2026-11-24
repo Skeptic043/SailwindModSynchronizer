@@ -25,6 +25,7 @@ from sailwind_mod_sync.library.special_mods import (
     artifact_needs_refetch,
     is_fail_download_guid,
     known_repo_for,
+    release_asset_hints,
 )
 from sailwind_mod_sync.library.store import LibraryStore
 from sailwind_mod_sync.models import ArtifactMeta
@@ -78,7 +79,8 @@ def ensure_mod_artifact(
         return cached
 
     repo_name = repo.rstrip("/").split("/")[-1]
-    asset = pick_release_asset(release.assets, guid, repo_name, extra_hints=plugin_folders or ())
+    hints = (*release_asset_hints(guid), *(plugin_folders or ()))
+    asset = pick_release_asset(release.assets, guid, repo_name, extra_hints=hints)
     log.info("Selected asset %s for %s from %s", asset.name, guid, repo)
     dest_dir = store.mod_dir(guid, key)
     dest_dir.mkdir(parents=True, exist_ok=True)

@@ -718,5 +718,15 @@
     "guid": "com.skeptic043.sailwind.voyagerecorder",
     "repo": "https://github.com/Skeptic043/sailwind-voyage-recorder",
     "version": "v0.1.8"
+  },
+  {
+    "guid": "raicuparta.uuvr-legacy",
+    "repo": "https://github.com/Raicuparta/uuvr",
+    "version": "v0.4.0"
+  },
+  {
+    "guid": "com.skeptic043.sailwind.helmvr",
+    "repo": "https://github.com/Skeptic043/Sailwind-HelmVR",
+    "version": "v0.10.0"
   }
 ]

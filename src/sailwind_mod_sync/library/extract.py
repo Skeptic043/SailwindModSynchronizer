@@ -27,10 +27,16 @@ def normalize_plugin_archive(
     archive: Path,
     dest: Path,
     keep_folders: list[str] | None = None,
+    patchers_dest: Path | None = None,
 ) -> list[str]:
-    """Extract a mod zip into dest as plugin folders ready for BepInEx/plugins."""
+    """Extract a mod zip into dest as plugin folders ready for BepInEx/plugins.
+
+    With patchers_dest, preloader patchers the zip ships for BepInEx/patchers go there as folders too.
+    """
     dest.mkdir(parents=True, exist_ok=True)
     _clear_dir(dest)
+    if patchers_dest is not None and patchers_dest.exists():
+        shutil.rmtree(patchers_dest)
     with tempfile.TemporaryDirectory(prefix="sms-mod-") as tmp:
         root = Path(tmp) / _EXTRACT_ROOT
         root.mkdir()
@@ -38,14 +44,19 @@ def normalize_plugin_archive(
         _strip_junk(root)
         overlay_root = _unwrap_single_root(root)
         source = overlay_root
-        plugins = _find_bepinex_plugins(overlay_root)
+        plugins, patchers = _find_bepinex_folders(overlay_root)
+        if patchers_dest is None:
+            patchers = None
         if plugins is not None:
             source = plugins
-            _log_left_out(archive, overlay_root, plugins)
+            _log_left_out(archive, overlay_root, [plugins, patchers])
         folders = _copy_plugin_contents(source, dest, archive)
         folders = _rename_generic_folders(dest, folders, keep_folders)
         _copy_overlay_steam_api(overlay_root, dest, folders)
-        return _retain_folders(dest, folders, keep_folders)
+        folders = _retain_folders(dest, folders, keep_folders)
+        if patchers is not None:
+            _copy_patchers(patchers, patchers_dest, folders[0])
+        return folders
 
 
 def extract_bepinex_pack(archive: Path, dest: Path) -> Path:
@@ -107,22 +118,43 @@ def _unwrap_single_root(root: Path) -> Path:
         current = inner
 
 
-def _find_bepinex_plugins(root: Path) -> Path | None:
+def _find_bepinex_folders(root: Path) -> tuple[Path | None, Path | None]:
+    """Find the zip's BepInEx/plugins and BepInEx/patchers folders.
+
+    Zips made for Rai Pal, like UUVR's, hold the two folders at the top without the BepInEx folder.
+    """
     for path in [root, *root.rglob("*")]:
-        if not path.is_dir():
-            continue
-        if path.name.lower() == "plugins" and path.parent.name.lower() == "bepinex":
-            return path
+        if path.is_dir() and path.name.lower() == "plugins" and path.parent.name.lower() == "bepinex":
+            return path, _child_dir(path.parent, "patchers")
+    plugins, patchers = _child_dir(root, "plugins"), _child_dir(root, "patchers")
+    if plugins is not None and patchers is not None:
+        return plugins, patchers
+    return None, None
+
+
+def _child_dir(parent: Path, name: str) -> Path | None:
+    for child in _visible_children(parent):
+        if child.is_dir() and child.name.lower() == name:
+            return child
     return None
 
 
-def _log_left_out(archive: Path, overlay_root: Path, plugins: Path) -> None:
-    """Log files of a BepInEx overlay that are outside ``BepInEx/plugins`` and so are not installed."""
+def _copy_patchers(source: Path, dest: Path, mod_folder: str) -> None:
+    """Copy the patchers into one folder named after the mod's plugin folder; BepInEx finds them in subfolders."""
+    if any(source.rglob("*.dll")):
+        _copy_tree(source, dest / mod_folder)
+
+
+def _log_left_out(archive: Path, overlay_root: Path, installed: list[Path | None]) -> None:
+    """Log files of a BepInEx overlay outside the folders Mod Sync installs."""
     installed_steam_api = _find_overlay_steam_api(overlay_root)
+    roots = [folder for folder in installed if folder is not None]
     left = sorted(
         path.relative_to(overlay_root).as_posix()
         for path in overlay_root.rglob("*")
-        if path.is_file() and plugins not in path.parents and path != installed_steam_api
+        if path.is_file()
+        and not any(folder in path.parents for folder in roots)
+        and path != installed_steam_api
     )
     if left:
         log.warning("Not installed from %s (outside BepInEx/plugins): %s", archive.name, ", ".join(left))

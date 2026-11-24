@@ -904,6 +904,20 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/VoyageRecorder/VoyageRecorder.dll",
         ),
     ),
+    (
+        # Packaged 0.10.0 candidate; the release did not exist yet when this entry was added.
+        "Skeptic043/Sailwind-HelmVR",
+        "com.skeptic043.sailwind.helmvr",
+        "v0.10.0",
+        "HelmVR-0.10.0.zip",
+        (
+            "BepInEx/plugins/HelmVR/HelmVR.dll",
+            "CHANGELOG.md",
+            "LICENSE",
+            "README.md",
+            "manifest.json",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -929,6 +943,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "FluffyJesus/Sail-Customization": "SailEmblems",
     "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
     "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
+    "Skeptic043/Sailwind-HelmVR": "HelmVR",
 }
 
 
@@ -1080,3 +1095,58 @@ def test_rig_balance_resolves_current_guid_once():
     assert len(matching) == 1
     assert matching[0].guids == ["com.sailwindrigbalance.mod"]
     assert matching[0].latest_raw == "v0.16.1"
+
+
+def test_uuvr_downloads_the_mono_legacy_build_with_its_patcher(tmp_path):
+    """UUVR v0.4.0 ships one zip per Unity backend, each with top-level plugins/ and patchers/ folders."""
+    entries = merge_catalog(*_catalog_data())
+    entry = next(entry for entry in entries if "raicuparta.uuvr-legacy" in entry.guids)
+    assert entry.latest_raw == "v0.4.0"
+    tag_url = "https://github.com/Raicuparta/uuvr/releases/download/v0.4.0"
+    names = ("uuvr-il2cpp-legacy.zip", "uuvr-mono-legacy.zip", "uuvr-mono-modern.zip")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name in (
+            "plugins/Uuvr.dll",
+            "plugins/Assets/cursor.bmp",
+            "patchers/Uuvr.Patcher.dll",
+            "patchers/AssetsTools.NET.dll",
+            "patchers/classdata.tpk",
+            "patchers/CopyToGame/Plugins/x64/openvr_api.dll",
+            "patchers/CopyToGame/Data/StreamingAssets/SteamVR/actions.json",
+        ):
+            archive.writestr(name, b"fixture")
+    downloads = []
+
+    class ReleaseHttp:
+        token = ""
+
+        def get_json(self, url, extra_headers=None, etag=None):
+            assert url == "https://api.github.com/repos/Raicuparta/uuvr/releases/tags/v0.4.0"
+            return {
+                "tag_name": "v0.4.0",
+                "name": "v0.4.0",
+                "html_url": "https://github.com/Raicuparta/uuvr/releases/tag/v0.4.0",
+                "assets": [{"name": name, "browser_download_url": f"{tag_url}/{name}"} for name in names],
+            }, None, False
+
+        def download(self, url, dest, progress=None):
+            downloads.append(url)
+            dest.write_bytes(buffer.getvalue())
+
+    store = LibraryStore(AppPaths(tmp_path))
+    meta = ensure_mod_artifact(
+        store,
+        ReleaseHttp(),
+        guid=entry.primary_guid,
+        repo=entry.repo,
+        version=entry.latest_version,
+        version_raw=entry.latest_raw,
+        plugin_folders=entry.plugin_folders,
+    )
+    assert downloads == [f"{tag_url}/uuvr-mono-legacy.zip"]
+    assert meta.plugin_folders == ["Uuvr"]
+    assert (store.mod_extracted(meta.guid, meta.version) / "Uuvr" / "Uuvr.dll").is_file()
+    patcher = store.mod_patchers(meta.guid, meta.version) / "Uuvr"
+    assert (patcher / "Uuvr.Patcher.dll").is_file()
+    assert (patcher / "CopyToGame" / "Data" / "StreamingAssets" / "SteamVR" / "actions.json").is_file()
