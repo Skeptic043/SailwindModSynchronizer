@@ -571,6 +571,45 @@ def test_play_installs_uuvr_patcher_and_starts_from_flat_settings(paths: AppPath
     manager.close()
 
 
+def test_uuvr_is_not_listed_but_installs_mono_legacy_from_its_known_repo(paths: AppPaths, tmp_path: Path) -> None:
+    """UUVR is only for the mods that need it: kept out of the catalog, but still downloadable by GUID."""
+    catalog = Path(__file__).resolve().parents[1] / "catalog"
+    for name in ("ModList.json", "release_versions.json"):
+        assert "raicuparta.uuvr-legacy" not in (catalog / name).read_text(encoding="utf-8")
+    tag_url = "https://github.com/Raicuparta/uuvr/releases/download/v0.4.0"
+    names = ("uuvr-il2cpp-legacy.zip", "uuvr-mono-legacy.zip", "uuvr-mono-modern.zip")
+    archive = _zip_with(tmp_path / "release.zip", {
+        **UUVR_ZIP,
+        "patchers/CopyToGame/Data/StreamingAssets/SteamVR/actions.json": b"{}",
+    })
+    downloads = []
+
+    class _Http(_NoHttp):
+        def get_json(self, url, extra_headers=None, etag=None):
+            assert url == "https://api.github.com/repos/Raicuparta/uuvr/releases/latest"
+            return {
+                "tag_name": "v0.4.0",
+                "name": "v0.4.0",
+                "html_url": "https://github.com/Raicuparta/uuvr/releases/tag/v0.4.0",
+                "assets": [{"name": name, "browser_download_url": f"{tag_url}/{name}"} for name in names],
+            }, None, False
+
+        def download(self, url, dest, progress=None):
+            downloads.append(url)
+            dest.write_bytes(archive.read_bytes())
+
+    manager = Manager(paths=paths, config=AppConfig(), http=_Http())
+    pack = manager.packs.list_packs()[0]
+    pinned = manager.install_mod(pack.id, "raicuparta.uuvr-legacy")
+    assert downloads == [f"{tag_url}/uuvr-mono-legacy.zip"]
+    assert (pinned.repo, pinned.plugin_folders) == ("https://github.com/Raicuparta/uuvr", ["Uuvr"])
+    key = manager.library.pinned_key(pinned)
+    patcher = manager.library.mod_patchers(pinned.guid, key) / "Uuvr"
+    assert (patcher / "Uuvr.Patcher.dll").is_file()
+    assert (patcher / "CopyToGame" / "Data" / "StreamingAssets" / "SteamVR" / "actions.json").is_file()
+    manager.close()
+
+
 def test_play_vanilla_turns_uuvr_vr_off(paths: AppPaths, tmp_path: Path) -> None:
     game = _vr_game(tmp_path)
     manager = Manager(paths=paths, config=AppConfig(game_path=str(game)), http=_NoHttp())
