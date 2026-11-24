@@ -1,15 +1,16 @@
 # Change Log
 
-## 0.8.1rc7 (2026-11-24)
+## 0.8.1rc8 (2026-11-24)
 
 - Mod Details shows the mods a mod declares it needs
 - Adding a mod offers the mods it needs, and removing, disabling or enabling a mod checks what depends on it
 - Dependency checks are faster in large packs
 - Adding Co-op also adds its bundled Player Model as its own mod
 - GitHub prereleases are shown and can optionally be offered as mod updates
-- Mods can include BepInEx patchers, so UUVR installs and VR packs launch from Mod Sync
+- Mods can include BepInEx patchers, so VR packs launch from Mod Sync
+- Adding HelmVR also offers UUVR, which isn't listed in the catalog on its own
 - Packs without UUVR and `Play Vanilla` turn UUVR's VR setting off again, so they open on your monitor
-- Added SailMaster, Sail Emblems, Sailor's Keepsakes, Voyage Recorder, Throwing Hooks, Terra Incognita, UUVR and HelmVR to the catalog
+- Added SailMaster, Sail Emblems, Sailor's Keepsakes, Voyage Recorder, Throwing Hooks, Terra Incognita and HelmVR to the catalog
 
 ## 0.8.0 (2026-11-10)
 
