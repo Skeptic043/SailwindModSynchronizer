@@ -14,8 +14,10 @@ PLAYER_MODEL_GUID = "com.diamondminer99.playermodel"
 PLAYER_MODEL_REPO = "https://github.com/DiamondMiner99/sailwind-playermodel"
 PLAYER_MODEL_PLUGIN_FOLDER = "SailwindPlayerModel"
 
-# UUVR releases one zip per Unity backend; Sailwind is Unity 2019 Mono, which needs the legacy Mono build.
+# UUVR is only downloaded for the mods that need it, so it isn't listed in the catalog where anyone could add it.
+# Its releases have one zip per Unity backend; Sailwind is Unity 2019 Mono, which needs the legacy Mono build.
 UUVR_GUID = "raicuparta.uuvr-legacy"
+UUVR_REPO = "https://github.com/Raicuparta/uuvr"
 RELEASE_ASSET_HINTS = {UUVR_GUID: "uuvr-mono-legacy"}
 
 FAIL_DOWNLOAD_GUID = "com.sms.test.faildownload"
@@ -25,6 +27,7 @@ FAIL_DOWNLOAD_VERSION = "0.0.1"
 
 KNOWN_MOD_REPOS = {
     COOP_GUID: COOP_REPO,
+    UUVR_GUID: UUVR_REPO,
     FAIL_DOWNLOAD_GUID: FAIL_DOWNLOAD_REPO,
 }
 

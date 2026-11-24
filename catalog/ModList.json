@@ -876,12 +876,6 @@
     "plugin_folders": ["TerraIncognita"]
   },
   {
-    "guid": "raicuparta.uuvr-legacy",
-    "repo": "https://github.com/Raicuparta/uuvr",
-    "name": "UUVR",
-    "plugin_folders": ["Uuvr"]
-  },
-  {
     "guid": "com.skeptic043.sailwind.helmvr",
     "repo": "https://github.com/Skeptic043/Sailwind-HelmVR",
     "name": "HelmVR",
