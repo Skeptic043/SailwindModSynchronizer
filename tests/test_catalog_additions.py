@@ -907,8 +907,8 @@ RELEASE_LAYOUTS = [
     (
         "Skeptic043/Sailwind-HelmVR",
         "com.skeptic043.sailwind.helmvr",
-        "v0.10.3",
-        "HelmVR-0.10.3.zip",
+        "v0.10.4",
+        "HelmVR-0.10.4.zip",
         (
             "BepInEx/plugins/HelmVR/HelmVR.dll",
             "CHANGELOG.md",
