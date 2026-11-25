@@ -862,5 +862,11 @@
     "repo": "https://github.com/Skeptic043/sailwind-voyage-recorder",
     "name": "Voyage Recorder",
     "plugin_folders": ["VoyageRecorder"]
+  },
+  {
+    "guid": "com.skeptic043.sailwind.helmvr",
+    "repo": "https://github.com/Skeptic043/Sailwind-HelmVR",
+    "name": "HelmVR",
+    "plugin_folders": ["HelmVR"]
   }
 ]

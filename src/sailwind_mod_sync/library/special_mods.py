@@ -9,6 +9,14 @@ COOP_REPO = "https://github.com/DiamondMiner99/sailwind-coop"
 COOP_PLUGIN_FOLDER = "SailwindCoop"
 STEAM_API_DLL = "steam_api64.dll"
 
+# UUVR is only downloaded for the mods that need it, so it isn't listed in the catalog where anyone could add it.
+# Its releases have one zip per Unity backend; Sailwind is Unity 2019 Mono, which needs the legacy Mono build.
+UUVR_GUID = "raicuparta.uuvr-legacy"
+UUVR_REPO = "https://github.com/Raicuparta/uuvr"
+RELEASE_ASSET_HINTS = {UUVR_GUID: "uuvr-mono-legacy"}
+# Mods downloaded only for the mods that need them, by lowercase GUID; they never get catalog entries.
+UNLISTED_MOD_NAMES = {UUVR_GUID: "UUVR"}
+
 FAIL_DOWNLOAD_GUID = "com.sms.test.faildownload"
 FAIL_DOWNLOAD_REPO = "https://github.com/foxyv/SailwindModSynchronizer"
 FAIL_DOWNLOAD_ASSET = "BrokenDownloadTest.zip"
@@ -16,6 +24,7 @@ FAIL_DOWNLOAD_VERSION = "0.0.1"
 
 KNOWN_MOD_REPOS = {
     COOP_GUID: COOP_REPO,
+    UUVR_GUID: UUVR_REPO,
     FAIL_DOWNLOAD_GUID: FAIL_DOWNLOAD_REPO,
 }
 
@@ -26,6 +35,17 @@ def known_repo_for(guid: str) -> str | None:
         if known.lower() == key:
             return repo
     return None
+
+
+def release_asset_hints(guid: str) -> tuple[str, ...]:
+    """Names that pick a mod's file among several downloads of one release."""
+    hint = RELEASE_ASSET_HINTS.get((guid or "").strip().lower())
+    return (hint,) if hint else ()
+
+
+def unlisted_mod_name(guid: str) -> str:
+    """Name of a mod kept out of the catalog, or "" for any other mod."""
+    return UNLISTED_MOD_NAMES.get((guid or "").strip().lower(), "")
 
 
 def is_coop_guid(guid: str) -> bool:

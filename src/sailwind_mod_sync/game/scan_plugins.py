@@ -433,7 +433,7 @@ def _discover_zip(
     hints: tuple[str, ...] = (),
 ) -> list[DiscoveredPlugin]:
     from sailwind_mod_sync.library.extract import (
-        _find_bepinex_plugins,
+        _find_bepinex_folders,
         _safe_extract,
         _strip_junk,
         _unwrap_single_root,
@@ -446,7 +446,7 @@ def _discover_zip(
         _safe_extract(path, root)
         _strip_junk(root)
         source = _unwrap_single_root(root)
-        plugins = _find_bepinex_plugins(source)
+        plugins, _patchers = _find_bepinex_folders(source)
         scan = scan_plugins_dir(plugins or source, catalog=catalog)
         if scan.skipped_plugins:
             raise AmbiguousPluginError("\n\n".join(scan.skipped_plugins))

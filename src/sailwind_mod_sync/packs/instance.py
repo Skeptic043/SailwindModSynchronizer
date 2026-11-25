@@ -104,6 +104,22 @@ def sync_pack_plugins(
                  asked=resolve_conflicts is not None)
 
 
+def sync_pack_patchers(pack: ModPack, patchers_dir: Path, store: LibraryStore) -> None:
+    """Add the patchers of the pack's enabled mods to BepInEx/patchers, freshly reset from BepInExPack."""
+    for pinned in pack.mods:
+        if not pinned.enabled:
+            continue
+        source = store.mod_patchers(pinned.guid, store.pinned_key(pinned))
+        if not source.is_dir():
+            continue
+        for folder in source.iterdir():
+            target = patchers_dir / folder.name
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(folder, target)
+            log.info("Added patcher %s from %s", folder.name, pinned.guid)
+
+
 def install_pinned_into_plugins(pinned: PinnedMod, extracted: Path, plugins_dir: Path) -> list[str]:
     plugins_dir.mkdir(parents=True, exist_ok=True)
     remove_plugin_folders(plugins_dir, pinned.plugin_folders)

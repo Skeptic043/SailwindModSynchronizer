@@ -904,6 +904,19 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/VoyageRecorder/VoyageRecorder.dll",
         ),
     ),
+    (
+        "Skeptic043/Sailwind-HelmVR",
+        "com.skeptic043.sailwind.helmvr",
+        "v0.10.3",
+        "HelmVR-0.10.3.zip",
+        (
+            "BepInEx/plugins/HelmVR/HelmVR.dll",
+            "CHANGELOG.md",
+            "LICENSE",
+            "README.md",
+            "manifest.json",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -929,6 +942,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "FluffyJesus/Sail-Customization": "SailEmblems",
     "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
     "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
+    "Skeptic043/Sailwind-HelmVR": "HelmVR",
 }
 
 
@@ -1080,3 +1094,4 @@ def test_rig_balance_resolves_current_guid_once():
     assert len(matching) == 1
     assert matching[0].guids == ["com.sailwindrigbalance.mod"]
     assert matching[0].latest_raw == "v0.16.1"
+

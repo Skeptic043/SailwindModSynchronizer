@@ -502,6 +502,124 @@ def test_play_non_coop_pack_clears_dll_search_path(paths: AppPaths, tmp_path: Pa
     manager.close()
 
 
+UUVR_ZIP = {
+    "plugins/Uuvr.dll": b"MZ",
+    "plugins/Assets/cursor.bmp": b"bmp",
+    "patchers/Uuvr.Patcher.dll": b"MZ",
+    "patchers/AssetsTools.NET.dll": b"MZ",
+    "patchers/classdata.tpk": b"tpk",
+}
+FLAT_SETTINGS = b"settings\x00\x00\x00\x00"
+VR_SETTINGS = b"settings\x02\x00\x00\x00\x06\x00\x00\x00OpenVR\x00\x00\x06\x00\x00\x00Oculus\x00\x00"
+
+
+def _vr_game(tmp_path: Path) -> Path:
+    """A game folder UUVR has patched: VR on in globalgamemanagers, the original kept as .bak."""
+    game = tmp_path / "Sailwind"
+    data = game / "Sailwind_Data"
+    data.mkdir(parents=True)
+    (game / "Sailwind.exe").write_bytes(b"MZ")
+    (data / "globalgamemanagers").write_bytes(VR_SETTINGS)
+    (data / "globalgamemanagers.bak").write_bytes(FLAT_SETTINGS)
+    return game
+
+
+def test_play_installs_uuvr_patcher_and_starts_from_flat_settings(paths: AppPaths, tmp_path: Path) -> None:
+    game = _vr_game(tmp_path)
+    manager = Manager(paths=paths, config=AppConfig(game_path=str(game)), http=_NoHttp())
+    _ingest_bepinex(manager, tmp_path)
+    manager.library.ingest_mod_zip(
+        "raicuparta.uuvr-legacy",
+        "0.4.0",
+        _zip_with(tmp_path / "uuvr-mono-legacy.zip", UUVR_ZIP),
+        version_raw="v0.4.0",
+        repo="https://github.com/Raicuparta/uuvr",
+        source_url="https://example/uuvr-mono-legacy.zip",
+        keep_folders=["Uuvr"],
+    )
+    pack = manager.packs.list_packs()[0]
+    pack.bepinex = "5.4.2305"
+    manager.packs.save(pack)
+    manager.packs.upsert_mod(
+        pack.id,
+        PinnedMod(
+            guid="raicuparta.uuvr-legacy",
+            version="0.4.0",
+            repo="https://github.com/Raicuparta/uuvr",
+            plugin_folders=["Uuvr"],
+        ),
+    )
+    patchers = manager.packs.instance_dir(pack.id) / "BepInEx" / "patchers"
+    data = game / "Sailwind_Data"
+    with patch("sailwind_mod_sync.manager.launch_modded"):
+        manager.play(pack.id)
+    assert (patchers / "Uuvr" / "Uuvr.Patcher.dll").is_file()
+    assert (patchers / "Uuvr" / "classdata.tpk").is_file()
+    assert (manager.packs.plugins_dir(pack.id) / "Uuvr" / "Assets" / "cursor.bmp").is_file()
+    assert not (manager.packs.plugins_dir(pack.id) / "Uuvr" / "Uuvr.Patcher.dll").exists()
+    # UUVR patches a fresh copy of the game's own file as the game starts.
+    assert (data / "globalgamemanagers").read_bytes() == FLAT_SETTINGS
+    assert not (data / "globalgamemanagers.bak").exists()
+
+    (data / "globalgamemanagers.bak").write_bytes(FLAT_SETTINGS)
+    (data / "globalgamemanagers").write_bytes(VR_SETTINGS)
+    manager.set_mod_enabled(pack.id, "raicuparta.uuvr-legacy", False)
+    with patch("sailwind_mod_sync.manager.launch_modded"):
+        manager.play(pack.id)
+    assert not (patchers / "Uuvr").exists()
+    assert (data / "globalgamemanagers").read_bytes() == FLAT_SETTINGS
+    manager.close()
+
+
+def test_uuvr_is_not_listed_but_installs_mono_legacy_from_its_known_repo(paths: AppPaths, tmp_path: Path) -> None:
+    """UUVR is only for the mods that need it: kept out of the catalog, but still downloadable by GUID."""
+    catalog = Path(__file__).resolve().parents[1] / "catalog"
+    for name in ("ModList.json", "release_versions.json"):
+        assert "raicuparta.uuvr-legacy" not in (catalog / name).read_text(encoding="utf-8")
+    tag_url = "https://github.com/Raicuparta/uuvr/releases/download/v0.4.0"
+    names = ("uuvr-il2cpp-legacy.zip", "uuvr-mono-legacy.zip", "uuvr-mono-modern.zip")
+    archive = _zip_with(tmp_path / "release.zip", {
+        **UUVR_ZIP,
+        "patchers/CopyToGame/Data/StreamingAssets/SteamVR/actions.json": b"{}",
+    })
+    downloads = []
+
+    class _Http(_NoHttp):
+        def get_json(self, url, extra_headers=None, etag=None):
+            assert url == "https://api.github.com/repos/Raicuparta/uuvr/releases/latest"
+            return {
+                "tag_name": "v0.4.0",
+                "name": "v0.4.0",
+                "html_url": "https://github.com/Raicuparta/uuvr/releases/tag/v0.4.0",
+                "assets": [{"name": name, "browser_download_url": f"{tag_url}/{name}"} for name in names],
+            }, None, False
+
+        def download(self, url, dest, progress=None):
+            downloads.append(url)
+            dest.write_bytes(archive.read_bytes())
+
+    manager = Manager(paths=paths, config=AppConfig(), http=_Http())
+    pack = manager.packs.list_packs()[0]
+    pinned = manager.install_mod(pack.id, "raicuparta.uuvr-legacy")
+    assert downloads == [f"{tag_url}/uuvr-mono-legacy.zip"]
+    assert (pinned.repo, pinned.plugin_folders) == ("https://github.com/Raicuparta/uuvr", ["Uuvr"])
+    key = manager.library.pinned_key(pinned)
+    patcher = manager.library.mod_patchers(pinned.guid, key) / "Uuvr"
+    assert (patcher / "Uuvr.Patcher.dll").is_file()
+    assert (patcher / "CopyToGame" / "Data" / "StreamingAssets" / "SteamVR" / "actions.json").is_file()
+    manager.close()
+
+
+def test_play_vanilla_turns_uuvr_vr_off(paths: AppPaths, tmp_path: Path) -> None:
+    game = _vr_game(tmp_path)
+    manager = Manager(paths=paths, config=AppConfig(game_path=str(game)), http=_NoHttp())
+    with patch("sailwind_mod_sync.manager.launch_vanilla"):
+        manager.play_vanilla()
+    assert (game / "Sailwind_Data" / "globalgamemanagers").read_bytes() == FLAT_SETTINGS
+    assert not (game / "Sailwind_Data" / "globalgamemanagers.bak").exists()
+    manager.close()
+
+
 def test_add_catalog_repo_is_kept_after_reload(paths: AppPaths, tmp_path: Path, monkeypatch) -> None:
     from sailwind_mod_sync.catalog.mvc import find_entry, load_cached_catalog
     from sailwind_mod_sync.models import ReleaseAsset, RemoteRelease
@@ -1767,6 +1885,39 @@ def test_imported_mods_get_what_they_need(paths: AppPaths, tmp_path: Path) -> No
     manager.apply_dependency_plan(pack.id, plan)
     assert {mod.guid for mod in manager.packs.get(pack.id).mods} >= {"com.example.api", "com.example.consumer"}
     assert not manager.imported_dependency_plan(pack.id, ["com.example.consumer"])
+    manager.close()
+
+
+def test_helmvr_gets_uuvr_from_its_known_repo_although_uuvr_is_not_listed(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    manager.library.ingest_mod_zip(
+        "com.skeptic043.sailwind.helmvr", "0.10.0",
+        _zip_with(tmp_path / "HelmVR-0.10.0.zip", {"BepInEx/plugins/HelmVR/HelmVR.dll": b"MZ"}),
+        version_raw="0.10.0", repo="", source_url="HelmVR-0.10.0.zip",
+    )
+    pack = manager.packs.list_packs()[0]
+    manager.add_library_mod_to_pack(pack.id, "com.skeptic043.sailwind.helmvr", "0.10.0")
+
+    plan = manager.imported_dependency_plan(pack.id, ["com.skeptic043.sailwind.helmvr"])
+    assert (plan.download, plan.missing) == (["raicuparta.uuvr-legacy"], [])
+    assert manager.mod_display_name("raicuparta.uuvr-legacy") == "UUVR"
+    manager.close()
+
+
+def test_importing_a_vr_pack_does_not_list_uuvr_in_the_catalog(paths: AppPaths, tmp_path: Path) -> None:
+    manager = Manager(paths=paths, config=AppConfig(), http=_NoHttp())
+    source = manager.packs.create("VR")
+    for guid, repo in (
+        ("com.skeptic043.sailwind.helmvr", "https://github.com/Skeptic043/Sailwind-HelmVR"),
+        ("raicuparta.uuvr-legacy", "https://github.com/Raicuparta/uuvr"),
+    ):
+        manager.packs.upsert_mod(source.id, PinnedMod(guid=guid, version="1.0.0", repo=repo))
+    dest = tmp_path / "vr.json"
+    manager.export_pack(source.id, dest, bundle=False)
+    manager.packs.delete(source.id)
+    manager.import_pack(dest)
+    assert find_entry(manager.catalog, "com.skeptic043.sailwind.helmvr") is not None
+    assert find_entry(manager.catalog, "raicuparta.uuvr-legacy") is None
     manager.close()
 
 

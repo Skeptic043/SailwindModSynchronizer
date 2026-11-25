@@ -47,12 +47,13 @@ from sailwind_mod_sync.game.detect import detect_game_path, resolve_game_dir
 from sailwind_mod_sync.game.launch import launch_modded, launch_vanilla
 from sailwind_mod_sync.game.plugin_metadata import PluginMetadata, folder_plugins, outside_dependencies
 from sailwind_mod_sync.game.scan_plugins import declares_guid, discover_local_file, is_guessed_guid, scan_plugins_dir
+from sailwind_mod_sync.game.vr_settings import restore_flat_settings
 from sailwind_mod_sync.http_util import HttpClient, HttpError, ProgressFn
 from sailwind_mod_sync.library.aliases import load_aliases, save_aliases
 from sailwind_mod_sync.library.download import ensure_bepinex, ensure_mod_artifact
 from sailwind_mod_sync.library.hashing import dir_size
 from sailwind_mod_sync.library.name_discovery import record_library_plugin_names
-from sailwind_mod_sync.library.special_mods import artifact_ready, coop_dll_search_path, known_repo_for
+from sailwind_mod_sync.library.special_mods import artifact_ready, coop_dll_search_path, known_repo_for, unlisted_mod_name
 from sailwind_mod_sync.library.store import LibraryStore, artifact_source, source_matches
 from sailwind_mod_sync.logutil import log_duration, setup_logging
 from sailwind_mod_sync.models import (
@@ -78,6 +79,7 @@ from sailwind_mod_sync.packs.dependencies import (
 )
 from sailwind_mod_sync.packs.instance import (
     ensure_instance_bepinex,
+    sync_pack_patchers,
     sync_pack_plugins,
 )
 from sailwind_mod_sync.packs.modpack import BulkRollbackError, PackStore
@@ -508,7 +510,7 @@ class Manager:
         added: list[CatalogEntry] = []
         for pinned in mods:
             guid = (pinned.guid or "").strip()
-            if not guid or find_entry(working, guid, pinned.repo) is not None:
+            if not guid or unlisted_mod_name(guid) or find_entry(working, guid, pinned.repo) is not None:
                 continue
             entry = self._catalog_entry_from_pin(pinned)
             custom = upsert_custom_entry(custom, entry)
@@ -586,7 +588,7 @@ class Manager:
         return display_mod_name(
             guid,
             alias=self.aliases.get(guid, "") if alias is None else alias,
-            catalog_name=catalog.name if catalog else "",
+            catalog_name=catalog.name if catalog else unlisted_mod_name(guid),
             catalog_shared=bool(catalog and len(catalog.guids) > 1),
             plugin_folders=folders,
             repo=repo_url or (catalog.repo if catalog else ""),
@@ -978,7 +980,10 @@ class Manager:
         if entry is None:
             entry = next((item for item in self.catalog
                           if any(alias.casefold() == guid.casefold() for alias in item.guids)), None)
-        return (entry.primary_guid or guid) if entry else None
+        if entry is None:
+            # Mods only other mods need, like UUVR, are downloaded from a known repo instead of the catalog.
+            return guid if known_repo_for(guid) else None
+        return entry.primary_guid or guid
 
     def dependency_plan(self, pack_id: str, guid: str, key: str) -> DependencyPlan:
         """Return what pinning the library artifact ``key`` of ``guid`` still needs in the pack."""
@@ -1707,6 +1712,7 @@ class Manager:
             instance = self.packs.instance_dir(pack_id)
             preloader = ensure_instance_bepinex(instance, bx_extracted)
             self.resolve_pack_artifacts(pack_id, progress=progress, resolve_conflicts=resolve_conflicts)
+            sync_pack_patchers(self.packs.get(pack_id), instance / "BepInEx" / "patchers", self.library)
             return preloader
 
     def resolve_pack_artifacts(
@@ -1805,6 +1811,7 @@ class Manager:
         search_path = coop_dll_search_path(pack, self.packs.plugins_dir(pack_id))
         if progress:
             progress("Installing Doorstop into the game folder…")
+        restore_flat_settings(game_dir)
         if not doorstop_installed(game_dir):
             install_doorstop(game_dir, bx_extracted, preloader, dll_search_path=search_path)
         else:
@@ -1822,6 +1829,7 @@ class Manager:
             raise FileNotFoundError("Sailwind.exe not found. Set the game path in Settings.")
         log.info("Launching vanilla Sailwind from %s via Steam", game_dir)
         write_doorstop_config(game_dir, enabled=False)
+        restore_flat_settings(game_dir)
         return launch_vanilla(game_dir)
 
     def export_pack(

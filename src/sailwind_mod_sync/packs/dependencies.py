@@ -33,6 +33,7 @@ RULES: tuple[Rule, ...] = (
     Rule("com.sailwind.removefirstofficerrequirement", "com.zorkinian.virtualcrew"),  # does nothing without it
     Rule("oldchroniandinghy", "pr0skynesis.dinghies"),  # quits without the Dinghies types
     Rule("com.nandbrew.ChronianMugFix", "com.Aquilartz.OldChronian", required=False),  # does nothing without it
+    Rule("com.skeptic043.sailwind.helmvr", "raicuparta.uuvr-legacy"),  # VR controls need UUVR's headset camera
 )
 
 
