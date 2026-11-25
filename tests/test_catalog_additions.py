@@ -904,6 +904,18 @@ RELEASE_LAYOUTS = [
             "BepInEx/plugins/VoyageRecorder/VoyageRecorder.dll",
         ),
     ),
+    (
+        "TheOriginOfAllEvil/Shroud-Small-Standalone",
+        "com.TheOriginOfAllEvil.riverSloop",
+        "1.4.0",
+        "Shattered.Seas.Small_v1.4.0.zip",
+        (
+            "Shattered Seas Small/ShatteredSeas_ScriptHandler.dll",
+            "Shattered Seas Small/shroud small",
+            "Shattered Seas Small/shroud small.manifest",
+            "Shattered Seas Small/ShroudSmallPatcher.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -929,6 +941,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "FluffyJesus/Sail-Customization": "SailEmblems",
     "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
     "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
+    "TheOriginOfAllEvil/Shroud-Small-Standalone": "Shattered Seas Small",
 }
 
 
