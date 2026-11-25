@@ -916,6 +916,23 @@ RELEASE_LAYOUTS = [
             "Shattered Seas Small/ShroudSmallPatcher.dll",
         ),
     ),
+    (
+        "Dixiecapt/Vittles",
+        "com.dixiecapt.sailwind.vittles",
+        "v1.0.64",
+        "Vittles-1.0.64-thunderstore.zip",
+        (
+            "manifest.json",
+            "icon.png",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "THIRD_PARTY.md",
+            "Vittling_Book.pdf",
+            "Vittles.dll",
+            "vittles",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -942,6 +959,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "Viking-D-Mike/SailorsKeepsakes": "AdornosMod",
     "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
     "TheOriginOfAllEvil/Shroud-Small-Standalone": "Shattered Seas Small",
+    "Dixiecapt/Vittles": "Vittles",
 }
 
 
@@ -1050,6 +1068,7 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
                 repo == "Dixiecapt/Better-Stoves"
                 and name in {"tinystove", "cabinstove", "galleyrange", "hearthstoves"}
             )
+            or (repo == "Dixiecapt/Vittles" and name == "vittles")
         )
         if runtime_file:
             assert Path(name).name in extracted_names

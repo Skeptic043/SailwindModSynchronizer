@@ -862,5 +862,11 @@
     "repo": "https://github.com/Skeptic043/sailwind-voyage-recorder",
     "name": "Voyage Recorder",
     "plugin_folders": ["VoyageRecorder"]
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.vittles",
+    "repo": "https://github.com/Dixiecapt/Vittles",
+    "name": "Vittles",
+    "plugin_folders": ["Vittles"]
   }
 ]
