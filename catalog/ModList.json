@@ -868,5 +868,11 @@
     "repo": "https://github.com/Dixiecapt/Vittles",
     "name": "Vittles",
     "plugin_folders": ["Vittles"]
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.basecamp",
+    "repo": "https://github.com/Dixiecapt/BaseCamp",
+    "name": "Base Camp",
+    "plugin_folders": ["BaseCamp"]
   }
 ]

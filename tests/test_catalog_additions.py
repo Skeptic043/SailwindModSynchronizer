@@ -933,6 +933,21 @@ RELEASE_LAYOUTS = [
             "vittles",
         ),
     ),
+    (
+        "Dixiecapt/BaseCamp",
+        "com.dixiecapt.sailwind.basecamp",
+        "v0.1.3-beta",
+        "BaseCamp-0.1.3-thunderstore.zip",
+        (
+            "manifest.json",
+            "icon.png",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "Base Camp - Guide.pdf",
+            "BaseCamp.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -960,6 +975,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "Skeptic043/sailwind-voyage-recorder": "VoyageRecorder",
     "TheOriginOfAllEvil/Shroud-Small-Standalone": "Shattered Seas Small",
     "Dixiecapt/Vittles": "Vittles",
+    "Dixiecapt/BaseCamp": "BaseCamp",
 }
 
 
