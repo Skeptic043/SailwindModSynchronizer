@@ -880,5 +880,11 @@
     "repo": "https://github.com/NANDbrew/ThrowableRopes",
     "name": "Throwable Ropes",
     "plugin_folders": ["ThrowableRopes"]
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.farming",
+    "repo": "https://github.com/Dixiecapt/Merchant-Landholdings",
+    "name": "Merchant Landholdings",
+    "plugin_folders": ["SailwindFarming"]
   }
 ]

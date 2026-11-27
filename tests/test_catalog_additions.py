@@ -957,6 +957,24 @@ RELEASE_LAYOUTS = [
             "ThrowableRopes.dll",
         ),
     ),
+    (
+        "Dixiecapt/Merchant-Landholdings",
+        "com.dixiecapt.sailwind.farming",
+        "v0.37.8-beta",
+        "MerchantLandholdings-0.37.8-thunderstore.zip",
+        (
+            "manifest.json",
+            "icon.png",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "Merchant Landholdings - Land Planner Manual.pdf",
+            "Merchant Landholdings - Real Estate Catalogue.pdf",
+            "SailwindFarming.dll",
+            "aestraabbey",
+            "cliffcut",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -986,6 +1004,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "Dixiecapt/Vittles": "Vittles",
     "Dixiecapt/BaseCamp": "BaseCamp",
     "NANDbrew/ThrowableRopes": "ThrowableRopes",
+    "Dixiecapt/Merchant-Landholdings": "SailwindFarming",
 }
 
 
@@ -1095,6 +1114,10 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
                 and name in {"tinystove", "cabinstove", "galleyrange", "hearthstoves"}
             )
             or (repo == "Dixiecapt/Vittles" and name == "vittles")
+            or (
+                repo == "Dixiecapt/Merchant-Landholdings"
+                and name in {"aestraabbey", "cliffcut"}
+            )
         )
         if runtime_file:
             assert Path(name).name in extracted_names

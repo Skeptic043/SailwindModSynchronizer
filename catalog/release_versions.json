@@ -733,5 +733,10 @@
     "guid": "com.nandbrew.throwableropes",
     "repo": "https://github.com/NANDbrew/ThrowableRopes",
     "version": "v0.0.1"
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.farming",
+    "repo": "https://github.com/Dixiecapt/Merchant-Landholdings",
+    "version": "v0.37.8-beta"
   }
 ]
