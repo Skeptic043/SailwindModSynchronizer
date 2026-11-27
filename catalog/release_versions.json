@@ -728,5 +728,10 @@
     "guid": "com.dixiecapt.sailwind.basecamp",
     "repo": "https://github.com/Dixiecapt/BaseCamp",
     "version": "v0.1.3-beta"
+  },
+  {
+    "guid": "com.nandbrew.throwableropes",
+    "repo": "https://github.com/NANDbrew/ThrowableRopes",
+    "version": "v0.0.1"
   }
 ]

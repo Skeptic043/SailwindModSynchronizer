@@ -948,6 +948,15 @@ RELEASE_LAYOUTS = [
             "BaseCamp.dll",
         ),
     ),
+    (
+        "NANDbrew/ThrowableRopes",
+        "com.nandbrew.throwableropes",
+        "v0.0.1",
+        "ThrowableRopes.dll",
+        (
+            "ThrowableRopes.dll",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -976,6 +985,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "TheOriginOfAllEvil/Shroud-Small-Standalone": "Shattered Seas Small",
     "Dixiecapt/Vittles": "Vittles",
     "Dixiecapt/BaseCamp": "BaseCamp",
+    "NANDbrew/ThrowableRopes": "ThrowableRopes",
 }
 
 

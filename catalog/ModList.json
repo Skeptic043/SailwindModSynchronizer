@@ -874,5 +874,11 @@
     "repo": "https://github.com/Dixiecapt/BaseCamp",
     "name": "Base Camp",
     "plugin_folders": ["BaseCamp"]
+  },
+  {
+    "guid": "com.nandbrew.throwableropes",
+    "repo": "https://github.com/NANDbrew/ThrowableRopes",
+    "name": "Throwable Ropes",
+    "plugin_folders": ["ThrowableRopes"]
   }
 ]
