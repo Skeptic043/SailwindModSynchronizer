@@ -886,5 +886,11 @@
     "repo": "https://github.com/Dixiecapt/Merchant-Landholdings",
     "name": "Merchant Landholdings",
     "plugin_folders": ["SailwindFarming"]
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.martellotower",
+    "repo": "https://github.com/Dixiecapt/Tamarack-Island",
+    "name": "Tamarack Island & Dalkey Reef",
+    "plugin_folders": ["TamarackIsland"]
   }
 ]

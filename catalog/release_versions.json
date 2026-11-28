@@ -738,5 +738,10 @@
     "guid": "com.dixiecapt.sailwind.farming",
     "repo": "https://github.com/Dixiecapt/Merchant-Landholdings",
     "version": "v0.37.8-beta"
+  },
+  {
+    "guid": "com.dixiecapt.sailwind.martellotower",
+    "repo": "https://github.com/Dixiecapt/Tamarack-Island",
+    "version": "v0.22.11-beta"
   }
 ]

@@ -975,6 +975,39 @@ RELEASE_LAYOUTS = [
             "cliffcut",
         ),
     ),
+    (
+        "Dixiecapt/Tamarack-Island",
+        "com.dixiecapt.sailwind.martellotower",
+        "v0.22.11-beta",
+        "TamarackIslandAndDalkeyReef-0.22.11-thunderstore.zip",
+        (
+            "manifest.json",
+            "icon.png",
+            "README.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "Tamarack Island & Dalkey Reef - The Tamarack Book.pdf",
+            "TamarackIsland.dll",
+            "martellotower",
+            "dalkey/CREDITS.txt",
+            "dalkey/dalkey_calm.bin",
+            "dalkey/dalkey_detail.png",
+            "dalkey/dalkey_ground.bin",
+            "dalkey/dalkey_ground.png",
+            "dalkey/dalkey_info.txt",
+            "dalkey/dalkey_larch.txt",
+            "dalkey/dalkey_larch_masks.png",
+            "dalkey/dalkey_reef.txt",
+            "dalkey/dalkey_reef_tide.bin",
+            "dalkey/dalkey_rocks.txt",
+            "dalkey/dalkey_rocks_south.txt",
+            "dalkey/dalkey_splat.png",
+            "dalkey/dalkey_splat2.png",
+            "dalkey/dalkey_splat_south.png",
+            "dalkey/dalkey_splat_south2.png",
+            "dalkey/dalkey_splat_west.png",
+        ),
+    ),
 ]
 
 RELEASE_TAG_OVERRIDES = {
@@ -1005,6 +1038,7 @@ RUNTIME_LAYOUT_FOLDERS = {
     "Dixiecapt/BaseCamp": "BaseCamp",
     "NANDbrew/ThrowableRopes": "ThrowableRopes",
     "Dixiecapt/Merchant-Landholdings": "SailwindFarming",
+    "Dixiecapt/Tamarack-Island": "TamarackIsland",
 }
 
 
@@ -1118,6 +1152,7 @@ def test_catalog_release_resolves_and_preserves_plugin_payload(
                 repo == "Dixiecapt/Merchant-Landholdings"
                 and name in {"aestraabbey", "cliffcut"}
             )
+            or (repo == "Dixiecapt/Tamarack-Island" and name == "martellotower")
         )
         if runtime_file:
             assert Path(name).name in extracted_names
